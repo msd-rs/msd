@@ -2,7 +2,7 @@
 
 [workspace]
 resolver = "3"
-members = ["msd", "msd-store"]
+members = ["msd", "msd-store", "msd-table"]
 
 [workspace.dependencies]
 anyhow = "1"

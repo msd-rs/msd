@@ -1,0 +1,15 @@
+[package]
+name = "msd-table"
+description = "the table  based on apache arrow"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86.0"
+authors = ["Jia <lijia.c@gmail.com>"]
+
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+time.workspace = true
+tracing.workspace = true
+arrow = "^55"
