@@ -2,7 +2,6 @@ use std::fs::{exists, remove_dir_all};
 
 use anyhow::Result;
 use msd_store::{MsdStore, RocksDbStore};
-use tracing::info;
 
 fn setup_debug_logging() {
   let filter = tracing_subscriber::EnvFilter::from_default_env();

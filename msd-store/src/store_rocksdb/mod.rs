@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::MsdStore;
 pub use crate::StoreError;
 use rocksdb::{
-  BoundColumnFamily, Cache, ColumnFamilyDescriptor, DBAccess, DBCompressionType, Direction, Env,
+  BoundColumnFamily, Cache, ColumnFamilyDescriptor, DBCompressionType, Direction, Env,
   IteratorMode, Options, WriteBatch, DB,
 };
 use time::OffsetDateTime;
@@ -24,7 +24,8 @@ impl RocksDbStore {
   pub fn new(path: &str) -> Result<Self, StoreError> {
     let (opts, cfs) =
       rocksdb::Options::load_latest(path, Env::new()?, true, Cache::new_lru_cache(1024 * 8))
-        .unwrap_or_else(|e| {
+        .unwrap_or_else(|_e| {
+          // create a new options and column families if the database does not exist
           let mut opts = Options::default();
           opts.create_if_missing(true);
           opts.create_missing_column_families(true);
