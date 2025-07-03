@@ -1,0 +1,41 @@
+
+# Rust/Cargo
+**/*.rs.bk
+**/*.rs~
+/Cargo.lock
+/.cargo/
+/target/
+/build/
+/dist/
+/*.rs.bk
+*.rs.bk
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+
+# Byebug command history
+.byebug_history
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Other
+*.log
+*.out
+*.dSYM/
+*.prof
+*.gcda
+*.gcno
+*.gcov
+
