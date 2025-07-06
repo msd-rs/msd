@@ -1,11 +1,9 @@
 pub mod errors;
-pub mod table;
 
 #[cfg(feature = "rocksdb")]
 pub mod store_rocksdb;
 
 pub use errors::StoreError;
-pub use table::{MsdFieldKind, MsdTable, MsdTableField};
 
 /// Trait for the low-level storage engine of `msd`.
 pub trait MsdStore {

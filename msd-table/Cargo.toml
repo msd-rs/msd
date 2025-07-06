@@ -7,9 +7,12 @@ rust-version = "1.86.0"
 authors = ["Jia <lijia.c@gmail.com>"]
 
 
+
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
 time.workspace = true
 tracing.workspace = true
-arrow = "^55"
+arrow = { version = "55" }
+bincode = { version = "2.0", features = ["serde"] }
+rust_decimal = "1.37.2"
