@@ -105,9 +105,6 @@ impl Series {
   }
 
   pub fn get(&self, index: usize) -> Option<VariantRef> {
-    if index >= self.len() {
-      return None;
-    }
     match self {
       Series::Null => None,
       Series::String(v) => v.get(index).map(|s| VariantRef::String(s)),
@@ -121,6 +118,25 @@ impl Series {
       Series::Decimal64(v) => v.get(index).map(|d| VariantRef::Decimal64(d)),
       Series::Decimal128(v) => v.get(index).map(|d| VariantRef::Decimal128(d)),
       Series::Bool(v) => v.get(index).map(|b| VariantRef::Bool(b)),
+    }
+  }
+
+  pub unsafe fn get_unchecked(&self, index: usize) -> VariantRef {
+    unsafe {
+      match self {
+        Series::Null => VariantRef::Null,
+        Series::String(v) => VariantRef::String(v.get_unchecked(index)),
+        Series::Bytes(v) => VariantRef::Bytes(v.get_unchecked(index)),
+        Series::Int32(v) => VariantRef::Int32(v.get_unchecked(index)),
+        Series::UInt32(v) => VariantRef::UInt32(v.get_unchecked(index)),
+        Series::Int64(v) => VariantRef::Int64(v.get_unchecked(index)),
+        Series::UInt64(v) => VariantRef::UInt64(v.get_unchecked(index)),
+        Series::Float32(v) => VariantRef::Float32(v.get_unchecked(index)),
+        Series::Float64(v) => VariantRef::Float64(v.get_unchecked(index)),
+        Series::Decimal64(v) => VariantRef::Decimal64(v.get_unchecked(index)),
+        Series::Decimal128(v) => VariantRef::Decimal128(v.get_unchecked(index)),
+        Series::Bool(v) => VariantRef::Bool(v.get_unchecked(index)),
+      }
     }
   }
 
@@ -141,6 +157,25 @@ impl Series {
       Series::Decimal64(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal64(d)),
       Series::Decimal128(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal128(d)),
       Series::Bool(v) => v.get_mut(index).map(|b| VariantMutRef::Bool(b)),
+    }
+  }
+
+  pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> VariantMutRef {
+    unsafe {
+      match self {
+        Series::Null => VariantMutRef::Null,
+        Series::String(v) => VariantMutRef::String(v.get_unchecked_mut(index)),
+        Series::Bytes(v) => VariantMutRef::Bytes(v.get_unchecked_mut(index)),
+        Series::Int32(v) => VariantMutRef::Int32(v.get_unchecked_mut(index)),
+        Series::UInt32(v) => VariantMutRef::UInt32(v.get_unchecked_mut(index)),
+        Series::Int64(v) => VariantMutRef::Int64(v.get_unchecked_mut(index)),
+        Series::UInt64(v) => VariantMutRef::UInt64(v.get_unchecked_mut(index)),
+        Series::Float32(v) => VariantMutRef::Float32(v.get_unchecked_mut(index)),
+        Series::Float64(v) => VariantMutRef::Float64(v.get_unchecked_mut(index)),
+        Series::Decimal64(v) => VariantMutRef::Decimal64(v.get_unchecked_mut(index)),
+        Series::Decimal128(v) => VariantMutRef::Decimal128(v.get_unchecked_mut(index)),
+        Series::Bool(v) => VariantMutRef::Bool(v.get_unchecked_mut(index)),
+      }
     }
   }
 

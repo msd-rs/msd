@@ -14,4 +14,13 @@ pub enum TableError {
 
   #[error("type {0} is mismatched with {1}")]
   TypeMismatch(DataType, DataType),
+
+  #[error("index {0} is out of bounds for length {1}")]
+  IndexOutOfBounds(usize, usize),
+
+  #[error("column count mismatch: expected {0}, found {1}")]
+  ColumnCountMismatch(usize, usize),
+
+  #[error("original index {0} is greater than new index {1}")]
+  InvalidOrder(String, String),
 }

@@ -4,6 +4,11 @@
 resolver = "3"
 members = ["msd", "msd-store", "msd-table"]
 
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+authors = ["Jia <lijia.c@gmail.com>"]
+
 [workspace.dependencies]
 anyhow = "1"
 thiserror = "2"

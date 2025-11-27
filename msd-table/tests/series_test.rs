@@ -8,11 +8,17 @@ fn test_series_downcast() {
   let v = v.unwrap();
   assert_eq!(v.len(), 3);
   assert_eq!(v[0], 1);
+
+  let v1 = v!(1);
+  let v2 = v1.as_ref();
+  let v3: Variant = v2.into();
+
+  assert_eq!(v1, v3);
 }
 
 #[test]
 fn test_serde() {
-  let mut table = Table::new(
+  let mut table1 = Table::new(
     vec![
       Field::new("id".to_string(), DataType::Int32),
       Field::new("name".to_string(), DataType::String),
@@ -20,13 +26,52 @@ fn test_serde() {
     3,
   );
 
-  table.rows().enumerate().for_each(|(i, row)| {
-    println!("Row {}: {:?}", i, row);
-  });
+  table1.set_row(0, v![1, "Alice"]).unwrap();
+  table1.set_row(1, v![2, "Bob"]).unwrap();
 
-  let bytes = table.to_bytes().unwrap();
+  assert_eq!(table1.row_count(), 3);
+  assert_eq!(table1.column_count(), 2);
+  assert_eq!(table1.get_cell(0, 0).unwrap().get_i32(), Some(&1));
+  assert_eq!(table1.get_cell(0, 1).unwrap().get_str(), Some("Alice"));
+  assert_eq!(table1.get_cell(1, 0).unwrap().get_i32(), Some(&2));
+  assert_eq!(table1.get_cell(1, 1).unwrap().get_str(), Some("Bob"));
 
-  let deserialized_table = Table::from_bytes(&bytes).unwrap();
+  let bytes = table1.to_bytes().unwrap();
+
+  let table2 = Table::from_bytes(&bytes).unwrap();
+
+  assert_eq!(table1.column_count(), table2.column_count());
+  assert_eq!(table1.row_count(), table2.row_count());
+
+  assert_eq!(table1.get_cell(0, 0), table2.get_cell(0, 0));
+  assert_eq!(table1.get_cell(0, 1), table2.get_cell(0, 1));
+  assert_eq!(table1.get_cell(1, 0), table2.get_cell(1, 0));
+  assert_eq!(table1.get_cell(1, 1), table2.get_cell(1, 1));
+}
+
+#[test]
+fn test_table_set() {
+  let mut table = Table::new(
+    vec![
+      Field::new("id".to_string(), DataType::Int32),
+      Field::new("name".to_string(), DataType::String),
+    ],
+    0,
+  );
+
+  table.push_row(v![1, "Alice"]).unwrap();
+
+  assert_eq!(table.row_count(), 1);
+  assert_eq!(table.column_count(), 2);
+
+  assert_eq!(table.cell(0, 0).get_i32(), Some(&1));
+  assert_eq!(table.cell(0, 1).get_str(), Some("Alice"));
+
+  table.cell_mut(0, 0).set(v!(2)).unwrap();
+  table.cell_mut(0, 1).set(v!("Bob")).unwrap();
+
+  assert_eq!(table.cell(0, 0).get_i32(), Some(&2));
+  assert_eq!(table.cell(0, 1).get_str(), Some("Bob"));
 }
 
 #[test]

@@ -59,40 +59,21 @@ impl DataType {
   }
 }
 
-// impl ToString for DataType {
-//   fn to_string(&self) -> String {
-//     match self {
-//       DataType::Null => "Null".to_string(),
-//       DataType::String => "String".to_string(),
-//       DataType::Bytes => "Bytes".to_string(),
-//       DataType::Int32 => "Int32".to_string(),
-//       DataType::UInt32 => "UInt32".to_string(),
-//       DataType::Int64 => "Int64".to_string(),
-//       DataType::UInt64 => "UInt64".to_string(),
-//       DataType::Float32 => "Float32".to_string(),
-//       DataType::Float64 => "Float64".to_string(),
-//       DataType::Decimal64 => "Decimal64".to_string(),
-//       DataType::Decimal128 => "Decimal128".to_string(),
-//       DataType::Bool => "Bool".to_string(),
-//     }
-//   }
-// }
-
 impl Display for DataType {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let type_str = match self {
-      DataType::Null => "Null",
-      DataType::String => "String",
-      DataType::Bytes => "Bytes",
-      DataType::Int32 => "Int32",
-      DataType::UInt32 => "UInt32",
-      DataType::Int64 => "Int64",
-      DataType::UInt64 => "UInt64",
-      DataType::Float32 => "Float32",
-      DataType::Float64 => "Float64",
-      DataType::Decimal64 => "Decimal64",
-      DataType::Decimal128 => "Decimal128",
-      DataType::Bool => "Bool",
+      DataType::Null => "null",
+      DataType::String => "string",
+      DataType::Bytes => "bytes",
+      DataType::Int32 => "i32",
+      DataType::UInt32 => "u32",
+      DataType::Int64 => "i64",
+      DataType::UInt64 => "u64",
+      DataType::Float32 => "f32",
+      DataType::Float64 => "f64",
+      DataType::Decimal64 => "d64",
+      DataType::Decimal128 => "d128",
+      DataType::Bool => "bool",
     };
     write!(f, "{}", type_str)
   }
@@ -106,14 +87,14 @@ impl FromStr for DataType {
       "null" => Ok(DataType::Null),
       "string" => Ok(DataType::String),
       "bytes" => Ok(DataType::Bytes),
-      "int32" => Ok(DataType::Int32),
-      "uint32" => Ok(DataType::UInt32),
-      "int64" => Ok(DataType::Int64),
-      "uint64" => Ok(DataType::UInt64),
-      "float32" => Ok(DataType::Float32),
-      "float64" => Ok(DataType::Float64),
-      "decimal64" => Ok(DataType::Decimal64),
-      "decimal128" => Ok(DataType::Decimal128),
+      "i32" => Ok(DataType::Int32),
+      "u32" => Ok(DataType::UInt32),
+      "i64" => Ok(DataType::Int64),
+      "u64" => Ok(DataType::UInt64),
+      "f32" => Ok(DataType::Float32),
+      "f64" => Ok(DataType::Float64),
+      "d64" => Ok(DataType::Decimal64),
+      "d128" => Ok(DataType::Decimal128),
       "bool" => Ok(DataType::Bool),
       _ => Err(TableError::UnknownDataType(s.to_string())),
     }

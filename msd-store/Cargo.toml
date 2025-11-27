@@ -1,17 +1,16 @@
 [package]
 name = "msd-store"
 description = "the store based on rocksdb"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.71.1"
-authors = ["Jia <lijia.c@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 
 [features]
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
-rocksdb = { version = "0.23", optional = true, features = [
+rocksdb = { version = "0.24", optional = true, features = [
   "multi-threaded-cf",
 ] }
 thiserror.workspace = true
