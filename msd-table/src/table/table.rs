@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Field, Series, TableError, Variant, VariantMutRef, VariantRef};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TableColumn {
   pub schema: Field,
   pub data: Series,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Table {
   columns: Vec<TableColumn>,
   metadata: Option<HashMap<String, String>>, // Optional field for additional metadata
@@ -90,12 +90,12 @@ impl Table {
   }
 
   /// create a row iterator
-  pub fn rows(&self) -> RowIter {
+  pub fn rows(&self) -> RowIter<'_> {
     RowIter::new(self)
   }
 
   /// get a row by index
-  pub fn get_row(&self, index: usize) -> Option<Vec<VariantRef>> {
+  pub fn get_row(&self, index: usize) -> Option<Vec<VariantRef<'_>>> {
     if index >= self.row_count() {
       return None;
     }
@@ -110,7 +110,7 @@ impl Table {
   }
 
   /// get a mutable row by index
-  pub fn get_row_mut(&mut self, index: usize) -> Option<Vec<VariantMutRef>> {
+  pub fn get_row_mut(&mut self, index: usize) -> Option<Vec<VariantMutRef<'_>>> {
     if index >= self.row_count() {
       return None;
     }
@@ -167,20 +167,20 @@ impl Table {
   /// get a cell value by row and column index
   /// if the row or column index is out of bounds, return None
   ///
-  pub fn get_cell(&self, row: usize, col: usize) -> Option<VariantRef> {
+  pub fn get_cell(&self, row: usize, col: usize) -> Option<VariantRef<'_>> {
     self.columns.get(col).and_then(|c| c.data.get(row))
   }
 
   /// get a mutable cell value by row and column index
   /// if the row or column index is out of bounds, return None
-  pub fn get_cell_mut(&mut self, row: usize, col: usize) -> Option<VariantMutRef> {
+  pub fn get_cell_mut(&mut self, row: usize, col: usize) -> Option<VariantMutRef<'_>> {
     self.columns.get_mut(col).and_then(|c| c.data.get_mut(row))
   }
 
   /// get a cell value by row index and column index
   /// # Panics
   /// Panics if the index is out of bounds
-  pub fn cell(&self, row: usize, col: usize) -> VariantRef {
+  pub fn cell(&self, row: usize, col: usize) -> VariantRef<'_> {
     assert!(
       col < self.column_count(),
       "Column {0} index out of bounds {1}",
@@ -200,7 +200,7 @@ impl Table {
   /// get a mutable cell value by row and column index
   /// # Panics
   /// Panics if the index is out of bounds
-  pub fn cell_mut(&mut self, row: usize, col: usize) -> VariantMutRef {
+  pub fn cell_mut(&mut self, row: usize, col: usize) -> VariantMutRef<'_> {
     assert!(
       col < self.column_count(),
       "Column {0} index out of bounds {1}",

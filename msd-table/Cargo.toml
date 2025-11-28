@@ -11,6 +11,5 @@ thiserror.workspace = true
 serde.workspace = true
 time.workspace = true
 tracing.workspace = true
-arrow = { version = "55" }
 bincode = { version = "2.0", features = ["serde"] }
 rust_decimal = "1.37.2"

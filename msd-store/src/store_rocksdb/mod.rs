@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crate::MsdStore;
 pub use crate::StoreError;
 use rocksdb::{
-  BoundColumnFamily, Cache, ColumnFamilyDescriptor, DBCompressionType, Direction, Env,
-  IteratorMode, Options, WriteBatch, DB,
+  BoundColumnFamily, Cache, ColumnFamilyDescriptor, DB, DBCompressionType, Direction, Env,
+  IteratorMode, Options, WriteBatch,
 };
 use time::OffsetDateTime;
 use tracing::warn;
@@ -46,7 +46,7 @@ impl RocksDbStore {
     Ok(Self { db })
   }
 
-  fn cf_handle(&self, name: &str) -> Result<Arc<BoundColumnFamily>, StoreError> {
+  fn cf_handle(&self, name: &str) -> Result<Arc<BoundColumnFamily<'_>>, StoreError> {
     self
       .db
       .cf_handle(name)

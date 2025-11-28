@@ -100,7 +100,7 @@ impl Variant {
     }
   }
 
-  pub fn as_ref(&self) -> VariantRef {
+  pub fn as_ref<'a>(&'a self) -> VariantRef<'a> {
     match self {
       Variant::Null => VariantRef::Null,
       Variant::Int32(v) => VariantRef::Int32(v),
@@ -117,7 +117,7 @@ impl Variant {
     }
   }
 
-  pub fn as_mut_ref(&mut self) -> VariantMutRef {
+  pub fn as_mut_ref<'a>(&'a mut self) -> VariantMutRef<'a> {
     match self {
       Variant::Null => VariantMutRef::Null,
       Variant::Int32(v) => VariantMutRef::Int32(v),

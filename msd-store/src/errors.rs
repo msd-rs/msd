@@ -10,6 +10,7 @@ pub enum StoreError {
   TableNotFound(String),
 }
 
+#[cfg(feature = "rocksdb")]
 impl From<rocksdb::Error> for StoreError {
   fn from(e: rocksdb::Error) -> Self {
     StoreError::RocksDbError(e)

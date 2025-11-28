@@ -1,6 +1,6 @@
 [package]
 name = "msd-store"
-description = "the store based on rocksdb"
+description = "the low level key-value store"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

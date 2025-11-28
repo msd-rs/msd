@@ -104,7 +104,7 @@ impl Series {
     self.len() == 0
   }
 
-  pub fn get(&self, index: usize) -> Option<VariantRef> {
+  pub fn get(&self, index: usize) -> Option<VariantRef<'_>> {
     match self {
       Series::Null => None,
       Series::String(v) => v.get(index).map(|s| VariantRef::String(s)),
@@ -121,7 +121,7 @@ impl Series {
     }
   }
 
-  pub unsafe fn get_unchecked(&self, index: usize) -> VariantRef {
+  pub unsafe fn get_unchecked(&self, index: usize) -> VariantRef<'_> {
     unsafe {
       match self {
         Series::Null => VariantRef::Null,
@@ -140,7 +140,7 @@ impl Series {
     }
   }
 
-  pub fn get_mut(&mut self, index: usize) -> Option<VariantMutRef> {
+  pub fn get_mut(&mut self, index: usize) -> Option<VariantMutRef<'_>> {
     if index >= self.len() {
       return None;
     }
@@ -160,7 +160,7 @@ impl Series {
     }
   }
 
-  pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> VariantMutRef {
+  pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> VariantMutRef<'_> {
     unsafe {
       match self {
         Series::Null => VariantMutRef::Null,

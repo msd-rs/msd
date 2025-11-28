@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::DataType;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Field {
   pub name: String,
   pub kind: DataType,
