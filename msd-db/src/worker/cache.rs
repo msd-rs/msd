@@ -1,28 +1,13 @@
-use msd_table::{Table, Variant};
+use msd_table::Table;
 use rustc_hash::FxHashMap;
 
-use crate::index::IndexItem;
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
-struct CacheKey {
-  table: String,
-  object: String,
-}
-
-impl CacheKey {
-  fn new(table: &str, object: &str) -> Self {
-    Self {
-      table: table.to_string(),
-      object: object.to_string(),
-    }
-  }
-}
+use crate::{index::IndexItem, request::RequestKey, worker::agg_state::AggState};
 
 #[derive(Debug, Default)]
 pub struct CacheValue {
-  cached: Table,
-  index: Vec<IndexItem>,
-  state: Vec<(u64, Variant)>,
+  pub cached: Table,
+  pub index: Vec<IndexItem>,
+  pub state: Vec<Option<AggState>>,
 }
 
-pub type CacheMap = FxHashMap<CacheKey, CacheValue>;
+pub type CacheMap = FxHashMap<RequestKey, CacheValue>;

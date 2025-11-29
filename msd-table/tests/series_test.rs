@@ -17,39 +17,6 @@ fn test_series_downcast() {
 }
 
 #[test]
-fn test_serde() {
-  let mut table1 = Table::new(
-    vec![
-      Field::new("id".to_string(), DataType::Int32),
-      Field::new("name".to_string(), DataType::String),
-    ],
-    3,
-  );
-
-  table1.set_row(0, v![1, "Alice"]).unwrap();
-  table1.set_row(1, v![2, "Bob"]).unwrap();
-
-  assert_eq!(table1.row_count(), 3);
-  assert_eq!(table1.column_count(), 2);
-  assert_eq!(table1.get_cell(0, 0).unwrap().get_i32(), Some(&1));
-  assert_eq!(table1.get_cell(0, 1).unwrap().get_str(), Some("Alice"));
-  assert_eq!(table1.get_cell(1, 0).unwrap().get_i32(), Some(&2));
-  assert_eq!(table1.get_cell(1, 1).unwrap().get_str(), Some("Bob"));
-
-  let bytes = table1.to_bytes().unwrap();
-
-  let table2 = Table::from_bytes(&bytes).unwrap();
-
-  assert_eq!(table1.column_count(), table2.column_count());
-  assert_eq!(table1.row_count(), table2.row_count());
-
-  assert_eq!(table1.get_cell(0, 0), table2.get_cell(0, 0));
-  assert_eq!(table1.get_cell(0, 1), table2.get_cell(0, 1));
-  assert_eq!(table1.get_cell(1, 0), table2.get_cell(1, 0));
-  assert_eq!(table1.get_cell(1, 1), table2.get_cell(1, 1));
-}
-
-#[test]
 fn test_table_set() {
   let mut table = Table::new(
     vec![

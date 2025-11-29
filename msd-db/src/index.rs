@@ -1,4 +1,6 @@
-#[derive(Debug, Default, Clone, Copy)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct IndexItem {
   /// start timestamp (inclusive)
   pub start: u64,

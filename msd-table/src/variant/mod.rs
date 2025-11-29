@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, hash::Hash, str::FromStr};
 
 mod cast;
 mod ops;
@@ -23,7 +23,67 @@ pub enum Variant {
   Decimal128(D128),
 }
 
+impl Eq for Variant {}
+
+impl Hash for Variant {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    match self {
+      Variant::Null => {
+        0u8.hash(state);
+      }
+      Variant::Int32(v) => {
+        1u8.hash(state);
+        v.hash(state);
+      }
+      Variant::UInt32(v) => {
+        2u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Int64(v) => {
+        3u8.hash(state);
+        v.hash(state);
+      }
+      Variant::UInt64(v) => {
+        4u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Float32(v) => {
+        5u8.hash(state);
+        v.to_bits().hash(state);
+      }
+      Variant::Float64(v) => {
+        6u8.hash(state);
+        v.to_bits().hash(state);
+      }
+      Variant::String(v) => {
+        7u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Bytes(v) => {
+        8u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Bool(v) => {
+        9u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Decimal64(v) => {
+        10u8.hash(state);
+        v.hash(state);
+      }
+      Variant::Decimal128(v) => {
+        11u8.hash(state);
+        v.hash(state);
+      }
+    }
+  }
+}
+
 impl Variant {
+  pub fn is_null(&self) -> bool {
+    matches!(self, Variant::Null)
+  }
+
   pub fn from_str(s: &str, dtype: DataType) -> Result<Self, TableError> {
     match dtype {
       DataType::Null => Ok(Variant::Null),

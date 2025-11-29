@@ -9,6 +9,17 @@ pub use errors::StoreError;
 pub trait MsdStore {
   /// get a value named `key` in `table`
   fn get<K: AsRef<[u8]>>(&self, key: K, table: &str) -> Result<Option<Vec<u8>>, StoreError>;
+  /// get the next key-value pair after `key` in `table` in lexicographical order
+  ///
+  /// An optional buffer(key, value) can be provided to avoid allocations.
+  ///
+  /// None is returned if there is no next key.
+  fn get_next<K: AsRef<[u8]>>(
+    &self,
+    key: K,
+    table: &str,
+    buf: Option<(Vec<u8>, Vec<u8>)>,
+  ) -> Result<Option<(Vec<u8>, Vec<u8>)>, StoreError>;
   /// put a value named `key` in table `table` with optional ttl
   fn put<K: AsRef<[u8]>, V: Into<Vec<u8>>>(
     &self,

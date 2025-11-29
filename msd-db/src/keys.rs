@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
-use crate::errors::DBError;
+use crate::errors::DbError;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Key(Vec<u8>);
@@ -84,11 +84,11 @@ impl AsRef<[u8]> for Key {
 }
 
 impl TryFrom<&[u8]> for Key {
-  type Error = DBError;
+  type Error = DbError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
     if value.len() < 5 || value[value.len() - 5] != KEY_SEPARATOR {
-      return Err(DBError::InvalidKeyFormat(value.to_vec()));
+      return Err(DbError::InvalidKeyFormat(value.to_vec()));
     }
     Ok(Key(value.to_vec()))
   }

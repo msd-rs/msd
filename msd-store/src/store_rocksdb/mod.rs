@@ -67,6 +67,34 @@ impl MsdStore for RocksDbStore {
     self.db.get_cf(&cf, key.as_ref()).map_err(StoreError::from)
   }
 
+  fn get_next<K: AsRef<[u8]>>(
+    &self,
+    key: K,
+    table: &str,
+    buf: Option<(Vec<u8>, Vec<u8>)>,
+  ) -> Result<Option<(Vec<u8>, Vec<u8>)>, StoreError> {
+    let cf = self.cf_handle(table)?;
+    let mut iter = self
+      .db
+      .iterator_cf(&cf, IteratorMode::From(key.as_ref(), Direction::Forward));
+    iter
+      .next()
+      .map(|res| {
+        res.map(|(k, v)| match buf {
+          Some((mut bk, mut bv)) => {
+            bk.clear();
+            bk.extend_from_slice(&k);
+            bv.clear();
+            bv.extend_from_slice(&v);
+            (bk, bv)
+          }
+          None => (k.into_vec(), v.into_vec()),
+        })
+      })
+      .transpose()
+      .map_err(StoreError::from)
+  }
+
   fn put<K: AsRef<[u8]>, V: Into<Vec<u8>>>(
     &self,
     key: K,

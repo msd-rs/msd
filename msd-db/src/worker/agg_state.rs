@@ -1,20 +1,18 @@
-use core::f64;
 use std::str::FromStr;
 
 use msd_table::Variant;
 use rustc_hash::FxHashSet;
 
-type AggStateKey = u64;
-
 #[derive(Debug, Clone)]
 pub enum AggState {
   Sum(Variant, usize), // (current sum, count)
-  Count(usize),
+  Count(usize),        // count
   Min(Variant),
   Max(Variant),
-  Avg(Variant, usize), // (current sum, count)
-  First(Variant),
+  Avg(Variant, usize),      // (current sum, count)
+  First(Variant),           // first value
   Uniq(FxHashSet<Variant>), // set of unique values
+  Prev(Variant),            // previous value
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +101,7 @@ impl AggState {
       AggState::Avg(_, _) => AggStateId::Avg,
       AggState::First(_) => AggStateId::First,
       AggState::Uniq(_) => AggStateId::Uniq,
+      AggState::Prev(_) => AggStateId::Prev,
     }
   }
 }
@@ -111,7 +110,11 @@ impl AggState {
   pub fn update(&mut self, value: &Variant) {
     match self {
       AggState::Sum(current_sum, count) => {
-        *current_sum = add_variants(current_sum, value);
+        if current_sum.is_null() {
+          *current_sum = value.clone();
+        } else {
+          *current_sum += value
+        }
         *count += 1;
       }
       AggState::Count(count) => {
@@ -128,21 +131,68 @@ impl AggState {
         }
       }
       AggState::Avg(current_sum, count) => {
-        *current_sum = add_variants(current_sum, value);
+        *current_sum += value;
         *count += 1;
       }
       AggState::First(first_value) => {
-        if let Variant::Null = first_value {
+        if first_value.is_null() {
           *first_value = value.clone();
         }
       }
       AggState::Uniq(uniq_set) => {
         uniq_set.insert(value.clone());
       }
+      AggState::Prev(prev_value) => {
+        *prev_value = value.clone();
+      }
     }
   }
-}
 
-pub fn agg_state_key(col_index: usize, agg_id: AggStateId) -> AggStateKey {
-  ((col_index as u64) << 32) | (agg_id as u64)
+  pub fn reset(&mut self) {
+    match self {
+      AggState::Sum(_, count) => {
+        *self = AggState::Sum(Variant::Null, 0);
+      }
+      AggState::Count(_) => {
+        *self = AggState::Count(0);
+      }
+      AggState::Min(_) => {
+        *self = AggState::Min(Variant::Null);
+      }
+      AggState::Max(_) => {
+        *self = AggState::Max(Variant::Null);
+      }
+      AggState::Avg(_, _) => {
+        *self = AggState::Avg(Variant::Null, 0);
+      }
+      AggState::First(_) => {
+        *self = AggState::First(Variant::Null);
+      }
+      AggState::Uniq(_) => {
+        *self = AggState::Uniq(FxHashSet::default());
+      }
+      AggState::Prev(_) => {
+        *self = AggState::Prev(Variant::Null);
+      }
+    }
+  }
+
+  pub fn get(&self) -> Variant {
+    match self {
+      AggState::Sum(current_sum, _) => current_sum.clone(),
+      AggState::Count(count) => Variant::from(*count),
+      AggState::Min(current_min) => current_min.clone(),
+      AggState::Max(current_max) => current_max.clone(),
+      AggState::Avg(current_sum, count) => {
+        if *count == 0 {
+          Variant::Null
+        } else {
+          current_sum.clone() / Variant::from(*count)
+        }
+      }
+      AggState::First(first_value) => first_value.clone(),
+      AggState::Uniq(uniq_set) => Variant::Int64(uniq_set.len() as i64),
+      AggState::Prev(prev_value) => prev_value.clone(),
+    }
+  }
 }
