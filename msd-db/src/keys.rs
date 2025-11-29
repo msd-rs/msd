@@ -14,7 +14,7 @@ impl Key {
     key.extend_from_slice(obj.as_bytes());
     key.push(KEY_SEPARATOR); // separator
     let seq = (-(seq as i64) - 1) as i32;
-    key.extend_from_slice(&seq.to_le_bytes());
+    key.extend_from_slice(&seq.to_be_bytes());
     Key(key)
   }
 
@@ -46,7 +46,7 @@ impl Key {
       return 0;
     }
     let bytes = &self.0[len - 4..];
-    let seq = i32::from_le_bytes(bytes.try_into().unwrap_or([0; 4]));
+    let seq = i32::from_be_bytes(bytes.try_into().unwrap_or([0; 4]));
     -(seq + 1) as u32
   }
 
