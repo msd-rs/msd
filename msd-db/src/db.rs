@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::sync::Arc;
 
 use msd_store::MsdStore;
