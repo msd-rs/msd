@@ -1,3 +1,8 @@
+//! Index item definition.
+//!
+//! An `IndexItem` represents a range of timestamps and the count of items within that range.
+//! It is used as part of cache state management in the Worker.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]

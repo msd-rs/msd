@@ -1,3 +1,5 @@
+//! Error types for MsdDb.
+
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 

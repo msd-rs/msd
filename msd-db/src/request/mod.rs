@@ -1,4 +1,5 @@
-use tokio::sync::oneshot;
+//! Request module containing different types of requests that can be sent to the database workers.
+//!
 
 mod base;
 mod broadcast;
@@ -10,6 +11,9 @@ pub use broadcast::*;
 pub use insert::*;
 pub use query::*;
 
+/// A Request to be processed by a database worker.
+///
+/// Call the associated `build_*` methods to create requests along with their response channels.
 #[derive(Debug)]
 pub enum Request {
   Insert {

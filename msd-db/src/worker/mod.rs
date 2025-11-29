@@ -1,3 +1,8 @@
+//! Worker module handling database requests.
+//!
+//! Worker is responsible for processing database requests such as insertions and queries.
+//! Each worker maintains its own cache and interacts with the underlying store.
+
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -13,6 +18,7 @@ mod agg_state;
 mod cache;
 mod init;
 
+/// Database worker that processes requests.
 pub struct Worker<S: MsdStore> {
   pub id: usize,
   pub store: Arc<S>,

@@ -1,3 +1,14 @@
+//! Key definition to store/retrieve data from MsdStore.
+//!
+//! Each object's data is stored in chunks, with each chunk identified by a unique key.
+//! There are two types of keys:
+//! - Data Key: Used to store actual data ([msd_table::Table]) chunks for an object
+//! - Index Key: Used to store metadata about the object's data chunks, Vec<[super::index::IndexItem]>.
+//!
+//! Key is ordered lexicographically to ensure that data chunks are sorted in descending order based on their sequence numbers.
+//! For each object, The first is the Index Key, followed by Data Keys in descending order of their sequence numbers.
+//! This ordering facilitates efficient retrieval of the latest data chunks for an object.
+//!
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 

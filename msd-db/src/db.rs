@@ -1,3 +1,5 @@
+//! MsdDb implementation.
+//!
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -11,12 +13,14 @@ use crate::errors::DbError;
 use crate::request::{Broadcast, InsertRequest, QueryRequest, Request, RequestKey};
 use crate::worker::Worker;
 
+/// MSD Database
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
   workers: Vec<mpsc::Sender<Request>>,
 }
 
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
+  /// Create a new MsdDb instance with the given store and number of workers
   pub fn new(store: S, worker_count: usize) -> Self {
     let store = Arc::new(store);
     let mut workers = Vec::with_capacity(worker_count);
@@ -31,6 +35,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Self { store, workers }
   }
 
+  /// get the underlying store
   pub fn store(&self) -> &Arc<S> {
     &self.store
   }
