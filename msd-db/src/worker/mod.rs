@@ -40,6 +40,9 @@ impl<S: MsdStore> Worker<S> {
           let res = self.handle_query(req);
           let _ = resp_tx.send(res);
         }
+        Request::Broadcast(_) => {
+          info!("Worker {} received broadcast", self.id);
+        }
       }
     }
     info!("Worker {} stopped", self.id);

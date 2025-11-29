@@ -5,9 +5,10 @@ use msd_store::MsdStore;
 use msd_table::Table;
 use rustc_hash::FxHasher;
 use tokio::sync::mpsc;
+use tracing::warn;
 
 use crate::errors::DbError;
-use crate::request::{InsertRequest, QueryRequest, Request};
+use crate::request::{Broadcast, InsertRequest, QueryRequest, Request};
 use crate::worker::Worker;
 
 pub struct MsdDb<S: MsdStore> {
@@ -42,16 +43,28 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     &self.workers[index]
   }
 
+  pub async fn broadcast(&self, message: Broadcast) -> Result<(), DbError> {
+    for worker in &self.workers {
+      match worker.send(Request::build_broadcast(&message)).await {
+        Ok(_) => {}
+        Err(e) => {
+          warn!("Failed to send broadcast to worker: {}", e);
+        }
+      }
+    }
+    Ok(())
+  }
+
   pub async fn insert(&self, req: InsertRequest) -> Result<(), DbError> {
     let worker = self.get_worker(&req);
-    let (req, resp_rx) = Request::insert(req);
+    let (req, resp_rx) = Request::build_insert(req);
     worker.send(req).await?;
     resp_rx.await?
   }
 
   pub async fn query(&self, req: QueryRequest) -> Result<Table, DbError> {
     let worker = self.get_worker(&req);
-    let (req, resp_rx) = Request::query(req);
+    let (req, resp_rx) = Request::build_query(req);
     worker.send(req).await?;
     resp_rx.await?
   }
