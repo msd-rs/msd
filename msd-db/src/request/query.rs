@@ -1,6 +1,5 @@
-use msd_table::{Table, Variant};
+use msd_table::Table;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::hash::Hash;
 use std::ops::Deref;
 
@@ -20,6 +19,32 @@ pub struct QueryRequest {
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
   pub limit: Option<usize>,
+}
+
+impl QueryRequest {
+  pub fn in_range(&self, ts: u64) -> bool {
+    let start_ok = match self.start {
+      Some((start_ts, inclusive)) => {
+        if inclusive {
+          ts >= start_ts
+        } else {
+          ts > start_ts
+        }
+      }
+      None => true,
+    };
+    let end_ok = match self.end {
+      Some((end_ts, inclusive)) => {
+        if inclusive {
+          ts <= end_ts
+        } else {
+          ts < end_ts
+        }
+      }
+      None => true,
+    };
+    start_ok && end_ok
+  }
 }
 
 impl Deref for QueryRequest {
