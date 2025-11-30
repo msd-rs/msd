@@ -129,12 +129,20 @@ impl MsdStore for RocksDbStore {
     start_from: K,
     prefix: Option<usize>,
     table: &str,
+    rev: bool,
     mut f: F,
   ) -> Result<(), StoreError> {
     let cf = self.cf_handle(table)?;
     let iter = self.db.iterator_cf(
       &cf,
-      IteratorMode::From(start_from.as_ref(), Direction::Forward),
+      IteratorMode::From(
+        start_from.as_ref(),
+        if rev {
+          Direction::Reverse
+        } else {
+          Direction::Forward
+        },
+      ),
     );
 
     let prefix = prefix

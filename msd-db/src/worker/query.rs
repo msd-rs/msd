@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use msd_table::Table;
+use tracing::{span, trace};
 
 use crate::{errors::DbError, keys::Key, request::QueryRequest, serde::DbBinary};
 
@@ -27,7 +28,7 @@ impl<S: MsdStore> Worker<S> {
     let descending = !req.ascending.unwrap_or(true);
     let limit = req.limit.unwrap_or(usize::MAX);
 
-    // Collect chunk id from index that overlap with query range
+    // Collect chunk seq from index that overlap with query range
     let (first_seq, last_seq) = index
       .iter()
       .enumerate()
@@ -57,28 +58,37 @@ impl<S: MsdStore> Worker<S> {
     }
 
     // start from the last chunk so iteration will go through chunks in descending seq order
-    let start_key = Key::new_data(&req.key.obj, last_seq as u32);
+    let start_key = Key::new_data(
+      &req.key.obj,
+      if descending { last_seq } else { first_seq } as u32,
+    );
     // include the separator after object name so prefix covers `obj.`
     let prefix_len = req.key.obj.len() + 1;
 
     // Holder for any error that occurs inside the closure (can't use `?` inside)
     let mut inner_err: Option<DbError> = None;
 
+    // Base on data key design, chunk keys for the same object are stored contiguously and in reverse order
+    let _scan_span = span!(tracing::Level::TRACE, "query_scan").entered();
     self.store.prefix_with(
       start_key,
       Some(prefix_len),
       &req.key.table,
+      !descending,
       |k: &[u8], v: &[u8]| {
+        trace!(key=?k, "start");
         // parse key and get sequence
         let key = match Key::try_from(k) {
           Ok(k) => k,
           Err(e) => {
+            trace!(key=?k, error=%e, "Failed to parse key in query");
             inner_err = Some(e);
             return false;
           }
         };
         let seq = key.get_seq() as usize;
         if seq < first_seq {
+          trace!(%key, first_seq, last_seq, "Reached beyond needed chunks");
           // reached beyond needed chunks
           return false;
         }
@@ -86,18 +96,21 @@ impl<S: MsdStore> Worker<S> {
         let table: Table = match DbBinary::from_bytes(v) {
           Ok(t) => t,
           Err(e) => {
+            trace!(key=%key, error=%e, "Failed to deserialize table in query");
             inner_err = Some(e);
             return true;
           }
         };
 
         if result.column_count() == 0 {
+          // first chunk being processed, initialize result table with its schema
           result = table.to_empty();
         }
 
         // collect rows from this chunk that match the time range
         let pk_col = table.pk_column();
         let mut collected_rows = result.row_count();
+        trace!(%key, collected_rows, limit, descending, "begin filtering rows in chunk");
         let status = result.extend_filtered(&table, descending, |row| {
           if collected_rows >= limit {
             return false;
@@ -113,8 +126,10 @@ impl<S: MsdStore> Worker<S> {
           collected
         });
         if let Err(e) = status {
+          trace!(%key, error=%e, "Failed to extend filtered rows in query");
           inner_err = Some(DbError::TableError(e));
         }
+        trace!(%key, collected_rows, limit, "finished filtering rows in chunk");
         true
       },
     )?;

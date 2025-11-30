@@ -10,6 +10,7 @@
 //! This ordering facilitates efficient retrieval of the latest data chunks for an object.
 //!
 use std::cmp::Ordering;
+use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 
 use crate::errors::DbError;
@@ -102,6 +103,12 @@ impl TryFrom<&[u8]> for Key {
       return Err(DbError::InvalidKeyFormat(value.to_vec()));
     }
     Ok(Key(value.to_vec()))
+  }
+}
+
+impl Display for Key {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}.{}", self.get_obj(), self.get_seq())
   }
 }
 

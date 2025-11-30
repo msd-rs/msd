@@ -42,6 +42,7 @@ pub trait MsdStore {
     start_from: K,
     prefix: Option<usize>,
     table: &str,
+    rev: bool,
     f: F,
   ) -> Result<(), StoreError>;
 

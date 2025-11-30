@@ -56,6 +56,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       TABLE_SCHEMA_KEY_PREFIX.as_bytes(),
       None,
       SCHEMA_TABLE_NAME,
+      false,
       |k, v| {
         let key = String::from_utf8_lossy(&k).to_string();
         match DbBinary::from_bytes(&v) {
