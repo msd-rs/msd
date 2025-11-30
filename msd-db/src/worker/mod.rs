@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::errors::DbError;
-use crate::request::{Broadcast, InsertRequest, QueryRequest, Request};
+use crate::request::{Broadcast, InsertRequest, Request};
 use crate::worker::cache::CacheMap;
 mod agg_state;
 mod cache;

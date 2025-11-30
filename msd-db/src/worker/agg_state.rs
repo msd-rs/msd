@@ -150,7 +150,7 @@ impl AggState {
 
   pub fn reset(&mut self) {
     match self {
-      AggState::Sum(_, count) => {
+      AggState::Sum(_, _) => {
         *self = AggState::Sum(Variant::Null, 0);
       }
       AggState::Count(_) => {

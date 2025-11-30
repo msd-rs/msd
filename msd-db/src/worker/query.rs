@@ -1,13 +1,10 @@
 use std::ops::Deref;
 
-use msd_table::{Field, Table, Variant};
+use msd_table::Table;
 
 use crate::{errors::DbError, keys::Key, request::QueryRequest, serde::DbBinary};
 
 use super::{MsdStore, Worker};
-
-/// Name of the timestamp column in the result table.
-const TS_COLUMN: &str = "ts";
 
 impl<S: MsdStore> Worker<S> {
   /// Handle a query request and return the matching data as a Table.
