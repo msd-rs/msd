@@ -124,7 +124,7 @@ impl MsdStore for RocksDbStore {
     self.db.delete_cf(&cf, key).map_err(StoreError::from)
   }
 
-  fn prefix_with<K: AsRef<[u8]>, F: FnMut(Vec<u8>, Vec<u8>) -> bool>(
+  fn prefix_with<K: AsRef<[u8]>, F: FnMut(&[u8], &[u8]) -> bool>(
     &self,
     start_from: K,
     prefix: Option<usize>,
@@ -147,7 +147,7 @@ impl MsdStore for RocksDbStore {
           if !k.starts_with(prefix) {
             break;
           }
-          if !f(k.into_vec(), v.into_vec()) {
+          if !f(&k, &v) {
             break;
           }
         }

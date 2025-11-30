@@ -3,7 +3,7 @@
 //! Worker is responsible for processing database requests such as insertions and queries.
 //! Each worker maintains its own cache and interacts with the underlying store.
 
-use std::ops::Deref;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use msd_store::MsdStore;
@@ -12,17 +12,19 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::errors::DbError;
-use crate::request::{InsertRequest, QueryRequest, Request};
+use crate::request::{Broadcast, InsertRequest, QueryRequest, Request};
 use crate::worker::cache::CacheMap;
 mod agg_state;
 mod cache;
 mod init;
+mod query;
 
 /// Database worker that processes requests.
 pub struct Worker<S: MsdStore> {
   pub id: usize,
   pub store: Arc<S>,
   pub cache: CacheMap,
+  pub schema: HashMap<String, Table>,
 }
 
 impl<S: MsdStore> Worker<S> {
@@ -31,11 +33,12 @@ impl<S: MsdStore> Worker<S> {
       id,
       store,
       cache: CacheMap::default(),
+      schema: HashMap::new(),
     }
   }
 
   pub async fn run(mut self, mut rx: mpsc::Receiver<Request>) {
-    info!("Worker {} started", self.id);
+    info!(id = self.id, "Worker started");
     while let Some(req) = rx.recv().await {
       match req {
         Request::Insert { req, resp_tx } => {
@@ -46,12 +49,12 @@ impl<S: MsdStore> Worker<S> {
           let res = self.handle_query(req);
           let _ = resp_tx.send(res);
         }
-        Request::Broadcast(_) => {
-          info!("Worker {} received broadcast", self.id);
+        Request::Broadcast(message) => {
+          self.handle_broadcast(message);
         }
       }
     }
-    info!("Worker {} stopped", self.id);
+    info!(id = self.id, "Worker stopped");
   }
 
   fn handle_insert(&mut self, req: InsertRequest) -> Result<(), DbError> {
@@ -62,7 +65,17 @@ impl<S: MsdStore> Worker<S> {
     Ok(())
   }
 
-  fn handle_query(&mut self, req: QueryRequest) -> Result<Table, DbError> {
-    Err(DbError::NotFound(req.deref().clone()))
+  fn handle_broadcast(&mut self, message: Broadcast) {
+    match message {
+      Broadcast::UpdateSchema(schema) => {
+        self.schema = schema;
+      }
+      Broadcast::CreateTable(name, table) => {
+        self.schema.insert(name, table);
+      }
+      Broadcast::DropTable(table) => {
+        self.schema.remove(&table);
+      }
+    }
   }
 }

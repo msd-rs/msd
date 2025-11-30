@@ -3,15 +3,20 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::serde::DbBinary;
 use msd_store::MsdStore;
 use msd_table::Table;
 use rustc_hash::FxHasher;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::errors::DbError;
 use crate::request::{Broadcast, InsertRequest, QueryRequest, Request, RequestKey};
 use crate::worker::Worker;
+
+const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";
+const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
 
 /// MSD Database
 pub struct MsdDb<S: MsdStore> {
@@ -21,10 +26,11 @@ pub struct MsdDb<S: MsdStore> {
 
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   /// Create a new MsdDb instance with the given store and number of workers
-  pub fn new(store: S, worker_count: usize) -> Self {
+  pub async fn new(store: S, worker_count: usize) -> Result<Self, DbError> {
     let store = Arc::new(store);
     let mut workers = Vec::with_capacity(worker_count);
 
+    info!(workers = worker_count, "Starting database workers");
     for i in 0..worker_count {
       let (tx, rx) = mpsc::channel(100);
       workers.push(tx);
@@ -32,7 +38,38 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       tokio::spawn(worker.run(rx));
     }
 
-    Self { store, workers }
+    let db = Self {
+      store: store.clone(),
+      workers,
+    };
+
+    info!("Loading database schema");
+    let schema_map = db.load_schema()?;
+    db.broadcast(Broadcast::UpdateSchema(schema_map)).await?;
+
+    Ok(db)
+  }
+
+  fn load_schema(&self) -> Result<HashMap<String, Table>, DbError> {
+    let mut schema_map: HashMap<String, Table> = HashMap::new();
+    self.store.prefix_with(
+      TABLE_SCHEMA_KEY_PREFIX.as_bytes(),
+      None,
+      SCHEMA_TABLE_NAME,
+      |k, v| {
+        let key = String::from_utf8_lossy(&k).to_string();
+        match DbBinary::from_bytes(&v) {
+          Ok(table) => {
+            schema_map.insert(key, table);
+          }
+          Err(e) => {
+            warn!(%e, "failed to deserialize table for schema entry");
+          }
+        }
+        true
+      },
+    )?;
+    Ok(schema_map)
   }
 
   /// get the underlying store

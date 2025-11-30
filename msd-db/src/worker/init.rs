@@ -16,7 +16,7 @@ impl<S: MsdStore> Worker<S> {
   ///   - For queries, this means returning an empty result.
   ///   - For inserts, can proceed to create new data.
   /// - Err(DbError) if there was an error during the process.
-  fn ensure_cache_initialized(&mut self, key: &RequestKey) -> Result<bool, DbError> {
+  pub(crate) fn ensure_cache_initialized(&mut self, key: &RequestKey) -> Result<bool, DbError> {
     if self.cache.contains_key(key) {
       return Ok(true);
     }

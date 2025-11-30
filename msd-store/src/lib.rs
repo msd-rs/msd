@@ -37,7 +37,7 @@ pub trait MsdStore {
   /// - start_from: the first key to seek to
   /// - prefix: extract the first `prefix` bytes from `start_from` and use it as a prefix, None means the whole key
   /// - table: the table to iterate over
-  fn prefix_with<K: AsRef<[u8]>, F: FnMut(Vec<u8>, Vec<u8>) -> bool>(
+  fn prefix_with<K: AsRef<[u8]>, F: FnMut(&[u8], &[u8]) -> bool>(
     &self,
     start_from: K,
     prefix: Option<usize>,
