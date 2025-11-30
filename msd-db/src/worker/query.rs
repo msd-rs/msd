@@ -26,207 +26,105 @@ impl<S: MsdStore> Worker<S> {
     let cache = self.cache.get(&req.key).unwrap();
     let index = &cache.index;
 
-    // Determine the query time range
-    let query_start = req.start.map(|(ts, _)| ts).unwrap_or(0);
-    let query_end = req.end.map(|(ts, _)| ts).unwrap_or(u64::MAX);
-    let start_inclusive = req.start.map(|(_, inc)| inc).unwrap_or(true);
-    let end_inclusive = req.end.map(|(_, inc)| inc).unwrap_or(true);
+    // setup condition with defaults
+    let descending = !req.ascending.unwrap_or(true);
+    let limit = req.limit.unwrap_or(usize::MAX);
 
-    // Find chunks that overlap with the query range
-    // IndexItem: start (inclusive), end (exclusive)
-    let mut chunk_indices: Vec<usize> = index
+    // Collect chunk id from index that overlap with query range
+    let (first_seq, last_seq) = index
       .iter()
       .enumerate()
-      .filter(|(_, item)| {
-        // Chunk overlaps if: chunk.start < query_end && chunk.end > query_start
-        item.start < query_end && item.end > query_start
+      .filter_map(|(idx, item)| {
+        if req.in_range(item.start) || req.in_range(item.end) {
+          Some(idx)
+        } else {
+          None
+        }
       })
-      .map(|(i, _)| i)
-      .collect();
+      .fold((index.len(), 0), |(mut first, mut last), idx| {
+        if idx < first {
+          first = idx;
+        }
+        if idx > last {
+          last = idx;
+        }
+        (first, last)
+      });
 
-    if chunk_indices.is_empty() {
-      // Return empty table with schema from cache
-      return Ok(self.create_empty_result_table(&cache.cached, &req.fields));
+    // Result table to accumulate query results
+    let mut result = Table::default();
+
+    // No overlapping chunks
+    if first_seq > last_seq {
+      return Ok(result);
     }
 
-    // Sort chunk indices by time order (ascending for now, we'll reverse at the end if needed)
-    chunk_indices.sort();
+    // start from the last chunk so iteration will go through chunks in descending seq order
+    let start_key = Key::new_data(&req.key.obj, last_seq as u32);
+    // include the separator after object name so prefix covers `obj.`
+    let prefix_len = req.key.obj.len() + 1;
 
-    let last_chunk_idx = index.len() - 1;
+    // Holder for any error that occurs inside the closure (can't use `?` inside)
+    let mut inner_err: Option<DbError> = None;
 
-    // Collect all matching rows from chunks
-    let mut result_rows: Vec<(u64, Vec<Variant>)> = Vec::new();
+    self.store.prefix_with(
+      start_key,
+      Some(prefix_len),
+      &req.key.table,
+      |k: &[u8], v: &[u8]| {
+        // parse key and get sequence
+        let key = match Key::try_from(k) {
+          Ok(k) => k,
+          Err(e) => {
+            inner_err = Some(e);
+            return false;
+          }
+        };
+        let seq = key.get_seq() as usize;
+        if seq < first_seq {
+          // reached beyond needed chunks
+          return false;
+        }
 
-    for &chunk_idx in &chunk_indices {
-      let chunk_table = if chunk_idx == last_chunk_idx {
-        // Use cached table for the last chunk
-        &cache.cached
-      } else {
-        // Load chunk from store
-        let data_key = Key::new_data(&req.key.obj, chunk_idx as u32);
-        let data = self
-          .store
-          .get(data_key, &req.key.table)?
-          .ok_or(DbError::ChunkMissing(req.key.clone(), chunk_idx as u32))?;
-        let table: Table = DbBinary::from_bytes(&data)?;
-        // We need to process this table immediately since we can't store the reference
-        self.collect_rows_from_chunk(
-          &table,
-          query_start,
-          query_end,
-          start_inclusive,
-          end_inclusive,
-          &mut result_rows,
-        )?;
-        continue;
-      };
+        let table: Table = match DbBinary::from_bytes(v) {
+          Ok(t) => t,
+          Err(e) => {
+            inner_err = Some(e);
+            return true;
+          }
+        };
 
-      self.collect_rows_from_chunk(
-        chunk_table,
-        query_start,
-        query_end,
-        start_inclusive,
-        end_inclusive,
-        &mut result_rows,
-      )?;
+        if result.column_count() == 0 {
+          result = table.to_empty();
+        }
+
+        // collect rows from this chunk that match the time range
+        let pk_col = table.pk_column();
+        let mut collected_rows = result.row_count();
+        let status = result.extend_filtered(&table, descending, |row| {
+          if collected_rows >= limit {
+            return false;
+          }
+          let ts = match row.get(pk_col).and_then(|v| v.get_u64()) {
+            Some(v) => *v,
+            None => return false,
+          };
+          let collected = req.in_range(ts);
+          if collected {
+            collected_rows += 1;
+          }
+          collected
+        });
+        if let Err(e) = status {
+          inner_err = Some(DbError::TableError(e));
+        }
+        true
+      },
+    )?;
+
+    if let Some(e) = inner_err {
+      return Err(e);
     }
-
-    // Sort by timestamp
-    let ascending = req.ascending.unwrap_or(true);
-    if ascending {
-      result_rows.sort_by_key(|(ts, _)| *ts);
-    } else {
-      result_rows.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
-    }
-
-    // Apply limit
-    if let Some(limit) = req.limit {
-      result_rows.truncate(limit);
-    }
-
-    // Build result table
-    self.build_result_table(&cache.cached, &req.fields, result_rows)
-  }
-
-  /// Collect rows from a chunk that match the time range filter.
-  fn collect_rows_from_chunk(
-    &self,
-    chunk: &Table,
-    query_start: u64,
-    query_end: u64,
-    start_inclusive: bool,
-    end_inclusive: bool,
-    result_rows: &mut Vec<(u64, Vec<Variant>)>,
-  ) -> Result<(), DbError> {
-    // Find the timestamp column (first column is assumed to be timestamp)
-    let ts_col = chunk.column_by_index(0).ok_or_else(|| {
-      DbError::TableError(msd_table::TableError::IndexOutOfBounds(
-        0,
-        chunk.column_count(),
-      ))
-    })?;
-
-    let ts_series = ts_col.data.get_uint64().ok_or_else(|| {
-      DbError::TableError(msd_table::TableError::TypeMismatch(
-        msd_table::DataType::UInt64,
-        ts_col.data.data_type(),
-      ))
-    })?;
-
-    for row_idx in 0..chunk.row_count() {
-      let ts = ts_series[row_idx];
-
-      // Apply time range filter
-      let start_ok = if start_inclusive {
-        ts >= query_start
-      } else {
-        ts > query_start
-      };
-      let end_ok = if end_inclusive {
-        ts <= query_end
-      } else {
-        ts < query_end
-      };
-
-      if start_ok && end_ok {
-        // Collect all column values for this row
-        let row: Vec<Variant> = chunk
-          .columns()
-          .iter()
-          .map(|col| {
-            col
-              .data
-              .get(row_idx)
-              .map(|v| v.to_variant())
-              .unwrap_or(Variant::Null)
-          })
-          .collect();
-        result_rows.push((ts, row));
-      }
-    }
-
-    Ok(())
-  }
-
-  /// Create an empty result table with the appropriate schema.
-  fn create_empty_result_table(&self, source: &Table, fields: &Option<Vec<String>>) -> Table {
-    let columns: Vec<Field> = if let Some(field_names) = fields {
-      source
-        .columns()
-        .iter()
-        .filter(|col| col.schema.name == TS_COLUMN || field_names.contains(&col.schema.name))
-        .map(|col| col.schema.clone())
-        .collect()
-    } else {
-      source
-        .columns()
-        .iter()
-        .map(|col| col.schema.clone())
-        .collect()
-    };
-    Table::new(columns, 0)
-  }
-
-  /// Build the result table from collected rows.
-  fn build_result_table(
-    &self,
-    source: &Table,
-    fields: &Option<Vec<String>>,
-    rows: Vec<(u64, Vec<Variant>)>,
-  ) -> Result<Table, DbError> {
-    if rows.is_empty() {
-      return Ok(self.create_empty_result_table(source, fields));
-    }
-
-    // Determine which columns to include
-    let column_indices: Vec<usize> = if let Some(field_names) = fields {
-      source
-        .columns()
-        .iter()
-        .enumerate()
-        .filter(|(_, col)| col.schema.name == TS_COLUMN || field_names.contains(&col.schema.name))
-        .map(|(i, _)| i)
-        .collect()
-    } else {
-      (0..source.column_count()).collect()
-    };
-
-    // Create result table
-    let columns: Vec<Field> = column_indices
-      .iter()
-      .map(|&i| source.column_by_index(i).unwrap().schema.clone())
-      .collect();
-    let mut result = Table::new(columns, 0);
-
-    // Add rows
-    for (_, row) in rows {
-      let filtered_row: Vec<Variant> = column_indices
-        .iter()
-        .map(|&i| row.get(i).cloned().unwrap_or(Variant::Null))
-        .collect();
-      result.push_row(filtered_row)?;
-    }
-
     Ok(result)
   }
 }

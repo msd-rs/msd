@@ -38,53 +38,114 @@ impl Series {
     }
   }
 
-  pub fn extend(&mut self, other: &Series) -> Result<(), TableError> {
+  pub fn extend(&mut self, other: &Series, rev: bool) -> Result<(), TableError> {
     match (self, other) {
       (Series::String(v), Series::String(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Bytes(v), Series::Bytes(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Int32(v), Series::Int32(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::UInt32(v), Series::UInt32(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Int64(v), Series::Int64(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::UInt64(v), Series::UInt64(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Float32(v), Series::Float32(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Float64(v), Series::Float64(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Decimal64(v), Series::Decimal64(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Decimal128(v), Series::Decimal128(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (Series::Bool(v), Series::Bool(o)) => {
-        v.extend_from_slice(o);
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
         Ok(())
       }
       (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+    }
+  }
+
+  pub fn reverse(&mut self) {
+    match self {
+      Series::Null => {}
+      Series::String(v) => v.reverse(),
+      Series::Bytes(v) => v.reverse(),
+      Series::Int32(v) => v.reverse(),
+      Series::UInt32(v) => v.reverse(),
+      Series::Int64(v) => v.reverse(),
+      Series::UInt64(v) => v.reverse(),
+      Series::Float32(v) => v.reverse(),
+      Series::Float64(v) => v.reverse(),
+      Series::Decimal64(v) => v.reverse(),
+      Series::Decimal128(v) => v.reverse(),
+      Series::Bool(v) => v.reverse(),
     }
   }
 

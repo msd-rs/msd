@@ -23,6 +23,18 @@ impl Field {
     self.metadata = Some(metadata);
     self
   }
+
+  /// check if this field is marked as primary key
+  ///
+  /// returns true if the field has metadata "primary_key" set and not null
+  pub fn is_pk(&self) -> bool {
+    if let Some(meta) = &self.metadata {
+      if let Some(v) = meta.get("primary_key") {
+        return !v.is_null();
+      }
+    }
+    false
+  }
 }
 
 impl PartialEq for Field {

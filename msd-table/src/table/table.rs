@@ -16,6 +16,7 @@ pub struct Table {
   metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
 }
 
+/// # Table creation and schema management
 impl Table {
   /// Create a new Table with the specified columns and number of rows
   /// rows can be 0, which means the table is empty
@@ -33,12 +34,53 @@ impl Table {
     }
   }
 
+  pub fn to_empty(&self) -> Self {
+    let columns = self
+      .columns
+      .iter()
+      .map(|col| TableColumn {
+        schema: col.schema.clone(),
+        data: Series::new(col.schema.kind.clone(), 0),
+      })
+      .collect();
+    Self {
+      columns,
+      metadata: self.metadata.clone(),
+    }
+  }
+
   /// attach metadata to the table
   pub fn with_metadata(mut self, metadata: HashMap<String, Variant>) -> Self {
     self.metadata = Some(metadata);
     self
   }
 
+  pub fn same_shape(&self, other: &Table) -> bool {
+    if self.column_count() != other.column_count() {
+      return false;
+    }
+
+    for (col_self, col_other) in self.columns.iter().zip(other.columns.iter()) {
+      if col_self.schema != col_other.schema {
+        return false;
+      }
+    }
+    true
+  }
+
+  fn schema_debug(&self) -> String {
+    let schemas: Vec<String> = self
+      .columns
+      .iter()
+      .enumerate()
+      .map(|(i, col)| format!("({},{},{})", i, col.schema.name, col.schema.kind))
+      .collect();
+    schemas.join(", ")
+  }
+}
+
+/// # Table cell access and manipulation
+impl Table {
   /// get columns count
   pub fn column_count(&self) -> usize {
     self.columns.len()
@@ -90,8 +132,8 @@ impl Table {
   }
 
   /// create a row iterator
-  pub fn rows(&self) -> RowIter<'_> {
-    RowIter::new(self)
+  pub fn rows(&self, rev: bool) -> RowIter<'_> {
+    RowIter::new(self, rev)
   }
 
   /// get a row by index
@@ -216,23 +258,71 @@ impl Table {
     );
     unsafe { s.data.get_mut_unchecked(row) }
   }
+}
 
-  pub fn extend(&mut self, other: &Table) -> Result<(), TableError> {
+/// # Table operations on rows
+impl Table {
+  pub fn pk_column(&self) -> usize {
+    self
+      .columns
+      .iter()
+      .position(|col| col.schema.is_pk())
+      .unwrap_or(0)
+  }
+
+  /// reverse the order of rows in the table
+  pub fn reverse_rows(&mut self) {
+    for col in self.columns.iter_mut() {
+      col.data.reverse();
+    }
+  }
+
+  /// Extend the table by appending rows from another table.
+  /// the order of rows appended is determined by the `rev` parameter.
+  pub fn extend(&mut self, other: &Table, rev: bool) -> Result<(), TableError> {
     if self.column_count() != other.column_count() {
       return Err(TableError::ColumnCountMismatch(
         other.column_count(),
         self.column_count(),
       ));
     }
+    if !self.same_shape(other) {
+      return Err(TableError::ColumnSchemaMismatch(
+        self.schema_debug(),
+        other.schema_debug(),
+      ));
+    }
 
     for (col_self, col_other) in self.columns.iter_mut().zip(other.columns.iter()) {
-      if col_self.schema != col_other.schema {
-        return Err(TableError::ColumnSchemaMismatch(
-          col_self.schema.name.clone(),
-        ));
-      }
-      col_self.data.extend(&col_other.data)?;
+      col_self.data.extend(&col_other.data, rev)?;
     }
+    Ok(())
+  }
+
+  /// Extend the table by appending rows from another table with a filter.
+  ///
+  /// The filter function takes a row (as a vector of VariantRef) and returns true if the row should be included.
+  /// the order of rows appended is determined by the `rev` parameter.
+  pub fn extend_filtered<F: FnMut(&Vec<VariantRef<'_>>) -> bool>(
+    &mut self,
+    other: &Table,
+    rev: bool,
+    mut filter: F,
+  ) -> Result<(), TableError> {
+    if self.column_count() != other.column_count() {
+      return Err(TableError::ColumnCountMismatch(
+        other.column_count(),
+        self.column_count(),
+      ));
+    }
+    for row in other.rows(rev) {
+      if filter(&row) {
+        for (col_self, cell) in self.columns.iter_mut().zip(row.into_iter()) {
+          col_self.data.push(cell.into())?;
+        }
+      }
+    }
+
     Ok(())
   }
 }
@@ -240,11 +330,16 @@ impl Table {
 pub struct RowIter<'a> {
   table: &'a Table,
   index: usize,
+  rev: bool,
 }
 
 impl<'a> RowIter<'a> {
-  fn new(table: &'a Table) -> Self {
-    Self { table, index: 0 }
+  fn new(table: &'a Table, rev: bool) -> Self {
+    Self {
+      table,
+      index: 0,
+      rev,
+    }
   }
 }
 
@@ -254,12 +349,17 @@ impl<'a> Iterator for RowIter<'a> {
     if self.index >= self.table.row_count() {
       return None;
     }
+    let i = if self.rev {
+      self.table.row_count() - 1 - self.index
+    } else {
+      self.index
+    };
 
     let row = self
       .table
       .columns
       .iter()
-      .map(|col| col.data.get(self.index).unwrap_or(VariantRef::Null))
+      .map(|col| col.data.get(i).unwrap_or(VariantRef::Null))
       .collect();
     self.index += 1;
     Some(row)
