@@ -38,6 +38,56 @@ impl Series {
     }
   }
 
+  pub fn extend(&mut self, other: &Series) -> Result<(), TableError> {
+    match (self, other) {
+      (Series::String(v), Series::String(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Bytes(v), Series::Bytes(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Int32(v), Series::Int32(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::UInt32(v), Series::UInt32(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Int64(v), Series::Int64(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::UInt64(v), Series::UInt64(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Float32(v), Series::Float32(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Float64(v), Series::Float64(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Decimal64(v), Series::Decimal64(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Decimal128(v), Series::Decimal128(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (Series::Bool(v), Series::Bool(o)) => {
+        v.extend_from_slice(o);
+        Ok(())
+      }
+      (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+    }
+  }
+
   pub fn data_type(&self) -> DataType {
     match self {
       Series::Null => DataType::Null,

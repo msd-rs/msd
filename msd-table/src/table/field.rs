@@ -24,3 +24,10 @@ impl Field {
     self
   }
 }
+
+impl PartialEq for Field {
+  fn eq(&self, other: &Self) -> bool {
+    self.name == other.name && self.kind == other.kind
+  }
+}
+impl Eq for Field {}

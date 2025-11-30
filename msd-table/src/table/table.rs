@@ -216,6 +216,25 @@ impl Table {
     );
     unsafe { s.data.get_mut_unchecked(row) }
   }
+
+  pub fn extend(&mut self, other: &Table) -> Result<(), TableError> {
+    if self.column_count() != other.column_count() {
+      return Err(TableError::ColumnCountMismatch(
+        other.column_count(),
+        self.column_count(),
+      ));
+    }
+
+    for (col_self, col_other) in self.columns.iter_mut().zip(other.columns.iter()) {
+      if col_self.schema != col_other.schema {
+        return Err(TableError::ColumnSchemaMismatch(
+          col_self.schema.name.clone(),
+        ));
+      }
+      col_self.data.extend(&col_other.data)?;
+    }
+    Ok(())
+  }
 }
 
 pub struct RowIter<'a> {

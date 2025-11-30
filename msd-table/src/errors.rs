@@ -21,6 +21,9 @@ pub enum TableError {
   #[error("column count mismatch: expected {0}, found {1}")]
   ColumnCountMismatch(usize, usize),
 
+  #[error("column schema mismatch for column: {0}")]
+  ColumnSchemaMismatch(String),
+
   #[error("original index {0} is greater than new index {1}")]
   InvalidOrder(String, String),
 }
