@@ -127,6 +127,29 @@ impl Table {
     self.columns.iter_mut().find(|col| col.schema.name == name)
   }
 
+  pub fn set_columns(&mut self, cols: Vec<Series>) -> Result<(), TableError> {
+    if cols.len() != self.column_count() {
+      return Err(TableError::ColumnCountMismatch(
+        cols.len(),
+        self.column_count(),
+      ));
+    }
+
+    // try to cast each column to the schema type
+    let cols = self
+      .columns()
+      .iter()
+      .zip(cols.into_iter())
+      .map(|(col_schema, col_data)| col_data.try_cast_to(col_schema.schema.kind))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    for (col, new_data) in self.columns.iter_mut().zip(cols.into_iter()) {
+      col.data = new_data;
+    }
+
+    Ok(())
+  }
+
   /// insert a new column at the end of the table
   pub fn add_column(&mut self, column: TableColumn) {
     self.columns.push(column);
@@ -343,6 +366,26 @@ impl Table {
     }
 
     Ok(())
+  }
+
+  pub fn sort_by_pk(&mut self, descending: bool) {
+    let pk_col_index = self.pk_column();
+    let pk_series = match self.columns[pk_col_index].data.get_datetime() {
+      Some(s) => s,
+      None => return,
+    };
+
+    let mut indices: Vec<usize> = (0..self.row_count()).collect();
+
+    if descending {
+      indices.sort_by(|&a, &b| pk_series[b].cmp(&pk_series[a]));
+    } else {
+      indices.sort_by(|&a, &b| pk_series[a].cmp(&pk_series[b]));
+    }
+
+    for col in self.columns.iter_mut() {
+      col.data.reorder(indices.as_slice());
+    }
   }
 }
 

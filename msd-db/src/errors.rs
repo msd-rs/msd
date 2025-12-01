@@ -23,4 +23,6 @@ pub enum DbError {
   NotFound(RequestKey),
   #[error("Chunk missing for {0} at seq {1}")]
   ChunkMissing(RequestKey, u32),
+  #[error("Table not found: {0}")]
+  TableNotFound(String),
 }

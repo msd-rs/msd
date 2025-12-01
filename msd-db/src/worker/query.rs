@@ -15,7 +15,7 @@ impl<S: MsdStore> Worker<S> {
   /// 2. Determine which chunks overlap with the query time range
   /// 3. Load and merge data from relevant chunks
   /// 4. Apply field filtering, time range filtering, ordering, and limit
-  pub(crate) fn handle_query(&mut self, req: QueryRequest) -> Result<Table, DbError> {
+  pub(super) fn handle_query(&mut self, req: QueryRequest) -> Result<Table, DbError> {
     let exist = self.ensure_cache_initialized(&req)?;
     if !exist {
       return Err(DbError::NotFound(req.deref().clone()));

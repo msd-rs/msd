@@ -18,6 +18,9 @@ pub enum TableError {
   #[error("type {0} is mismatched with {1}")]
   TypeMismatch(DataType, DataType),
 
+  #[error("row {0} type {1} is mismatched with {2}")]
+  RowTypeMismatch(usize, DataType, DataType),
+
   #[error("index {0} is out of bounds for length {1}")]
   IndexOutOfBounds(usize, usize),
 

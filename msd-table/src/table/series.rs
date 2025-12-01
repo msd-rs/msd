@@ -380,6 +380,30 @@ impl Series {
     }
     Series::from(target)
   }
+
+  pub fn try_cast_to(self, data_type: DataType) -> Result<Self, TableError> {
+    if self.data_type() == data_type {
+      return Ok(self);
+    }
+    let mut target = Vec::with_capacity(self.len());
+    for index in 0..self.len() {
+      let value = self
+        .get(index)
+        .map(Variant::from)
+        .and_then(|v| v.cast(&data_type))
+        .ok_or(TableError::RowTypeMismatch(
+          index,
+          self.data_type(),
+          data_type,
+        ))?;
+      target.push(value);
+    }
+    Ok(Series::from(target))
+  }
+}
+
+impl Series {
+  pub fn reorder(&mut self, indices: &[usize]) {}
 }
 
 impl From<Vec<String>> for Series {
