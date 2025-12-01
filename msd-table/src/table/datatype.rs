@@ -6,6 +6,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::TableError;
+use crate::Variant;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy)]
 pub enum DataType {
@@ -21,6 +22,7 @@ pub enum DataType {
   Decimal64,
   Decimal128,
   Bool,
+  DateTime,
 }
 
 impl DataType {
@@ -38,6 +40,7 @@ impl DataType {
       DataType::Decimal64 => 8,
       DataType::Decimal128 => 16,
       DataType::Bool => 1,
+      DataType::DateTime => 8,
     }
   }
 
@@ -54,6 +57,7 @@ impl DataType {
       DataType::Decimal64 if TypeId::of::<T>() == TypeId::of::<i64>() => true, // Assuming Decimal64 is represented as i64
       DataType::Decimal128 if TypeId::of::<T>() == TypeId::of::<i128>() => true, // Assuming Decimal128 is represented as i128
       DataType::Bool if TypeId::of::<T>() == TypeId::of::<bool>() => true,
+      DataType::DateTime if TypeId::of::<T>() == TypeId::of::<u64>() => true,
       _ => false,
     }
   }
@@ -74,6 +78,7 @@ impl Display for DataType {
       DataType::Decimal64 => "d64",
       DataType::Decimal128 => "d128",
       DataType::Bool => "bool",
+      DataType::DateTime => "datetime",
     };
     write!(f, "{}", type_str)
   }
@@ -96,6 +101,7 @@ impl FromStr for DataType {
       "d64" => Ok(DataType::Decimal64),
       "d128" => Ok(DataType::Decimal128),
       "bool" => Ok(DataType::Bool),
+      "datetime" => Ok(DataType::DateTime),
       _ => Err(TableError::UnknownDataType(s.to_string())),
     }
   }

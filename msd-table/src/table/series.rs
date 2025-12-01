@@ -18,6 +18,7 @@ pub enum Series {
   Decimal64(Vec<D64>),
   Decimal128(Vec<D128>),
   Bool(Vec<bool>),
+  DateTime(Vec<u64>),
 }
 
 impl Series {
@@ -35,6 +36,7 @@ impl Series {
       DataType::Decimal64 => Series::Decimal64(vec![D64::default(); rows]),
       DataType::Decimal128 => Series::Decimal128(vec![D128::default(); rows]),
       DataType::Bool => Series::Bool(vec![false; rows]),
+      DataType::DateTime => Series::DateTime(vec![0; rows]),
     }
   }
 
@@ -128,6 +130,14 @@ impl Series {
         }
         Ok(())
       }
+      (Series::DateTime(v), Series::DateTime(o)) => {
+        if rev {
+          v.extend(o.iter().rev().cloned());
+        } else {
+          v.extend_from_slice(o);
+        }
+        Ok(())
+      }
       (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
     }
   }
@@ -146,6 +156,7 @@ impl Series {
       Series::Decimal64(v) => v.reverse(),
       Series::Decimal128(v) => v.reverse(),
       Series::Bool(v) => v.reverse(),
+      Series::DateTime(v) => v.reverse(),
     }
   }
 
@@ -163,6 +174,7 @@ impl Series {
       Series::Decimal64(_) => DataType::Decimal64,
       Series::Decimal128(_) => DataType::Decimal128,
       Series::Bool(_) => DataType::Bool,
+      Series::DateTime(_) => DataType::DateTime,
     }
   }
 
@@ -177,6 +189,7 @@ impl Series {
   getter!(Series, get_decimal64, Decimal64, Vec<D64>);
   getter!(Series, get_decimal128, Decimal128, Vec<D128>);
   getter!(Series, get_bool, Bool, Vec<bool>);
+  getter!(Series, get_datetime, DateTime, Vec<u64>);
 
   getter_mut!(Series, get_mut_string, String, Vec<String>);
   getter_mut!(Series, get_mut_bytes, Bytes, Vec<Vec<u8>>);
@@ -189,6 +202,7 @@ impl Series {
   getter_mut!(Series, get_mut_decimal64, Decimal64, Vec<D64>);
   getter_mut!(Series, get_mut_decimal128, Decimal128, Vec<D128>);
   getter_mut!(Series, get_mut_bool, Bool, Vec<bool>);
+  getter_mut!(Series, get_mut_datetime, DateTime, Vec<u64>);
 
   pub fn is_type<T: Any>(&self) -> bool {
     self.data_type().is_type::<T>()
@@ -208,6 +222,7 @@ impl Series {
       Series::Decimal64(v) => v.len(),
       Series::Decimal128(v) => v.len(),
       Series::Bool(v) => v.len(),
+      Series::DateTime(v) => v.len(),
     }
   }
 
@@ -229,6 +244,7 @@ impl Series {
       Series::Decimal64(v) => v.get(index).map(|d| VariantRef::Decimal64(d)),
       Series::Decimal128(v) => v.get(index).map(|d| VariantRef::Decimal128(d)),
       Series::Bool(v) => v.get(index).map(|b| VariantRef::Bool(b)),
+      Series::DateTime(v) => v.get(index).map(|dt| VariantRef::DateTime(dt)),
     }
   }
 
@@ -247,6 +263,7 @@ impl Series {
         Series::Decimal64(v) => VariantRef::Decimal64(v.get_unchecked(index)),
         Series::Decimal128(v) => VariantRef::Decimal128(v.get_unchecked(index)),
         Series::Bool(v) => VariantRef::Bool(v.get_unchecked(index)),
+        Series::DateTime(v) => VariantRef::DateTime(v.get_unchecked(index)),
       }
     }
   }
@@ -268,6 +285,7 @@ impl Series {
       Series::Decimal64(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal64(d)),
       Series::Decimal128(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal128(d)),
       Series::Bool(v) => v.get_mut(index).map(|b| VariantMutRef::Bool(b)),
+      Series::DateTime(v) => v.get_mut(index).map(|dt| VariantMutRef::DateTime(dt)),
     }
   }
 
@@ -286,6 +304,7 @@ impl Series {
         Series::Decimal64(v) => VariantMutRef::Decimal64(v.get_unchecked_mut(index)),
         Series::Decimal128(v) => VariantMutRef::Decimal128(v.get_unchecked_mut(index)),
         Series::Bool(v) => VariantMutRef::Bool(v.get_unchecked_mut(index)),
+        Series::DateTime(v) => VariantMutRef::DateTime(v.get_unchecked_mut(index)),
       }
     }
   }
@@ -334,6 +353,10 @@ impl Series {
       }
       (Series::Bool(v), Variant::Bool(b)) => {
         v.push(b);
+        Ok(())
+      }
+      (Series::DateTime(v), Variant::DateTime(dt)) => {
+        v.push(dt);
         Ok(())
       }
       (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
@@ -607,6 +630,12 @@ impl From<Vec<Variant>> for Series {
           Series::Decimal128(a.iter().filter_map(|v| v.get_d128()).map(|i| *i).collect())
         }
         DataType::Bool => Series::Bool(a.iter().filter_map(|v| v.get_bool()).map(|i| *i).collect()),
+        DataType::DateTime => Series::DateTime(
+          a.iter()
+            .filter_map(|v| v.get_datetime())
+            .map(|i| *i)
+            .collect(),
+        ),
       }
     }
   }

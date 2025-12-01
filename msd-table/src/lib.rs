@@ -2,7 +2,9 @@
 mod macros;
 
 mod d64;
+mod date;
 mod errors;
+mod serde;
 mod table;
 mod updater;
 mod variant;

@@ -68,7 +68,7 @@ impl Table {
     true
   }
 
-  fn schema_debug(&self) -> String {
+  pub(crate) fn schema_debug(&self) -> String {
     let schemas: Vec<String> = self
       .columns
       .iter()

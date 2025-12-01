@@ -71,14 +71,14 @@ fn store_get_put_test() -> Result<()> {
   }
 
   let mut less_than_30 = vec![];
-  db.prefix_with(make_key(key_a, 30), Some(1), "default", |_k, v| {
+  db.prefix_with(make_key(key_a, 30), Some(1), "default", false, |_k, v| {
     less_than_30.push(String::from_utf8_lossy(v).to_string());
     true
   })?;
   assert_eq!(less_than_30, vec!["16", "8", "4", "2", "1"]);
 
   let mut less_than_32 = vec![];
-  db.prefix_with(make_key(key_a, 32), Some(1), "default", |_k, v| {
+  db.prefix_with(make_key(key_a, 32), Some(1), "default", false, |_k, v| {
     less_than_32.push(String::from_utf8_lossy(v).to_string());
     true
   })?;

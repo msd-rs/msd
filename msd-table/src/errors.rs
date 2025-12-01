@@ -26,4 +26,10 @@ pub enum TableError {
 
   #[error("original index {0} is greater than new index {1}")]
   InvalidOrder(String, String),
+
+  #[error("{0} can't be parsed as datetime")]
+  BadDatetimeFormat(String),
+
+  #[error("{0} can't be parsed as duration")]
+  BadDurationFormat(String),
 }
