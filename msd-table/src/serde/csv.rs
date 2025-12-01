@@ -17,17 +17,6 @@ pub fn table_to_csv<W: Write>(table: &Table, w: W, sep: u8) -> Result<(), TableE
   Ok(())
 }
 
-const time_fields: &[&str] = &[
-  "time",
-  "ts",
-  "timestamp",
-  "datetime",
-  "date",
-  "created_at",
-  "updated_at",
-  "deleted_at",
-];
-
 pub fn table_from_csv<R: BufRead>(r: R, sep: u8, template: &Table) -> Result<Table, TableError> {
   let mut reader = csv::ReaderBuilder::new().delimiter(sep).from_reader(r);
 

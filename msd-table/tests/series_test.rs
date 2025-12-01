@@ -62,3 +62,54 @@ fn test_series_s_macro() {
     Some(&vec!["1".to_string(), "2".to_string()])
   );
 }
+
+#[test]
+fn test_table_macro() {
+  // Test table! macro with data
+  let t = table!(
+    { name: "id", kind: i64, data: vec![1i64, 2, 3] },
+    { name: "value", kind: f64, data: vec![1.0, 2.0, 3.0] }
+  );
+  assert_eq!(t.column_count(), 2);
+  assert_eq!(t.row_count(), 3);
+  assert_eq!(t.column("id").unwrap().schema.kind, DataType::Int64);
+  assert_eq!(t.column("value").unwrap().schema.kind, DataType::Float64);
+  assert_eq!(t.cell(0, 0).get_i64(), Some(&1i64));
+  assert_eq!(t.cell(2, 1).get_f64(), Some(&3.0f64));
+
+  // Test table! macro without data (defaults to empty Vec)
+  let t2 = table!(
+    { name: "label", kind: string },
+    { name: "count", kind: i32 }
+  );
+  assert_eq!(t2.column_count(), 2);
+  assert_eq!(t2.row_count(), 0);
+  assert_eq!(t2.column("label").unwrap().schema.kind, DataType::String);
+  assert_eq!(t2.column("count").unwrap().schema.kind, DataType::Int32);
+
+  // Test table! macro with mixed columns (some with data, some without)
+  let t3 = table!(
+    { name: "a", kind: i64, data: vec![10i64, 20] },
+    { name: "b", kind: bool }
+  );
+  assert_eq!(t3.column_count(), 2);
+  // Note: column "a" has 2 rows, column "b" has 0 rows - this is an edge case
+  // The row_count is based on the first column
+  assert_eq!(t3.column("a").unwrap().data.len(), 2);
+  assert_eq!(t3.column("b").unwrap().data.len(), 0);
+
+  // Test all supported types
+  let t4 = table!(
+    { name: "c_i32", kind: i32, data: vec![1i32] },
+    { name: "c_u32", kind: u32, data: vec![2u32] },
+    { name: "c_i64", kind: i64, data: vec![3i64] },
+    { name: "c_u64", kind: u64, data: vec![4u64] },
+    { name: "c_f32", kind: f32, data: vec![5.0f32] },
+    { name: "c_f64", kind: f64, data: vec![6.0f64] },
+    { name: "c_bool", kind: bool, data: vec![true] },
+    { name: "c_string", kind: string, data: vec!["hello".to_string()] },
+    { name: "c_datetime", kind: datetime, data: vec![1234567890i64] }
+  );
+  assert_eq!(t4.column_count(), 9);
+  assert_eq!(t4.row_count(), 1);
+}

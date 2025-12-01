@@ -72,10 +72,27 @@ const LEN: usize = 8;
 const FLAG: usize = 7;
 
 /// D64 实际的存储
-#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub struct D64 {
   /// 8 个 byte
   v: [u8; LEN],
+}
+
+impl std::fmt::Debug for D64 {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    if self.is_nan() {
+      return f.write_str("NAN");
+    }
+    if self.is_inf() {
+      return f.write_str("INF");
+    }
+    let v: f64 = self.into();
+    f.write_fmt(format_args!(
+      "{:.precision$}",
+      v,
+      precision = self.dec_num()
+    ))
+  }
 }
 
 impl D64 {
@@ -492,6 +509,22 @@ impl PartialOrd for D64 {
 impl Hash for D64 {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     self.v.hash(state);
+  }
+}
+
+impl From<&super::D128> for D64 {
+  fn from(d: &super::D128) -> Self {
+    let dec_num = d.scale() as usize;
+    let n = d.mantissa() as i64;
+    D64::from_i64(n, dec_num)
+  }
+}
+
+impl From<&D64> for super::D128 {
+  fn from(d: &D64) -> Self {
+    let scale = d.dec_num() as u32;
+    let num = d.into();
+    super::D128::new(num, scale)
   }
 }
 

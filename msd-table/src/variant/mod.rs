@@ -1,4 +1,8 @@
-use std::{fmt::Display, hash::Hash, str::FromStr};
+use std::{
+  fmt::{Debug, Display},
+  hash::Hash,
+  str::FromStr,
+};
 
 mod cast;
 mod ops;
@@ -7,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{D64, D128, DataType, TableError};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Variant {
   Null,
   Int32(i32),
@@ -22,6 +26,26 @@ pub enum Variant {
   Decimal64(D64),
   Decimal128(D128),
   DateTime(i64),
+}
+
+impl Debug for Variant {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Variant::Null => write!(f, "Null"),
+      Variant::Int32(v) => write!(f, "Int32({})", v),
+      Variant::UInt32(v) => write!(f, "UInt32({})", v),
+      Variant::Int64(v) => write!(f, "Int64({})", v),
+      Variant::UInt64(v) => write!(f, "UInt64({})", v),
+      Variant::Float32(v) => write!(f, "Float32({})", v),
+      Variant::Float64(v) => write!(f, "Float64({})", v),
+      Variant::String(v) => write!(f, "String({})", v),
+      Variant::Bytes(v) => write!(f, "Bytes({:?})", v),
+      Variant::Bool(v) => write!(f, "Bool({})", v),
+      Variant::Decimal64(v) => write!(f, "Decimal64({})", v),
+      Variant::Decimal128(v) => write!(f, "Decimal128({})", v),
+      Variant::DateTime(v) => write!(f, "DateTime({})", v),
+    }
+  }
 }
 
 impl Eq for Variant {}
@@ -238,57 +262,42 @@ impl Variant {
     if self.data_type().eq(target_type) {
       return Some(self.clone());
     }
-
     match (self, target_type) {
       (Variant::DateTime(v), DataType::Int32) => Some(Variant::Int32(*v as i32)),
       (Variant::DateTime(v), DataType::UInt64) => Some(Variant::UInt64(*v as u64)),
-
+      (Variant::DateTime(v), DataType::Float32) => {
+        Some(Variant::Float32((*v as f64 / 1000.0) as f32))
+      }
+      (Variant::DateTime(v), DataType::Float64) => Some(Variant::Float64(*v as f64 / 1000.0)),
       (Variant::Int32(v), DataType::Int64) => Some(Variant::Int64(*v as i64)),
       (Variant::Int32(v), DataType::Float64) => Some(Variant::Float64(*v as f64)),
+      (Variant::Int32(v), DataType::DateTime) => Some(Variant::DateTime(*v as i64)),
 
       (Variant::Int64(v), DataType::Int32) => Some(Variant::Int32(*v as i32)),
       (Variant::Int64(v), DataType::Float64) => Some(Variant::Float64(*v as f64)),
+      (Variant::Int64(v), DataType::DateTime) => Some(Variant::DateTime(*v as i64)),
 
+      (Variant::Float32(v), DataType::DateTime) => {
+        Some(Variant::DateTime((*v as f64 * 1_000_000.0) as i64))
+      }
       (Variant::Float32(v), DataType::Float64) => Some(Variant::Float64(*v as f64)),
       (Variant::Float32(v), DataType::Int32) => Some(Variant::Int32(*v as i32)),
 
       (Variant::Float64(v), DataType::Float32) => Some(Variant::Float32(*v as f32)),
+      (Variant::Float64(v), DataType::DateTime) => {
+        Some(Variant::DateTime((*v * 1_000_000.0) as i64))
+      }
+      (Variant::Float64(v), DataType::Decimal64) => Some(Variant::Decimal64(D64::from_f64(*v, 3))),
+
+      (Variant::Decimal64(v), DataType::Float64) => Some(Variant::Float64(v.into())),
 
       (Variant::String(v), DataType::Int32) => v.parse().map(Variant::Int32).ok(),
       (Variant::String(v), DataType::Int64) => v.parse().map(Variant::Int64).ok(),
       (Variant::String(v), DataType::Float32) => v.parse().map(Variant::Float32).ok(),
       (Variant::String(v), DataType::Float64) => v.parse().map(Variant::Float64).ok(),
-      (Variant::String(v), DataType::Bytes) => Some(Variant::Bytes(v.clone().into_bytes())),
-
-      _ => None,
-    }
-  }
-
-  pub fn cast_to(self, target_type: &DataType) -> Option<Variant> {
-    if self.data_type().eq(target_type) {
-      return Some(self);
-    }
-
-    match (self, target_type) {
-      (Variant::DateTime(v), DataType::Int32) => Some(Variant::Int32(v as i32)),
-      (Variant::DateTime(v), DataType::UInt64) => Some(Variant::UInt64(v as u64)),
-
-      (Variant::Int32(v), DataType::Int64) => Some(Variant::Int64(v as i64)),
-      (Variant::Int32(v), DataType::Float64) => Some(Variant::Float64(v as f64)),
-
-      (Variant::Int64(v), DataType::Int32) => Some(Variant::Int32(v as i32)),
-      (Variant::Int64(v), DataType::Float64) => Some(Variant::Float64(v as f64)),
-
-      (Variant::Float32(v), DataType::Float64) => Some(Variant::Float64(v as f64)),
-      (Variant::Float32(v), DataType::Int32) => Some(Variant::Int32(v as i32)),
-
-      (Variant::Float64(v), DataType::Float32) => Some(Variant::Float32(v as f32)),
-
-      (Variant::String(v), DataType::Int32) => v.parse().map(Variant::Int32).ok(),
-      (Variant::String(v), DataType::Int64) => v.parse().map(Variant::Int64).ok(),
-      (Variant::String(v), DataType::Float32) => v.parse().map(Variant::Float32).ok(),
-      (Variant::String(v), DataType::Float64) => v.parse().map(Variant::Float64).ok(),
-      (Variant::String(v), DataType::Bytes) => Some(Variant::Bytes(v.into_bytes())),
+      (Variant::String(v), DataType::Decimal64) => v.parse().map(Variant::Decimal64).ok(),
+      (Variant::String(v), DataType::Bytes) => Some(Variant::Bytes(v.as_bytes().to_vec())),
+      (Variant::String(v), DataType::DateTime) => v.parse().map(Variant::DateTime).ok(),
 
       _ => None,
     }

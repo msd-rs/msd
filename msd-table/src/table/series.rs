@@ -364,6 +364,24 @@ impl Series {
   }
 }
 
+impl Series {
+  pub fn cast_to(self, data_type: DataType) -> Self {
+    if self.data_type() == data_type {
+      return self;
+    }
+    let mut target = Vec::with_capacity(self.len());
+    for index in 0..self.len() {
+      let value = self
+        .get(index)
+        .map(Variant::from)
+        .and_then(|v| v.cast(&data_type))
+        .unwrap_or(Variant::Null);
+      target.push(value);
+    }
+    Series::from(target)
+  }
+}
+
 impl From<Vec<String>> for Series {
   fn from(v: Vec<String>) -> Self {
     Series::String(v)

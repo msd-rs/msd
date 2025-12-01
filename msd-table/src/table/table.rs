@@ -10,6 +10,16 @@ pub struct TableColumn {
   pub data: Series,
 }
 
+impl TableColumn {
+  pub fn new(schema: Field, data: Series) -> Self {
+    let mut data = data;
+    if schema.kind != data.data_type() {
+      data = data.cast_to(schema.kind);
+    }
+    Self { schema, data }
+  }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Table {
   columns: Vec<TableColumn>,
@@ -30,6 +40,15 @@ impl Table {
       .collect();
     Self {
       columns: data,
+      metadata: None,
+    }
+  }
+
+  /// Create a new Table from a vector of TableColumn
+  /// This is useful when you want to create a table with pre-populated data
+  pub fn from_columns(columns: Vec<TableColumn>) -> Self {
+    Self {
+      columns,
       metadata: None,
     }
   }
