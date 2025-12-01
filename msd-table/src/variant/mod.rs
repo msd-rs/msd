@@ -21,7 +21,7 @@ pub enum Variant {
   Bool(bool),
   Decimal64(D64),
   Decimal128(D128),
-  DateTime(u64),
+  DateTime(i64),
 }
 
 impl Eq for Variant {}
@@ -128,10 +128,7 @@ impl Variant {
       DataType::Decimal128 => D128::from_str(s)
         .map(Variant::Decimal128)
         .map_err(|_| TableError::UnknownDataType(s.to_string())),
-      DataType::DateTime => s
-        .parse::<u64>()
-        .map(Variant::DateTime)
-        .map_err(|_| TableError::UnknownDataType(s.to_string())),
+      DataType::DateTime => crate::date::parse_datetime(s).map(Variant::DateTime),
     }
   }
 
@@ -220,7 +217,7 @@ impl Variant {
   getter!(Variant, get_d64, Decimal64, D64);
   getter!(Variant, get_d128, Decimal128, D128);
   getter!(Variant, get_bool, Bool, bool);
-  getter!(Variant, get_datetime, DateTime, u64);
+  getter!(Variant, get_datetime, DateTime, i64);
 
   getter_mut!(Variant, get_mut_string, String, String);
   getter_mut!(Variant, get_mut_bytes, Bytes, Vec<u8>);
@@ -233,7 +230,7 @@ impl Variant {
   getter_mut!(Variant, get_mut_d64, Decimal64, D64);
   getter_mut!(Variant, get_mut_d128, Decimal128, D128);
   getter_mut!(Variant, get_mut_bool, Bool, bool);
-  getter_mut!(Variant, get_mut_datetime, DateTime, u64);
+  getter_mut!(Variant, get_mut_datetime, DateTime, i64);
 }
 
 impl Variant {
@@ -312,7 +309,7 @@ pub enum VariantRef<'a> {
   Decimal64(&'a D64),
   Decimal128(&'a D128),
   Bool(&'a bool),
-  DateTime(&'a u64),
+  DateTime(&'a i64),
 }
 
 impl From<VariantRef<'_>> for Variant {
@@ -369,7 +366,7 @@ impl VariantRef<'_> {
   getter!(VariantRef, get_d64, Decimal64, D64);
   getter!(VariantRef, get_d128, Decimal128, D128);
   getter!(VariantRef, get_bool, Bool, bool);
-  getter!(VariantRef, get_datetime, DateTime, u64);
+  getter!(VariantRef, get_datetime, DateTime, i64);
 }
 
 #[derive(Debug)]
@@ -386,7 +383,7 @@ pub enum VariantMutRef<'a> {
   Decimal64(&'a mut D64),
   Decimal128(&'a mut D128),
   Bool(&'a mut bool),
-  DateTime(&'a mut u64),
+  DateTime(&'a mut i64),
 }
 
 impl From<&VariantMutRef<'_>> for Variant {
@@ -439,7 +436,7 @@ impl VariantMutRef<'_> {
   getter_mut!(VariantMutRef, get_d64, Decimal64, D64);
   getter_mut!(VariantMutRef, get_d128, Decimal128, D128);
   getter_mut!(VariantMutRef, get_bool, Bool, bool);
-  getter_mut!(VariantMutRef, get_datetime, DateTime, u64);
+  getter_mut!(VariantMutRef, get_datetime, DateTime, i64);
 
   pub fn to_variant(&self) -> Variant {
     Variant::from(self)

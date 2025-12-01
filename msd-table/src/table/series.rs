@@ -18,7 +18,7 @@ pub enum Series {
   Decimal64(Vec<D64>),
   Decimal128(Vec<D128>),
   Bool(Vec<bool>),
-  DateTime(Vec<u64>),
+  DateTime(Vec<i64>),
 }
 
 impl Series {
@@ -189,7 +189,7 @@ impl Series {
   getter!(Series, get_decimal64, Decimal64, Vec<D64>);
   getter!(Series, get_decimal128, Decimal128, Vec<D128>);
   getter!(Series, get_bool, Bool, Vec<bool>);
-  getter!(Series, get_datetime, DateTime, Vec<u64>);
+  getter!(Series, get_datetime, DateTime, Vec<i64>);
 
   getter_mut!(Series, get_mut_string, String, Vec<String>);
   getter_mut!(Series, get_mut_bytes, Bytes, Vec<Vec<u8>>);
@@ -202,7 +202,7 @@ impl Series {
   getter_mut!(Series, get_mut_decimal64, Decimal64, Vec<D64>);
   getter_mut!(Series, get_mut_decimal128, Decimal128, Vec<D128>);
   getter_mut!(Series, get_mut_bool, Bool, Vec<bool>);
-  getter_mut!(Series, get_mut_datetime, DateTime, Vec<u64>);
+  getter_mut!(Series, get_mut_datetime, DateTime, Vec<i64>);
 
   pub fn is_type<T: Any>(&self) -> bool {
     self.data_type().is_type::<T>()

@@ -9,6 +9,9 @@ pub enum TableError {
   #[error("binary decode error: {0}")]
   BinaryDecodeError(bincode::error::DecodeError),
 
+  #[error("csv error: {0}")]
+  CsvError(#[from] csv::Error),
+
   #[error("unknown data type: {0}")]
   UnknownDataType(String),
 
