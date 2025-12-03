@@ -374,7 +374,7 @@ impl Series {
       let value = self
         .get(index)
         .map(Variant::from)
-        .and_then(|v| v.cast(&data_type))
+        .and_then(|v| v.cast(data_type))
         .unwrap_or(Variant::Null);
       target.push(value);
     }
@@ -390,7 +390,7 @@ impl Series {
       let value = self
         .get(index)
         .map(Variant::from)
-        .and_then(|v| v.cast(&data_type))
+        .and_then(|v| v.cast(data_type))
         .ok_or(TableError::RowTypeMismatch(
           index,
           self.data_type(),
@@ -402,8 +402,63 @@ impl Series {
   }
 }
 
+fn reorder_series<T: Default>(data: &mut Vec<T>, indices: &[usize]) {
+  let mut reordered = Vec::with_capacity(data.len());
+  for &i in indices {
+    let old = std::mem::replace(&mut data[i], T::default());
+    reordered.push(old);
+  }
+  *data = reordered;
+}
+
+fn split_off_front<T>(v: &mut Vec<T>, at: usize) -> Vec<T> {
+  if v.len() <= at {
+    v.drain(..).collect()
+  } else {
+    let mut split = v.split_off(v.len() - at);
+    std::mem::swap(v, &mut split);
+    split
+  }
+}
+
 impl Series {
-  pub fn reorder(&mut self, indices: &[usize]) {}
+  /// Reorder the series in place according to the given indices.
+  pub fn reorder(&mut self, indices: &[usize]) {
+    match self {
+      Series::Null => {}
+      Series::String(v) => reorder_series(v, indices),
+      Series::Bytes(v) => reorder_series(v, indices),
+      Series::Int32(v) => reorder_series(v, indices),
+      Series::UInt32(v) => reorder_series(v, indices),
+      Series::Int64(v) => reorder_series(v, indices),
+      Series::UInt64(v) => reorder_series(v, indices),
+      Series::Float32(v) => reorder_series(v, indices),
+      Series::Float64(v) => reorder_series(v, indices),
+      Series::Decimal64(v) => reorder_series(v, indices),
+      Series::Decimal128(v) => reorder_series(v, indices),
+      Series::Bool(v) => reorder_series(v, indices),
+      Series::DateTime(v) => reorder_series(v, indices),
+    }
+  }
+
+  /// Split off the front `at` elements from the series and return them as a new series.
+  pub fn split_off_front(&mut self, at: usize) -> Self {
+    match self {
+      Series::Null => Series::Null,
+      Series::String(v) => Series::String(split_off_front(v, at)),
+      Series::Bytes(v) => Series::Bytes(split_off_front(v, at)),
+      Series::Int32(v) => Series::Int32(split_off_front(v, at)),
+      Series::UInt32(v) => Series::UInt32(split_off_front(v, at)),
+      Series::Int64(v) => Series::Int64(split_off_front(v, at)),
+      Series::UInt64(v) => Series::UInt64(split_off_front(v, at)),
+      Series::Float32(v) => Series::Float32(split_off_front(v, at)),
+      Series::Float64(v) => Series::Float64(split_off_front(v, at)),
+      Series::Decimal64(v) => Series::Decimal64(split_off_front(v, at)),
+      Series::Decimal128(v) => Series::Decimal128(split_off_front(v, at)),
+      Series::Bool(v) => Series::Bool(split_off_front(v, at)),
+      Series::DateTime(v) => Series::DateTime(split_off_front(v, at)),
+    }
+  }
 }
 
 impl From<Vec<String>> for Series {

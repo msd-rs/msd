@@ -368,6 +368,8 @@ impl Table {
     Ok(())
   }
 
+  /// Sort the table by primary key column.
+  /// If descending is true, sort in descending order, otherwise ascending.
   pub fn sort_by_pk(&mut self, descending: bool) {
     let pk_col_index = self.pk_column();
     let pk_series = match self.columns[pk_col_index].data.get_datetime() {
@@ -386,6 +388,67 @@ impl Table {
     for col in self.columns.iter_mut() {
       col.data.reorder(indices.as_slice());
     }
+  }
+
+  pub fn split_off_front(&mut self, size: usize) -> Table {
+    let mut new_table = self.to_empty();
+    for col in self.columns.iter_mut() {
+      let left = col.data.split_off_front(size);
+      new_table.add_column(TableColumn {
+        schema: col.schema.clone(),
+        data: left,
+      });
+    }
+    new_table
+  }
+
+  pub fn chunks(mut self, size: usize) -> Vec<Table> {
+    let mut tables = Vec::new();
+    while self.row_count() > size {
+      tables.push(self.split_off_front(size));
+    }
+    if self.row_count() > 0 {
+      tables.push(self);
+    }
+    tables
+  }
+}
+
+/// # Table metadata access
+impl Table {
+  /// Get a table meta value
+  pub fn get_table_meta<S: AsRef<str>>(&self, key: S) -> Option<&Variant> {
+    self
+      .metadata
+      .as_ref()
+      .and_then(|meta| meta.get(key.as_ref()))
+  }
+
+  /// get a field meta value
+  pub fn get_field_meta<S1: AsRef<str>, S2: AsRef<str>>(
+    &self,
+    field_name: S1,
+    key: S2,
+  ) -> Option<&Variant> {
+    self
+      .columns
+      .iter()
+      .find(|col| col.schema.name == field_name.as_ref())
+      .and_then(|col| col.schema.metadata.as_ref())
+      .and_then(|meta| meta.get(key.as_ref()))
+  }
+
+  /// get field meta value by column index
+  pub fn get_field_meta_by_index<S: AsRef<str>>(
+    &self,
+    field_index: usize,
+    key: S,
+  ) -> Option<&Variant> {
+    self
+      .columns
+      .get(field_index)
+      .and_then(|col| col.schema.metadata.as_ref())
+      .and_then(|meta| meta.get(key.as_ref()))
   }
 }
 

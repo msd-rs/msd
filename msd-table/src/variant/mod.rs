@@ -258,8 +258,8 @@ impl Variant {
 }
 
 impl Variant {
-  pub fn cast(&self, target_type: &DataType) -> Option<Variant> {
-    if self.data_type().eq(target_type) {
+  pub fn cast(&self, target_type: DataType) -> Option<Variant> {
+    if self.data_type().eq(&target_type) {
       return Some(self.clone());
     }
     match (self, target_type) {

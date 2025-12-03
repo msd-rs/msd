@@ -93,8 +93,8 @@ impl<S: MsdStore> Worker<S> {
       .map_err(|e| DbError::from(e))
   }
 
-  /// Flush the last chunk data for a given key to the store.
-  pub(crate) fn flush_last_chunk(
+  /// Flush the chunk data for a given key to the store.
+  pub(crate) fn flush_chunk(
     &self,
     key: &RequestKey,
     data: &Table,
