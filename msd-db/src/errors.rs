@@ -27,4 +27,6 @@ pub enum DbError {
   TableNotFound(String),
   #[error("Invalid agg type for field: {0}")]
   InvalidAgg(String),
+  #[error("Cache not found for key: {0:?}")]
+  CacheNotFound(RequestKey),
 }
