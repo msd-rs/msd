@@ -4,16 +4,17 @@ use super::{MsdStore, Worker};
 use crate::errors::DbError;
 use crate::index::IndexItem;
 use crate::request::InsertRequest;
+use crate::worker::agg_state::AggState;
 use crate::worker::cache::CacheValue;
 
 impl<S: MsdStore> Worker<S> {
   pub(super) fn handle_insert(&mut self, req: InsertRequest) -> Result<(), DbError> {
     let exist = self.ensure_cache_initialized(&req.key)?;
     if !exist {
-      return self.on_insert_new(req);
+      self.on_insert_new(req)
+    } else {
+      self.on_insert_existing(req)
     }
-
-    Ok(())
   }
 
   fn on_insert_new(&mut self, req: InsertRequest) -> Result<(), DbError> {
@@ -59,12 +60,28 @@ impl<S: MsdStore> Worker<S> {
       self.flush_chunk(&req.key, chunk, seq as u32)?;
     }
     let cached = chunks.pop().expect("chunk is empty");
+    let state = AggState::table_states(&cached);
     let cache = CacheValue {
       index,
       cached,
-      state: Default::default(),
+      state,
     };
     self.cache.insert(req.key.clone(), cache);
     Ok(())
+  }
+
+  fn on_insert_existing(&mut self, req: InsertRequest) -> Result<(), DbError> {
+    /* TODO: merge insert data into existing cache and flush to storage
+    1. order insert data by pk ascending
+    2. dispose incoming rows that less than cached min pk with warning log
+    3. merge insert data into cached table, rotating chunks as when up to chunk size
+      - use `round_ts` to round the incoming pk when table have `round` meta
+      - when rounded pk same as last pk in cached table, update each column value by it's agg state if any
+      - when rotate chunk, save the old chunk to storage and create new empty chunk, update index accordingly and clear agg states
+    4. update index accordingly
+    5. flush updated index and new chunks to storage
+    */
+
+    todo!()
   }
 }

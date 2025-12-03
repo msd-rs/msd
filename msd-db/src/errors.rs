@@ -25,4 +25,6 @@ pub enum DbError {
   ChunkMissing(RequestKey, u32),
   #[error("Table not found: {0}")]
   TableNotFound(String),
+  #[error("Invalid agg type for field: {0}")]
+  InvalidAgg(String),
 }

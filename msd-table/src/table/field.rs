@@ -35,6 +35,11 @@ impl Field {
     }
     false
   }
+
+  /// get metadata value by key
+  pub fn get_metadata(&self, key: &str) -> Option<&Variant> {
+    self.metadata.as_ref().and_then(|meta| meta.get(key))
+  }
 }
 
 impl PartialEq for Field {

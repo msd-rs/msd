@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
-use msd_table::Variant;
+use msd_table::{Field, Table, Variant};
 use rustc_hash::FxHashSet;
+
+use crate::errors::DbError;
 
 #[derive(Debug, Clone)]
 pub enum AggState {
@@ -194,5 +196,27 @@ impl AggState {
       AggState::Uniq(uniq_set) => Variant::Int64(uniq_set.len() as i64),
       AggState::Prev(prev_value) => prev_value.clone(),
     }
+  }
+}
+
+impl TryFrom<&Field> for AggState {
+  type Error = DbError;
+  fn try_from(field: &Field) -> Result<Self, Self::Error> {
+    field
+      .get_metadata("agg")
+      .and_then(|v| v.get_str())
+      .and_then(|s| AggStateId::from_str(s).ok())
+      .map(|id| AggState::from(id))
+      .ok_or(DbError::InvalidAgg(field.name.clone()))
+  }
+}
+
+impl AggState {
+  pub fn table_states(table: &Table) -> Vec<Option<AggState>> {
+    table
+      .columns()
+      .iter()
+      .map(|f| AggState::try_from(&f.schema).ok())
+      .collect()
   }
 }

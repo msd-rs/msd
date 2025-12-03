@@ -1,6 +1,10 @@
 use crate::{
-  errors::DbError, index::IndexItem, keys::Key, request::RequestKey, serde::DbBinary,
-  worker::cache::CacheValue,
+  errors::DbError,
+  index::IndexItem,
+  keys::Key,
+  request::RequestKey,
+  serde::DbBinary,
+  worker::{agg_state::AggState, cache::CacheValue},
 };
 
 use super::Worker;
@@ -36,12 +40,13 @@ impl<S: MsdStore> Worker<S> {
       .get(data_key, &key.table)?
       .ok_or(DbError::ChunkMissing(key.clone(), last_seq))?;
     let table: Table = DbBinary::from_bytes(&data)?;
+    let state = AggState::table_states(&table);
     self.cache.insert(
       key.clone(),
       CacheValue {
         cached: table,
         index,
-        ..Default::default()
+        state,
       },
     );
     Ok(true)
