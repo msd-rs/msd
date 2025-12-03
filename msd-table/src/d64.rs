@@ -37,6 +37,8 @@ use std::{
   str::FromStr,
 };
 
+use serde::{Deserialize, Serialize};
+
 /// 针对10的次方的性能优化
 fn pow10(n: usize) -> f64 {
   const TABLE: [f64; 12] = [
@@ -72,7 +74,7 @@ const LEN: usize = 8;
 const FLAG: usize = 7;
 
 /// D64 实际的存储
-#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Default, bincode::Encode, bincode::Decode)]
 pub struct D64 {
   /// 8 个 byte
   v: [u8; LEN],
@@ -92,6 +94,25 @@ impl std::fmt::Debug for D64 {
       v,
       precision = self.dec_num()
     ))
+  }
+}
+
+impl Serialize for D64 {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    serializer.serialize_u64(self.into())
+  }
+}
+
+impl<'de> Deserialize<'de> for D64 {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let u = u64::deserialize(deserializer)?;
+    Ok(D64::from(u))
   }
 }
 

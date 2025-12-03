@@ -4,11 +4,6 @@ use crate::DataType;
 
 #[derive(Debug, Error)]
 pub enum TableError {
-  #[error("binary encode error: {0}")]
-  BinaryEncodeError(bincode::error::EncodeError),
-  #[error("binary decode error: {0}")]
-  BinaryDecodeError(bincode::error::DecodeError),
-
   #[error("csv error: {0}")]
   CsvError(#[from] csv::Error),
 

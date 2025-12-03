@@ -15,28 +15,33 @@ pub trait DbBinary<'a> {
   where
     Self: Sized + Serialize,
   {
-    bincode::serialize(self).map_err(DbError::SerializationError)
+    bincode::serde::encode_to_vec(self, bincode::config::standard())
+      .map_err(DbError::BinaryEncodeError)
   }
 
-  fn to_writer<W: Write>(&self, writer: W) -> Result<(), DbError>
+  fn to_writer<W: Write>(&self, writer: &mut W) -> Result<usize, DbError>
   where
     Self: Sized + Serialize,
   {
-    bincode::serialize_into(writer, self).map_err(DbError::SerializationError)
+    bincode::serde::encode_into_std_write(self, writer, bincode::config::standard())
+      .map_err(DbError::BinaryEncodeError)
   }
 
   fn from_bytes(data: &'a [u8]) -> Result<Self, DbError>
   where
-    Self: Sized + Serialize + Deserialize<'a>,
+    Self: Sized + DeserializeOwned,
   {
-    bincode::deserialize(data).map_err(DbError::SerializationError)
+    bincode::serde::decode_from_slice(data, bincode::config::standard())
+      .map(|v| v.0)
+      .map_err(DbError::BinaryDecodeError)
   }
 
-  fn from_reader<R: Read>(reader: R) -> Result<Self, DbError>
+  fn from_reader<R: Read>(reader: &mut R) -> Result<Self, DbError>
   where
-    Self: Sized + Serialize + DeserializeOwned,
+    Self: Sized + DeserializeOwned,
   {
-    bincode::deserialize_from(reader).map_err(DbError::SerializationError)
+    bincode::serde::decode_from_std_read(reader, bincode::config::standard())
+      .map_err(DbError::BinaryDecodeError)
   }
 }
 

@@ -17,8 +17,10 @@ pub enum DbError {
   TableError(#[from] msd_table::TableError),
   #[error("Store Error")]
   StoreError(#[from] msd_store::StoreError),
-  #[error("Serialization Error")]
-  SerializationError(#[from] bincode::Error),
+  #[error("Encode Error")]
+  BinaryEncodeError(#[from] bincode::error::EncodeError),
+  #[error("Decode Error")]
+  BinaryDecodeError(#[from] bincode::error::DecodeError),
   #[error("Not found {0}")]
   NotFound(RequestKey),
   #[error("Chunk missing for {0} at seq {1}")]

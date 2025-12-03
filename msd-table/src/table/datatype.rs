@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::TableError;
 use crate::Variant;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy)]
+#[derive(
+  Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy, bincode::Encode, bincode::Decode,
+)]
 pub enum DataType {
   Null,
   String,
