@@ -31,4 +31,6 @@ pub enum DbError {
   InvalidAgg(String),
   #[error("Cache not found for key: {0:?}")]
   CacheNotFound(RequestKey),
+  #[error("Internal error: {0}")]
+  InternalError(String),
 }

@@ -5,7 +5,7 @@
 use std::io::{Read, Write};
 
 use msd_table::Table;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{errors::DbError, index::IndexItem};
 

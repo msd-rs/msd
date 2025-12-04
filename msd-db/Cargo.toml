@@ -11,7 +11,7 @@ thiserror.workspace = true
 serde.workspace = true
 time.workspace = true
 tracing.workspace = true
-msd-store = { path = "../msd-store" }
+msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
 tokio = { version = "1.0", features = ["full"] }
 bincode.workspace = true

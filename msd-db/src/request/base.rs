@@ -1,4 +1,4 @@
-use std::{fmt::Display, hash::Hash, ops::Deref};
+use std::{cell::OnceCell, fmt::Display, hash::Hash, ops::Deref, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -9,6 +9,20 @@ use crate::errors::DbError;
 pub struct RequestKey {
   pub table: String,
   pub obj: String,
+}
+
+pub(crate) fn BROADCAST_KEY() -> &'static RequestKey {
+  static BROADCAST_KEY: OnceLock<RequestKey> = OnceLock::new();
+  BROADCAST_KEY.get_or_init(|| RequestKey {
+    table: "__broadcast__".into(),
+    obj: "__broadcast__".into(),
+  })
+}
+
+impl RequestKey {
+  pub fn is_broadcast(&self) -> bool {
+    self == BROADCAST_KEY()
+  }
 }
 
 impl Display for RequestKey {

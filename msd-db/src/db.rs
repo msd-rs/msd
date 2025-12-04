@@ -1,6 +1,7 @@
 //! MsdDb implementation.
 //!
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::serde::DbBinary;
@@ -24,6 +25,7 @@ pub struct MsdDb<S: MsdStore> {
   workers: Vec<mpsc::Sender<Request>>,
 }
 
+/// ## Public methods
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   /// Create a new MsdDb instance with the given store and number of workers
   pub async fn new(store: S, worker_count: usize) -> Result<Self, DbError> {
@@ -44,12 +46,56 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     };
 
     info!("Loading database schema");
-    let schema_map = db.load_schema()?;
-    db.broadcast(Broadcast::UpdateSchema(schema_map)).await?;
+    match db.load_schema() {
+      Ok(schema_map) => {
+        db.request(Request::update_schema(schema_map)).await?;
+      }
+      Err(e) => {
+        warn!(%e, "Failed to load database schema");
+      }
+    }
 
     Ok(db)
   }
 
+  pub async fn request(&self, req: Request) -> Result<(), DbError> {
+    let key = req.deref();
+    match key.is_broadcast() {
+      true => {
+        match &req {
+          Request::Broadcast(Broadcast::CreateTable(name, table)) => {
+            self.create_table(name, table)?;
+          }
+          Request::Broadcast(Broadcast::DropTable(name)) => {
+            self.drop_table(name)?;
+          }
+          _ => {}
+        }
+        for worker in &self.workers {
+          match worker.send(req.clone()).await {
+            Ok(_) => {}
+            Err(e) => {
+              warn!("Failed to send broadcast to worker: {}", e);
+            }
+          }
+        }
+      }
+      false => {
+        let worker = self.get_worker(&key);
+        worker.send(req).await?;
+      }
+    }
+    Ok(())
+  }
+
+  /// get the underlying store
+  pub fn store(&self) -> &Arc<S> {
+    &self.store
+  }
+}
+
+/// ## Private methods
+impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   fn load_schema(&self) -> Result<HashMap<String, Table>, DbError> {
     let mut schema_map: HashMap<String, Table> = HashMap::new();
     self.store.prefix_with(
@@ -73,9 +119,21 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(schema_map)
   }
 
-  /// get the underlying store
-  pub fn store(&self) -> &Arc<S> {
-    &self.store
+  fn create_table(&self, name: &str, table: &Table) -> Result<(), DbError> {
+    self.store.new_table(SCHEMA_TABLE_NAME)?;
+
+    let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, name);
+    let value = table.to_bytes()?;
+    self
+      .store
+      .put(key.as_bytes(), value, SCHEMA_TABLE_NAME, None)?;
+    Ok(())
+  }
+
+  fn drop_table(&self, name: &str) -> Result<(), DbError> {
+    let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, name);
+    self.store.delete(key.as_bytes(), SCHEMA_TABLE_NAME)?;
+    Ok(())
   }
 
   /// get the appropriate worker for a given hashable object
@@ -85,34 +143,5 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let hash = hasher.finish();
     let index = (hash as usize) % self.workers.len();
     &self.workers[index]
-  }
-
-  /// broadcast a message to all workers
-  async fn broadcast(&self, message: Broadcast) -> Result<(), DbError> {
-    for worker in &self.workers {
-      match worker.send(Request::build_broadcast(&message)).await {
-        Ok(_) => {}
-        Err(e) => {
-          warn!("Failed to send broadcast to worker: {}", e);
-        }
-      }
-    }
-    Ok(())
-  }
-
-  /// dispatch insert request to the appropriate worker
-  pub async fn insert(&self, req: InsertRequest) -> Result<(), DbError> {
-    let worker = self.get_worker(&req);
-    let (req, resp_rx) = Request::build_insert(req);
-    worker.send(req).await?;
-    resp_rx.await?
-  }
-
-  /// dispatch query request to the appropriate worker
-  pub async fn query(&self, req: QueryRequest) -> Result<Table, DbError> {
-    let worker = self.get_worker(&req);
-    let (req, resp_rx) = Request::build_query(req);
-    worker.send(req).await?;
-    resp_rx.await?
   }
 }

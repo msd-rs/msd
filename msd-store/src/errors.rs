@@ -4,15 +4,8 @@ use thiserror::Error;
 pub enum StoreError {
   #[cfg(feature = "rocksdb")]
   #[error("rocksdb")]
-  RocksDbError(rocksdb::Error),
+  RocksDbError(#[from] rocksdb::Error),
 
   #[error("table {0} not found")]
   TableNotFound(String),
-}
-
-#[cfg(feature = "rocksdb")]
-impl From<rocksdb::Error> for StoreError {
-  fn from(e: rocksdb::Error) -> Self {
-    StoreError::RocksDbError(e)
-  }
 }
