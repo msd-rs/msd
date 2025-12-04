@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "bun build src/index.ts --outdir=dist --target=browser --format=esm",
-    "postbuild": "tsc -p tsconfig.build.json",
+    "postbuild": "tsc ",
     "test": "bun test"
   },
   "devDependencies": {
