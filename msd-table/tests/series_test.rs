@@ -18,12 +18,9 @@ fn test_series_downcast() {
 
 #[test]
 fn test_table_set() {
-  let mut table = Table::new(
-    vec![
-      Field::new("id".to_string(), DataType::Int32),
-      Field::new("name".to_string(), DataType::String),
-    ],
-    0,
+  let mut table = table!(
+    { name: "id", kind: i32 },
+    { name: "name", kind: string }
   );
 
   table.push_row(v![1, "Alice"]).unwrap();
@@ -72,8 +69,8 @@ fn test_table_macro() {
   );
   assert_eq!(t.column_count(), 2);
   assert_eq!(t.row_count(), 3);
-  assert_eq!(t.column("id").unwrap().schema.kind, DataType::Int64);
-  assert_eq!(t.column("value").unwrap().schema.kind, DataType::Float64);
+  assert_eq!(t.column("id").unwrap().kind, DataType::Int64);
+  assert_eq!(t.column("value").unwrap().kind, DataType::Float64);
   assert_eq!(t.cell(0, 0).get_i64(), Some(&1i64));
   assert_eq!(t.cell(2, 1).get_f64(), Some(&3.0f64));
 
@@ -84,8 +81,8 @@ fn test_table_macro() {
   );
   assert_eq!(t2.column_count(), 2);
   assert_eq!(t2.row_count(), 0);
-  assert_eq!(t2.column("label").unwrap().schema.kind, DataType::String);
-  assert_eq!(t2.column("count").unwrap().schema.kind, DataType::Int32);
+  assert_eq!(t2.column("label").unwrap().kind, DataType::String);
+  assert_eq!(t2.column("count").unwrap().kind, DataType::Int32);
 
   // Test table! macro with mixed columns (some with data, some without)
   let t3 = table!(

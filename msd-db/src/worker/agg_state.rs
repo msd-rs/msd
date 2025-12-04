@@ -216,7 +216,7 @@ impl AggState {
     table
       .columns()
       .iter()
-      .map(|f| AggState::try_from(&f.schema).ok())
+      .map(|f| AggState::try_from(f).ok())
       .collect()
   }
 }

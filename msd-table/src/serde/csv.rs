@@ -7,7 +7,7 @@ pub fn table_to_csv<W: Write>(table: &Table, w: W, sep: u8) -> Result<(), TableE
   let mut writer = csv::WriterBuilder::new().delimiter(sep).from_writer(w);
 
   writer
-    .write_record(table.columns().iter().map(|c| c.schema.name.as_str()))
+    .write_record(table.columns().iter().map(|c| c.name.as_str()))
     .map_err(|e| TableError::CsvError(e))?;
   for row in table.rows(false) {
     writer
@@ -35,7 +35,7 @@ pub fn table_from_csv<R: BufRead>(r: R, sep: u8, template: &Table) -> Result<Tab
   if !headers
     .iter()
     .zip(template.columns().iter())
-    .all(|(h, c)| h == &c.schema.name)
+    .all(|(h, c)| h == &c.name)
   {
     return Err(TableError::ColumnSchemaMismatch(
       template.schema_debug(),
@@ -65,7 +65,7 @@ pub fn table_from_csv<R: BufRead>(r: R, sep: u8, template: &Table) -> Result<Tab
       .columns()
       .iter()
       .zip(record.iter())
-      .map(|(field, value)| Variant::from_str(value, field.schema.kind))
+      .map(|(field, value)| Variant::from_str(value, field.kind))
       .collect::<Result<Vec<Variant>, TableError>>()
     {
       Ok(r) => r,

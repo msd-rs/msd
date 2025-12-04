@@ -4,65 +4,31 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Field, Series, TableError, Variant, VariantMutRef, VariantRef};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TableColumn {
-  pub schema: Field,
-  pub data: Series,
-}
-
-impl TableColumn {
-  pub fn new(schema: Field, data: Series) -> Self {
-    let mut data = data;
-    if schema.kind != data.data_type() {
-      data = data.cast_to(schema.kind);
-    }
-    Self { schema, data }
-  }
-}
+const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Table {
-  columns: Vec<TableColumn>,
+  version: u32,
+  columns: Vec<Field>,
   metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
 }
 
 /// # Table creation and schema management
 impl Table {
-  /// Create a new Table with the specified columns and number of rows
-  /// rows can be 0, which means the table is empty
-  pub fn new(columns: Vec<Field>, rows: usize) -> Self {
-    let data = columns
-      .into_iter()
-      .map(|field| TableColumn {
-        data: Series::new(field.kind, rows),
-        schema: field,
-      })
-      .collect();
-    Self {
-      columns: data,
-      metadata: None,
-    }
-  }
-
   /// Create a new Table from a vector of TableColumn
   /// This is useful when you want to create a table with pre-populated data
-  pub fn from_columns(columns: Vec<TableColumn>) -> Self {
+  pub fn from_columns(columns: Vec<Field>) -> Self {
     Self {
+      version: TABLE_VERSION_1,
       columns,
       metadata: None,
     }
   }
 
   pub fn to_empty(&self) -> Self {
-    let columns = self
-      .columns
-      .iter()
-      .map(|col| TableColumn {
-        schema: col.schema.clone(),
-        data: Series::new(col.schema.kind.clone(), 0),
-      })
-      .collect();
+    let columns = self.columns.iter().map(|col| col.to_empty()).collect();
     Self {
+      version: self.version,
       columns,
       metadata: self.metadata.clone(),
     }
@@ -80,7 +46,7 @@ impl Table {
     }
 
     for (col_self, col_other) in self.columns.iter().zip(other.columns.iter()) {
-      if col_self.schema != col_other.schema {
+      if col_self != col_other {
         return false;
       }
     }
@@ -92,7 +58,7 @@ impl Table {
       .columns
       .iter()
       .enumerate()
-      .map(|(i, col)| format!("({},{},{})", i, col.schema.name, col.schema.kind))
+      .map(|(i, col)| format!("({},{},{})", i, col.name, col.kind))
       .collect();
     schemas.join(", ")
   }
@@ -106,25 +72,25 @@ impl Table {
   }
 
   /// get table columns slice
-  pub fn columns(&self) -> &[TableColumn] {
+  pub fn columns(&self) -> &[Field] {
     &self.columns
   }
 
   /// get table column by index
   /// returns None if the index is out of bounds
-  pub fn column_by_index(&self, index: usize) -> Option<&TableColumn> {
+  pub fn column_by_index(&self, index: usize) -> Option<&Field> {
     self.columns.get(index)
   }
 
   // get column by name
   /// returns None if the column with the given name does not exist
-  pub fn column(&self, name: &str) -> Option<&TableColumn> {
-    self.columns.iter().find(|col| col.schema.name == name)
+  pub fn column(&self, name: &str) -> Option<&Field> {
+    self.columns.iter().find(|col| col.name == name)
   }
 
   /// get mutable column by name
-  pub fn column_mut(&mut self, name: &str) -> Option<&mut TableColumn> {
-    self.columns.iter_mut().find(|col| col.schema.name == name)
+  pub fn column_mut(&mut self, name: &str) -> Option<&mut Field> {
+    self.columns.iter_mut().find(|col| col.name == name)
   }
 
   pub fn set_columns(&mut self, cols: Vec<Series>) -> Result<(), TableError> {
@@ -140,7 +106,7 @@ impl Table {
       .columns()
       .iter()
       .zip(cols.into_iter())
-      .map(|(col_schema, col_data)| col_data.try_cast_to(col_schema.schema.kind))
+      .map(|(col_schema, col_data)| col_data.try_cast_to(col_schema.kind))
       .collect::<Result<Vec<_>, _>>()?;
 
     for (col, new_data) in self.columns.iter_mut().zip(cols.into_iter()) {
@@ -151,13 +117,13 @@ impl Table {
   }
 
   /// insert a new column at the end of the table
-  pub fn add_column(&mut self, column: TableColumn) {
+  pub fn add_column(&mut self, column: Field) {
     self.columns.push(column);
   }
 
   /// remove a column by name
-  pub fn remove_column(&mut self, name: &str) -> Option<TableColumn> {
-    if let Some(index) = self.columns.iter().position(|col| col.schema.name == name) {
+  pub fn remove_column(&mut self, name: &str) -> Option<Field> {
+    if let Some(index) = self.columns.iter().position(|col| col.name == name) {
       Some(self.columns.remove(index))
     } else {
       None
@@ -305,11 +271,7 @@ impl Table {
 /// # Table operations on rows
 impl Table {
   pub fn pk_column(&self) -> usize {
-    self
-      .columns
-      .iter()
-      .position(|col| col.schema.is_pk())
-      .unwrap_or(0)
+    self.columns.iter().position(|col| col.is_pk()).unwrap_or(0)
   }
 
   /// reverse the order of rows in the table
@@ -394,10 +356,7 @@ impl Table {
     let mut new_table = self.to_empty();
     for col in self.columns.iter_mut() {
       let left = col.data.split_off_front(size);
-      new_table.add_column(TableColumn {
-        schema: col.schema.clone(),
-        data: left,
-      });
+      new_table.add_column(col.with_data(left));
     }
     new_table
   }
@@ -433,8 +392,8 @@ impl Table {
     self
       .columns
       .iter()
-      .find(|col| col.schema.name == field_name.as_ref())
-      .and_then(|col| col.schema.metadata.as_ref())
+      .find(|col| col.name == field_name.as_ref())
+      .and_then(|col| col.metadata.as_ref())
       .and_then(|meta| meta.get(key.as_ref()))
   }
 
@@ -447,7 +406,7 @@ impl Table {
     self
       .columns
       .get(field_index)
-      .and_then(|col| col.schema.metadata.as_ref())
+      .and_then(|col| col.metadata.as_ref())
       .and_then(|meta| meta.get(key.as_ref()))
   }
 }

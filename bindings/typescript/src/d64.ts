@@ -83,5 +83,3 @@ function testD64ToFloat() {
   console.log(d64ToFloat("3")); // 输出: "-Infinity"
   console.log(d64ToFloat("0"));
 }
-
-testD64ToFloat();

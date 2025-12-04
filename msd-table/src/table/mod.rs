@@ -6,4 +6,4 @@ mod table;
 pub use datatype::DataType;
 pub use field::Field;
 pub use series::Series;
-pub use table::{Table, TableColumn};
+pub use table::Table;

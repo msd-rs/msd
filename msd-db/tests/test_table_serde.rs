@@ -1,10 +1,11 @@
 use msd_db::DbBinary;
-use msd_table::{Table, table};
+use msd_table::{Series, Table, table};
 
 fn build_table() -> Table {
   table!(
-    {name:"ts", kind:datetime, data:vec![1735689600f64, 1735747200.0, 1735833600.0]},
-    {name:"price", kind:d64, data:vec!["1.23", "2.0", "3.0"]}
+    {name:"ts", kind:datetime, data:vec!["2025-01-01", "2025-01-02", "2025-01-03"]},
+    {name:"price", kind:d64, data:vec!["1.23", "2.0", "3.0"]},
+    {name:"null", kind:null, data:Series::Null}
   )
 }
 

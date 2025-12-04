@@ -2,26 +2,59 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DataType, Variant};
+use crate::{DataType, Series, Variant};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Field {
   pub name: String,
   pub kind: DataType,
   pub metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
+  pub data: Series,
 }
 
 impl Field {
-  pub fn new(name: impl Into<String>, kind: DataType) -> Self {
+  pub fn new(name: impl Into<String>, kind: DataType, rows: usize) -> Self {
     Self {
       name: name.into(),
       kind,
       metadata: None,
+      data: Series::new(kind, rows),
     }
   }
+
+  pub fn new_with_data(name: impl Into<String>, kind: DataType, mut data: Series) -> Self {
+    if data.data_type() != kind {
+      data = data.cast_to(kind);
+    }
+    Self {
+      name: name.into(),
+      kind,
+      metadata: None,
+      data,
+    }
+  }
+
   pub fn with_metadata(mut self, metadata: HashMap<String, Variant>) -> Self {
     self.metadata = Some(metadata);
     self
+  }
+
+  pub fn to_empty(&self) -> Self {
+    Self {
+      name: self.name.clone(),
+      kind: self.kind.clone(),
+      metadata: self.metadata.clone(),
+      data: Series::new(self.kind.clone(), 0),
+    }
+  }
+
+  pub fn with_data(&self, data: Series) -> Self {
+    Self {
+      name: self.name.clone(),
+      kind: self.kind.clone(),
+      metadata: self.metadata.clone(),
+      data,
+    }
   }
 
   /// check if this field is marked as primary key

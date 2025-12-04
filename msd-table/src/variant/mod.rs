@@ -9,7 +9,7 @@ mod ops;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{D64, D128, DataType, TableError};
+use crate::{D64, D128, DataType, TableError, date::parse_datetime};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Variant {
@@ -297,7 +297,7 @@ impl Variant {
       (Variant::String(v), DataType::Float64) => v.parse().map(Variant::Float64).ok(),
       (Variant::String(v), DataType::Decimal64) => v.parse().map(Variant::Decimal64).ok(),
       (Variant::String(v), DataType::Bytes) => Some(Variant::Bytes(v.as_bytes().to_vec())),
-      (Variant::String(v), DataType::DateTime) => v.parse().map(Variant::DateTime).ok(),
+      (Variant::String(v), DataType::DateTime) => parse_datetime(v).map(Variant::DateTime).ok(),
 
       _ => None,
     }

@@ -122,18 +122,12 @@ macro_rules! table {
 
   // Internal rule: column with data
   (@column { name: $name:expr, kind: $kind:ident, data: $data:expr }) => {
-    $crate::TableColumn::new(
-      $crate::Field::new($name, table!(@type $kind)),
-      $crate::Series::from($data),
-    )
+    $crate::Field::new_with_data($name, table!(@type $kind), $crate::Series::from($data))
   };
 
   // Internal rule: column without data (use default empty Vec)
   (@column { name: $name:expr, kind: $kind:ident }) => {
-    $crate::TableColumn::new (
-      $crate::Field::new($name, table!(@type $kind)),
-      table!(@default_series $kind),
-    )
+    $crate::Field::new_with_data($name, table!(@type $kind), table!(@default_series $kind))
   };
 
   // Main entry: create Table from multiple column definitions

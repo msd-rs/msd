@@ -15,6 +15,6 @@ pub use date::round_ts;
 pub use errors::TableError;
 pub use rust_decimal::Decimal as D128;
 pub use serde::csv::*;
-pub use table::{DataType, Field, Series, Table, TableColumn};
+pub use table::{DataType, Field, Series, Table};
 pub use updater::*;
 pub use variant::{Variant, VariantMutRef, VariantRef};
