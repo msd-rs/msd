@@ -352,15 +352,25 @@ impl Table {
     }
   }
 
+  /// Split the table into two tables, the first table contains the first `size` rows, the second table contains the rest.
+  /// The original table is modified in place.
+  /// If the table is empty, return an empty table.
+  /// If the table has less than `size` rows, return Table is same as self and self will be empty.
   pub fn split_off_front(&mut self, size: usize) -> Table {
-    let mut new_table = self.to_empty();
+    let mut columns = Vec::with_capacity(self.columns.len());
     for col in self.columns.iter_mut() {
       let left = col.data.split_off_front(size);
-      new_table.add_column(col.with_data(left));
+      columns.push(col.with_data(left));
     }
-    new_table
+    Self {
+      version: self.version,
+      columns,
+      metadata: self.metadata.clone(),
+    }
   }
 
+  /// Split the table into chunks of size `size`.
+  /// The last chunk may have less than `size` rows.
   pub fn chunks(mut self, size: usize) -> Vec<Table> {
     let mut tables = Vec::new();
     while self.row_count() > size {

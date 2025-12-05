@@ -415,7 +415,7 @@ fn split_off_front<T>(v: &mut Vec<T>, at: usize) -> Vec<T> {
   if v.len() <= at {
     v.drain(..).collect()
   } else {
-    let mut split = v.split_off(v.len() - at);
+    let mut split = v.split_off(at);
     std::mem::swap(v, &mut split);
     split
   }
