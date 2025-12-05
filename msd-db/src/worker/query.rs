@@ -115,7 +115,7 @@ impl<S: MsdStore> Worker<S> {
           if collected_rows >= limit {
             return false;
           }
-          let ts = match row.get(pk_col).and_then(|v| v.get_u64()) {
+          let ts = match row.get(pk_col).and_then(|v| v.get_datetime()) {
             Some(v) => *v,
             None => return false,
           };

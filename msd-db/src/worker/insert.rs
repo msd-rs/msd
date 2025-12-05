@@ -40,13 +40,22 @@ impl<S: MsdStore> Worker<S> {
     let index = chunks
       .iter()
       .map(|t| {
-        let start = t.cell(0, pk_col).get_u64().copied().unwrap_or(0);
+        let start = t
+          .cell(0, pk_col)
+          .get_datetime()
+          .copied()
+          .unwrap_or_default();
         let end = t
           .cell(t.row_count() - 1, pk_col)
-          .get_u64()
+          .get_datetime()
           .copied()
-          .unwrap_or(0);
-        assert!(end != 0 && end >= start, "Invalid primary key range");
+          .unwrap_or_default();
+        assert!(
+          start <= end,
+          "Invalid primary key range start: {}, end: {}",
+          start,
+          end
+        );
         IndexItem {
           start,
           end,
@@ -177,10 +186,14 @@ impl<S: MsdStore> Worker<S> {
           let old_chunk = std::mem::replace(&mut cache.cached, schema.to_empty());
 
           // Update index for the old chunk
-          let old_start = old_chunk.cell(0, pk_col).get_u64().copied().unwrap_or(0);
+          let old_start = old_chunk
+            .cell(0, pk_col)
+            .get_datetime()
+            .copied()
+            .unwrap_or(0);
           let old_end = old_chunk
             .cell(old_chunk.row_count() - 1, pk_col)
-            .get_u64()
+            .get_datetime()
             .copied()
             .unwrap_or(0);
           cache.index.push(IndexItem {

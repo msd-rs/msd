@@ -334,21 +334,9 @@ impl Table {
   /// If descending is true, sort in descending order, otherwise ascending.
   pub fn sort_by_pk(&mut self, descending: bool) {
     let pk_col_index = self.pk_column();
-    let pk_series = match self.columns[pk_col_index].data.get_datetime() {
-      Some(s) => s,
-      None => return,
-    };
-
-    let mut indices: Vec<usize> = (0..self.row_count()).collect();
-
-    if descending {
-      indices.sort_by(|&a, &b| pk_series[b].cmp(&pk_series[a]));
-    } else {
-      indices.sort_by(|&a, &b| pk_series[a].cmp(&pk_series[b]));
-    }
-
+    let indices = self.columns[pk_col_index].data.sorted_indices(descending);
     for col in self.columns.iter_mut() {
-      col.data.reorder(indices.as_slice());
+      col.data.sort_by_indices(&indices);
     }
   }
 

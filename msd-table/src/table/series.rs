@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::{any::Any, cmp::Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -422,8 +422,27 @@ fn split_off_front<T>(v: &mut Vec<T>, at: usize) -> Vec<T> {
 }
 
 impl Series {
-  /// Reorder the series in place according to the given indices.
-  pub fn reorder(&mut self, indices: &[usize]) {
+  /// Get a sorted indices of the series.
+  pub fn sorted_indices(&self, descending: bool) -> Vec<usize> {
+    let mut indices = (0..self.len()).collect::<Vec<_>>();
+    indices.sort_by(|&i, &j| {
+      self
+        .get(i)
+        .zip(self.get(j))
+        .and_then(|(a, b)| {
+          if descending {
+            b.partial_cmp(&a)
+          } else {
+            a.partial_cmp(&b)
+          }
+        })
+        .unwrap_or(Ordering::Equal)
+    });
+    indices
+  }
+
+  /// Sort the series in place according to the given indices.
+  pub fn sort_by_indices(&mut self, indices: &[usize]) {
     match self {
       Series::Null => {}
       Series::String(v) => reorder_series(v, indices),
