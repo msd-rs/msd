@@ -26,7 +26,8 @@ impl Key {
     key.extend_from_slice(obj.as_bytes());
     key.push(KEY_SEPARATOR); // separator
     let seq = (-(seq as i64) - 1) as i32;
-    key.extend_from_slice(&seq.to_be_bytes());
+    let hex_seq = format!("{:08x}", seq);
+    key.extend_from_slice(hex_seq.as_bytes());
     Key(key)
   }
 
@@ -46,19 +47,20 @@ impl Key {
     let len = self.0.len();
     // We assume the key is always valid as it is constructed via new_data/new_index
     // The last 5 bytes are separator (1 byte) + seq/suffix (4 bytes)
-    if len < 5 {
+    if len < 9 {
       return "";
     }
-    std::str::from_utf8(&self.0[..len - 5]).unwrap_or("")
+    std::str::from_utf8(&self.0[..len - 9]).unwrap_or("")
   }
 
   pub fn get_seq(&self) -> u32 {
     let len = self.0.len();
-    if len < 4 {
+    if len < 9 {
       return 0;
     }
-    let bytes = &self.0[len - 4..];
-    let seq = i32::from_be_bytes(bytes.try_into().unwrap_or([0; 4]));
+    let bytes = &self.0[len - 8..];
+    let hex_seq = std::str::from_utf8(bytes).unwrap_or("00000000");
+    let seq = i64::from_str_radix(hex_seq, 16).unwrap_or(0);
     -(seq + 1) as u32
   }
 
@@ -99,7 +101,7 @@ impl TryFrom<&[u8]> for Key {
   type Error = DbError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    if value.len() < 5 || value[value.len() - 5] != KEY_SEPARATOR {
+    if value.len() < 9 || value[value.len() - 9] != KEY_SEPARATOR {
       return Err(DbError::InvalidKeyFormat(value.to_vec()));
     }
     Ok(Key(value.to_vec()))
@@ -108,7 +110,7 @@ impl TryFrom<&[u8]> for Key {
 
 impl Display for Key {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}.{}", self.get_obj(), self.get_seq())
+    write!(f, "{}", str::from_utf8(&self.0).unwrap_or("InvalidKey"))
   }
 }
 
@@ -131,9 +133,14 @@ mod tests {
     assert!(keyi < key1);
     assert!(keyi < key2);
 
-    assert!(key1.get_obj() == key2.get_obj());
-    assert!(key1.get_obj() == "obj1");
-    assert!(key1.get_seq() == 1);
-    assert!(key2.get_seq() == 2);
+    assert!(
+      key1.get_obj() == key2.get_obj(),
+      "{} != {}",
+      key1.get_obj(),
+      key2.get_obj()
+    );
+    assert!(key1.get_obj() == "obj1", "{} != obj1", key1.get_obj());
+    assert!(key1.get_seq() == 1, "{} != 1", key1.get_seq());
+    assert!(key2.get_seq() == 2, "{} != 2", key2.get_seq());
   }
 }

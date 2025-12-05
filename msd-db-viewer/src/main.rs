@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use msd_db::{DbBinary, MsdDb, db};
+use msd_db::{DbBinary, MsdDb, db, index::IndexItem, keys::Key};
 use msd_store::{MsdStore, RocksDbStore};
 use msd_table::Table;
 
@@ -39,8 +39,12 @@ async fn main() -> Result<()> {
       view_schema(&store, key).await?;
     }
     _ => {
-      println!("Table: {}", options.table);
-      println!("Key: {}", options.key.unwrap_or_default());
+      view_table(
+        &store,
+        options.table.as_str(),
+        options.key.unwrap_or_default().as_str(),
+      )
+      .await?
     }
   }
 
@@ -57,6 +61,43 @@ async fn view_schema(store: &RocksDbStore, key: &str) -> Result<()> {
       }
       Err(e) => {
         println!("Failed to decode value: {}", e);
+      }
+    };
+    true
+  })?;
+  Ok(())
+}
+
+async fn view_table(store: &RocksDbStore, table: &str, key: &str) -> Result<()> {
+  store.prefix_with(key, None, table, false, |k, v| {
+    let index_key = match Key::try_from(k) {
+      Ok(k) => k,
+      Err(e) => {
+        println!("Failed to decode key {:?}: {}", k, e);
+        return true;
+      }
+    };
+    println!("Key: {}", index_key);
+    print!("Value: ");
+    if index_key.is_index() {
+      match Vec::<IndexItem>::from_bytes(v) {
+        Ok(v) => {
+          serde_json::to_writer_pretty(std::io::stdout(), &v).unwrap();
+          println!();
+        }
+        Err(e) => {
+          println!("Failed to decode value: {}", e);
+        }
+      }
+    } else {
+      match Table::from_bytes(v) {
+        Ok(t) => {
+          serde_json::to_writer_pretty(std::io::stdout(), &t).unwrap();
+          println!();
+        }
+        Err(e) => {
+          println!("Failed to decode value: {}", e);
+        }
       }
     };
     true
