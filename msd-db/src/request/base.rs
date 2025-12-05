@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use crate::errors::DbError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct RequestKey {
   pub table: String,
   pub obj: String,
@@ -20,8 +20,11 @@ pub(crate) fn broadcast_key() -> &'static RequestKey {
 }
 
 impl RequestKey {
-  pub fn new(table: String, obj: String) -> Self {
-    Self { table, obj }
+  pub fn new<S: Into<String>>(table: S, obj: S) -> Self {
+    Self {
+      table: table.into(),
+      obj: obj.into(),
+    }
   }
   pub fn is_broadcast(&self) -> bool {
     self == broadcast_key()

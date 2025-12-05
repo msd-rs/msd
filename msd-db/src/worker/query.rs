@@ -86,6 +86,10 @@ impl<S: MsdStore> Worker<S> {
             return false;
           }
         };
+        if key.is_index() {
+          // got less boundary
+          return false;
+        }
         let seq = key.get_seq() as usize;
         if seq < first_seq {
           trace!(%key, first_seq, last_seq, "Reached beyond needed chunks");

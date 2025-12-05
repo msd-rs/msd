@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use super::base::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QueryRequest {
   #[serde(flatten)]
   pub key: RequestKey,

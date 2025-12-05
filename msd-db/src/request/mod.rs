@@ -50,12 +50,12 @@ impl Request {
     (Request::Query { req, resp_tx }, resp_rx)
   }
 
-  pub fn create_table(name: String, table: Table) -> Self {
-    Request::Broadcast(Broadcast::CreateTable(name, table))
+  pub fn create_table<S: Into<String>>(name: S, table: Table) -> Self {
+    Request::Broadcast(Broadcast::CreateTable(name.into(), table))
   }
 
-  pub fn drop_table(name: String) -> Self {
-    Request::Broadcast(Broadcast::DropTable(name))
+  pub fn drop_table<S: Into<String>>(name: S) -> Self {
+    Request::Broadcast(Broadcast::DropTable(name.into()))
   }
 
   pub fn update_schema(schema_map: HashMap<String, Table>) -> Self {

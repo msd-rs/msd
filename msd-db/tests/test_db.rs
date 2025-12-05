@@ -1,11 +1,11 @@
-use std::{collections::HashMap, sync::Arc, vec};
+use std::{collections::HashMap, vec};
 
 use anyhow::Result;
 use msd_db::{
   MsdDb,
-  request::{Broadcast, InsertData, InsertRequest, Request, RequestKey},
+  request::{InsertData, InsertRequest, QueryRequest, Request, RequestKey},
 };
-use msd_store::{MsdStore, RocksDbStore};
+use msd_store::RocksDbStore;
 use msd_table::{Series, Table, Variant, parse_datetime, table};
 
 const DATA_DIR: &str = "/tmp/msd_store_test_db";
@@ -36,15 +36,34 @@ fn create_table() -> Table {
   table.with_metadata(metadata)
 }
 
-#[tokio::test]
-async fn test_create_db() -> Result<()> {
-  remove_db()?;
+async fn init_db(clear: bool) -> Result<Db> {
+  if clear {
+    remove_db()?;
+  }
   let db = create_db().await?;
   let table = create_table();
-
-  let req = Request::create_table("kline1d".into(), table);
-
+  let req = Request::create_table("kline1d", table);
   db.request(req).await?;
+  Ok(db)
+}
+
+fn sample_data(n: usize) -> Vec<Series> {
+  let ts = build_datetime_series("2023-01-01", n, 86400).unwrap();
+  let open = build_f64_series(10.0, n, 1.0);
+  vec![ts, open]
+}
+
+#[tokio::test]
+async fn test_create_db() -> Result<()> {
+  let db = init_db(true).await?;
+
+  let invalid_table = table!(
+    {name: "ts", kind: u64}, // invalid primary key
+    {name: "open", kind: f64},
+  );
+  let req = Request::create_table("invalid_t1", invalid_table);
+  let res = db.request(req).await;
+  assert!(res.is_err());
 
   Ok(())
 }
@@ -63,26 +82,38 @@ fn build_f64_series(start: f64, count: usize, step: f64) -> Series {
 
 #[tokio::test]
 async fn test_insert_new() -> Result<()> {
-  remove_db()?;
-  let db = create_db().await?;
-  let table = create_table();
-
-  let req = Request::create_table("kline1d".into(), table);
-
-  db.request(req).await?;
-
+  let db = init_db(true).await?;
   let n = 25;
   let (req, rx) = Request::insert(InsertRequest {
-    key: RequestKey::new("kline1d".into(), "SH600000".into()),
-    data: InsertData::Columns(vec![
-      build_datetime_series("2023-01-01", n, 86400)?,
-      build_f64_series(10.0, n, 1.0),
-    ]),
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(sample_data(n)),
   });
 
   db.request(req).await?;
+  let _res = rx.await??;
+  Ok(())
+}
 
+#[tokio::test]
+async fn test_query() -> Result<()> {
+  let db = init_db(true).await?;
+  let n = 25;
+  let (req, rx) = Request::insert(InsertRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(sample_data(n)),
+  });
+
+  db.request(req).await?;
   let _res = rx.await??;
 
+  let (req, rx) = Request::query(QueryRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    ..Default::default()
+  });
+
+  db.request(req).await?;
+  let table = rx.await??;
+  assert_eq!(table.column_count(), 2);
+  assert_eq!(table.row_count(), n);
   Ok(())
 }

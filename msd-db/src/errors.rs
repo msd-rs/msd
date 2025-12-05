@@ -33,4 +33,6 @@ pub enum DbError {
   CacheNotFound(RequestKey),
   #[error("Internal error: {0}")]
   InternalError(String),
+  #[error("Invalid table schema: {0}")]
+  InvalidTableSchema(String),
 }

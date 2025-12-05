@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::serde::DbBinary;
 use msd_store::MsdStore;
-use msd_table::Table;
+use msd_table::{DataType, Table};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -120,6 +120,26 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   }
 
   fn create_table(&self, name: &str, table: &Table) -> Result<(), DbError> {
+    if table.column_count() == 0 {
+      return Err(DbError::InvalidTableSchema(
+        "table must have at least one column".to_string(),
+      ));
+    }
+    match table.column_by_index(table.pk_column()) {
+      Some(pk_column) => {
+        if pk_column.kind != DataType::DateTime {
+          return Err(DbError::InvalidTableSchema(
+            "primary key must be of type datetime".to_string(),
+          ));
+        }
+      }
+      None => {
+        return Err(DbError::InvalidTableSchema(
+          "table must have a primary key".to_string(),
+        ));
+      }
+    }
+
     self.store.new_table(SCHEMA_TABLE_NAME)?;
     self.store.new_table(name)?;
 
