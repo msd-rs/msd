@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::errors::DbError;
-use crate::request::{Broadcast, InsertRequest, QueryRequest, Request, RequestKey};
+use crate::request::{Broadcast, Request, RequestKey};
 use crate::worker::Worker;
 
 const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";

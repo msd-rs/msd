@@ -6,7 +6,6 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::TableError;
-use crate::Variant;
 
 #[derive(
   Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy, bincode::Encode, bincode::Decode,

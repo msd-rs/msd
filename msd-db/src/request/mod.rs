@@ -69,7 +69,7 @@ impl Deref for Request {
     match self {
       Request::Insert { req, .. } => &req.key,
       Request::Query { req, .. } => &req.key,
-      Request::Broadcast(_) => BROADCAST_KEY(),
+      Request::Broadcast(_) => broadcast_key(),
     }
   }
 }

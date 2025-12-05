@@ -1,6 +1,6 @@
 use tracing::warn;
 
-use crate::{D64, DataType, Table, TableError, Variant};
+use crate::{Table, TableError, Variant};
 use std::io::prelude::*;
 
 pub fn table_to_csv<W: Write>(table: &Table, w: W, sep: u8) -> Result<(), TableError> {
