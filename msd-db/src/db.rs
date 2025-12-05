@@ -121,6 +121,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
   fn create_table(&self, name: &str, table: &Table) -> Result<(), DbError> {
     self.store.new_table(SCHEMA_TABLE_NAME)?;
+    self.store.new_table(name)?;
 
     let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, name);
     let value = table.to_bytes()?;

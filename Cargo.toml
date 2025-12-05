@@ -2,7 +2,7 @@
 
 [workspace]
 resolver = "3"
-members = ["msd", "msd-store", "msd-table", "msd-db"]
+members = ["msd", "msd-store", "msd-table", "msd-db", "msd-db-viewer"]
 
 [workspace.package]
 edition = "2024"
@@ -10,6 +10,7 @@ version = "0.1.0"
 authors = ["Jia <lijia.c@gmail.com>"]
 
 [workspace.dependencies]
+clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive", "rc"] }
@@ -21,3 +22,6 @@ time = { version = "0.3", features = [
   "local-offset",
 ] }
 tracing = { version = "0.1" }
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3" }
+dotenvy = "0.15"

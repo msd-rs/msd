@@ -20,6 +20,9 @@ pub(crate) fn BROADCAST_KEY() -> &'static RequestKey {
 }
 
 impl RequestKey {
+  pub fn new(table: String, obj: String) -> Self {
+    Self { table, obj }
+  }
   pub fn is_broadcast(&self) -> bool {
     self == BROADCAST_KEY()
   }

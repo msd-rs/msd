@@ -1,0 +1,18 @@
+[package]
+name = "msd-db-viewer"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description = "debug tools to view msd db files"
+
+[dependencies]
+msd-db = { path = "../msd-db" }
+msd-table = { path = "../msd-table" }
+msd-store = { path = "../msd-store", features = ["rocksdb"] }
+tokio.workspace = true
+anyhow.workspace = true
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+serde_json.workspace = true
