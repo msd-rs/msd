@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use msd_db::{DbBinary, index::IndexItem, keys::Key};
+use msd_db::{DbBinary, index::IndexItem};
+use msd_request::Key;
 use msd_store::{MsdStore, RocksDbStore};
 use msd_table::Table;
 

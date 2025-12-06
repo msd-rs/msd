@@ -2,7 +2,14 @@
 
 [workspace]
 resolver = "3"
-members = ["msd", "msd-store", "msd-table", "msd-db", "msd-db-viewer"]
+members = [
+  "msd",
+  "msd-store",
+  "msd-table",
+  "msd-db",
+  "msd-db-viewer",
+  "msd-request",
+]
 
 [workspace.package]
 edition = "2024"

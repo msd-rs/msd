@@ -1,0 +1,10 @@
+[package]
+name = "msd-request"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+msd-table = { path = "../msd-table" }
+serde.workspace = true

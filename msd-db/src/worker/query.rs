@@ -3,7 +3,8 @@ use std::ops::Deref;
 use msd_table::Table;
 use tracing::{span, trace};
 
-use crate::{errors::DbError, keys::Key, request::QueryRequest, serde::DbBinary};
+use crate::{errors::DbError, request::QueryRequest, serde::DbBinary};
+use msd_request::Key;
 
 use super::{MsdStore, Worker};
 
@@ -82,7 +83,7 @@ impl<S: MsdStore> Worker<S> {
           Ok(k) => k,
           Err(e) => {
             trace!(key=?k, error=%e, "Failed to parse key in query");
-            inner_err = Some(e);
+            inner_err = Some(DbError::from(e));
             return false;
           }
         };

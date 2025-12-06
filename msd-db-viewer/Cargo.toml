@@ -9,6 +9,7 @@ description = "debug tools to view msd db files"
 msd-db = { path = "../msd-db" }
 msd-table = { path = "../msd-table" }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
+msd-request = { path = "../msd-request" }
 tokio.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true

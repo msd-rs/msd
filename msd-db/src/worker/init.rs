@@ -1,13 +1,12 @@
 use crate::{
   errors::DbError,
   index::IndexItem,
-  keys::Key,
-  request::RequestKey,
   serde::DbBinary,
   worker::{agg_state::AggState, cache::CacheValue},
 };
 
 use super::Worker;
+use msd_request::{Key, RequestKey};
 use msd_store::MsdStore;
 use msd_table::Table;
 

@@ -1,18 +1,13 @@
 //! Request module containing different types of requests that can be sent to the database workers.
 //!
 
-mod base;
-mod broadcast;
-mod insert;
-mod query;
+use std::{collections::HashMap, hash::Hash, ops::Deref};
 
-use std::{collections::HashMap, ops::Deref};
-
-pub use base::*;
-pub use broadcast::*;
-pub use insert::*;
+pub use msd_request::*;
 use msd_table::Table;
-pub use query::*;
+use tokio::sync::oneshot;
+
+use crate::errors::DbError;
 
 /// A Request to be processed by a database worker.
 ///
@@ -72,4 +67,30 @@ impl Deref for Request {
       Request::Broadcast(_) => broadcast_key(),
     }
   }
+}
+
+pub type RequestSender<T> = oneshot::Sender<Result<T, DbError>>;
+pub type RequestReceiver<T> = oneshot::Receiver<Result<T, DbError>>;
+
+pub trait DbRequest: Deref<Target = RequestKey> + Hash + Sized + Send {
+  type Response;
+
+  fn to_request(
+    self,
+  ) -> (
+    Self,
+    RequestSender<Self::Response>,
+    RequestReceiver<Self::Response>,
+  ) {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    (self, resp_tx, resp_rx)
+  }
+}
+
+impl DbRequest for InsertRequest {
+  type Response = InsertResponse;
+}
+
+impl DbRequest for QueryRequest {
+  type Response = QueryResponse;
 }

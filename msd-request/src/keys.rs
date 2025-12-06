@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 
-use crate::errors::DbError;
+use crate::errors::RequestError;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Key(Vec<u8>);
@@ -98,11 +98,11 @@ impl AsRef<[u8]> for Key {
 }
 
 impl TryFrom<&[u8]> for Key {
-  type Error = DbError;
+  type Error = RequestError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
     if value.len() < 9 || value[value.len() - 9] != KEY_SEPARATOR {
-      return Err(DbError::InvalidKeyFormat(value.to_vec()));
+      return Err(RequestError::InvalidKeyFormat(value.to_vec()));
     }
     Ok(Key(value.to_vec()))
   }

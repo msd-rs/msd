@@ -13,6 +13,7 @@ time.workspace = true
 tracing.workspace = true
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
+msd-request = { path = "../msd-request" }
 tokio.workspace = true
 bincode.workspace = true
 rustc-hash = "2.1.1"

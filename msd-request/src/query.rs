@@ -62,7 +62,3 @@ impl Hash for QueryRequest {
 }
 
 pub type QueryResponse = Table;
-
-impl DbRequest for QueryRequest {
-  type Response = QueryResponse;
-}

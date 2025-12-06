@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::Deref;
 
-use crate::errors::DbError;
+use crate::errors::RequestError;
 
 use super::base::*;
 
@@ -35,19 +35,19 @@ impl Deref for InsertRequest {
 }
 
 impl InsertData {
-  pub fn to_table(self, schema: &Table) -> Result<Table, DbError> {
+  pub fn to_table(self, schema: &Table) -> Result<Table, RequestError> {
     match self {
       InsertData::Rows(rows) => {
         let mut table = Table::to_empty(schema);
         for row in rows {
-          table.push_row(row).map_err(|e| DbError::from(e))?;
+          table.push_row(row).map_err(|e| RequestError::from(e))?;
         }
         Ok(table)
       }
       InsertData::Columns(cols) => {
         let mut table = Table::to_empty(schema);
 
-        table.set_columns(cols).map_err(|e| DbError::from(e))?;
+        table.set_columns(cols).map_err(|e| RequestError::from(e))?;
 
         Ok(table)
       }
@@ -56,7 +56,3 @@ impl InsertData {
 }
 
 pub type InsertResponse = ();
-
-impl DbRequest for InsertRequest {
-  type Response = InsertResponse;
-}
