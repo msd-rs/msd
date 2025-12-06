@@ -168,19 +168,27 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
   Ok(Duration::new(seconds, 0))
 }
 
-fn parse_unit(s: &[u8]) -> Result<i64, bool> {
+/// parse time unit string like "1s", "5m", "2h", "1d", "1w", "1M", "1y"
+///
+/// - for "s", "m", "h", "d", the returned value is in microseconds
+/// - for "w", "M", "y", the returned value is (n, unit char)
+pub fn parse_unit(s: &str) -> Result<(i64, u8), bool> {
   if s.is_empty() {
     return Err(false);
   }
 
+  let s = s.as_bytes();
+
   let unit: i64 = match s[s.len() - 1] {
-    b's' => 1,
-    b'm' => 60,
-    b'h' => 60 * 60,
-    b'd' => 60 * 60 * 24,
+    b's' => 1 * 1_000_000,
+    b'm' => 60 * 1_000_000,
+    b'h' => 60 * 60 * 1_000_000,
+    b'd' => 60 * 60 * 24 * 1_000_000,
+    b'w' | b'M' | b'y' => 1, // special handling
     _ => -1,
   };
-  if unit < 0 {
+
+  if unit == -1 {
     return Err(false);
   }
 
@@ -191,50 +199,60 @@ fn parse_unit(s: &[u8]) -> Result<i64, bool> {
       n += (b - b'0') as i64;
     }
   }
-  Ok(n * unit * 1_000_000)
+  Ok((n * unit, s[s.len() - 1]))
 }
 
-pub fn round_ts(src: i64, unit: &str) -> Result<i64, bool> {
-  const ONE_DAY: i64 = 24 * 60 * 60 * 1_000_000;
-
-  if unit.ends_with('w') {
-    let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
-    let src = src - ((src + offset) % ONE_DAY);
-    let dt = to_datetime(src);
-    let ndays = dt.weekday().number_days_from_monday() as i64;
-    return Ok(src - ndays * ONE_DAY);
-  } else if unit.ends_with('M') {
-    let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
-    let src = src - ((src + offset) % ONE_DAY);
-    let dt = to_datetime(src);
-    let ndays = (dt.day() - 1) as i64;
-    return Ok(src - ndays * ONE_DAY);
-  } else if unit.ends_with('y') {
-    let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
-    let src = src - ((src + offset) % ONE_DAY);
-    let dt = to_datetime(src);
-    let ndays = (dt.ordinal() - 1) as i64;
-    return Ok(src - ndays * ONE_DAY);
+/// round the timestamp `src` to the given time unit parsed by [`parse_unit`]
+pub fn round_ts(src: i64, unit: &(i64, u8)) -> Result<i64, bool> {
+  // no need to round
+  if unit.0 == 1 && unit.1 == b's' {
+    return Ok(src);
   }
 
-  let unit = unit.as_bytes();
-  let offset = unit
-    .last()
-    .map(|b| {
-      if b'd'.eq(b) {
-        (TZ_LOCAL.load(Ordering::Relaxed)) as i64 * 3600_000_000
-      } else {
-        0
-      }
-    })
-    .unwrap_or(0);
-  let unit = parse_unit(unit)?;
-  Ok(src - ((src + offset) % unit))
+  const ONE_DAY: i64 = 24 * 60 * 60 * 1_000_000;
+  let (num, kind) = unit; //parse_unit(unit.as_bytes())?;
+
+  match kind {
+    b'w' => {
+      // week
+      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
+      let src = src - ((src + offset) % ONE_DAY);
+      let dt = to_datetime(src);
+      let days = dt.weekday().number_days_from_monday() as i64;
+      return Ok(src - days * ONE_DAY);
+    }
+    b'M' => {
+      // month
+      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
+      let src = src - ((src + offset) % ONE_DAY);
+      let dt = to_datetime(src);
+      let days = (dt.day() - 1) as i64;
+      return Ok(src - days * ONE_DAY);
+    }
+    b'y' => {
+      // year
+      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
+      let src = src - ((src + offset) % ONE_DAY);
+      let dt = to_datetime(src);
+      let days = (dt.ordinal() - 1) as i64;
+      return Ok(src - days * ONE_DAY);
+    }
+    b'd' => {
+      // day
+      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
+      return Ok(src - ((src + offset) % ONE_DAY));
+    }
+    _ => {
+      // other fixed unit
+      return Ok(src - (src % num));
+    }
+  }
 }
 
 pub fn add_duration(dt: i64, duration: Option<&str>) -> i64 {
   dt + duration
-    .and_then(|s| parse_unit(s.as_bytes()).ok())
+    .and_then(|s| parse_unit(s).ok())
+    .map(|(n, _)| n)
     .unwrap_or_default()
 }
 
@@ -402,25 +420,25 @@ mod tests {
   fn test_round_ts() -> Result<()> {
     let dt = parse_datetime("1650572430000")?;
 
-    let r1h = round_ts(dt, "1h").unwrap();
-    let r1d = round_ts(dt, "1d").unwrap();
+    let r1h = round_ts(dt, &parse_unit("1h").unwrap()).unwrap();
+    let r1d = round_ts(dt, &parse_unit("1d").unwrap()).unwrap();
 
     assert_eq!(to_datetime(r1h), datetime!(2022-04-22 04:00:00 +8));
 
     assert_eq!(to_datetime(r1d), datetime!(2022-04-22 00:00:00 +8));
 
     assert_eq!(
-      to_datetime(round_ts(dt, "1w").unwrap()),
+      to_datetime(round_ts(dt, &parse_unit("1w").unwrap()).unwrap()),
       datetime!(2022-04-18 00:00:00 +8)
     );
 
     assert_eq!(
-      to_datetime(round_ts(dt, "1M").unwrap()),
+      to_datetime(round_ts(dt, &parse_unit("1M").unwrap()).unwrap()),
       datetime!(2022-04-01 00:00:00 +8)
     );
 
     assert_eq!(
-      to_datetime(round_ts(dt, "1y").unwrap()),
+      to_datetime(round_ts(dt, &parse_unit("1y").unwrap()).unwrap()),
       datetime!(2022-01-01 00:00:00 +8)
     );
 

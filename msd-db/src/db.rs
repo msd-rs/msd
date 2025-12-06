@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::serde::DbBinary;
 use msd_store::MsdStore;
-use msd_table::{DataType, Table};
+use msd_table::{DataType, Table, parse_unit};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -120,11 +120,15 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   }
 
   fn create_table(&self, name: &str, table: &Table) -> Result<(), DbError> {
+    // Before creating the table, validate its schema
+
+    // must have at least one column
     if table.column_count() == 0 {
       return Err(DbError::InvalidTableSchema(
         "table must have at least one column".to_string(),
       ));
     }
+    // primary key must be of type DateTime
     match table.column_by_index(table.pk_column()) {
       Some(pk_column) => {
         if pk_column.kind != DataType::DateTime {
@@ -140,6 +144,32 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       }
     }
 
+    // chunkSize should be UInt32 and greater than 0 if exists
+    if let Some(chunk_size) = table.get_table_meta("chunkSize") {
+      // if chunkSize metadata exists, it must be of type UInt32
+      let chunk_size = chunk_size.get_u32().ok_or(DbError::InvalidTableSchema(
+        "chunkSize metadata must be of type UInt32".to_string(),
+      ))?;
+      if *chunk_size == 0 {
+        return Err(DbError::InvalidTableSchema(
+          "chunkSize metadata must be greater than 0".to_string(),
+        ));
+      }
+    }
+
+    // round should be a valid time unit string if exists
+    if let Some(round) = table.get_table_meta("round") {
+      // if round metadata exists, it must be of type String
+      let round = round.get_str().ok_or(DbError::InvalidTableSchema(
+        "round metadata must be of type String".to_string(),
+      ))?;
+      // validate round unit
+      parse_unit(round).map_err(|_| {
+        DbError::InvalidTableSchema("round metadata has invalid time unit".to_string())
+      })?;
+    }
+
+    // Create the table in the store
     self.store.new_table(SCHEMA_TABLE_NAME)?;
     self.store.new_table(name)?;
 
