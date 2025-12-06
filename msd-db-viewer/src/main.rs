@@ -35,16 +35,20 @@ async fn main() -> Result<()> {
   let store = RocksDbStore::new(&options.db_path)?;
   match options.table.as_str() {
     "__SCHEMA__" => {
+      println!("[");
       let key = options.key.as_ref().map(String::as_str).unwrap_or("");
       view_schema(&store, key).await?;
+      println!("]");
     }
     _ => {
+      println!("[");
       view_table(
         &store,
         options.table.as_str(),
         options.key.unwrap_or_default().as_str(),
       )
-      .await?
+      .await?;
+      println!("]");
     }
   }
 
@@ -52,9 +56,10 @@ async fn main() -> Result<()> {
 }
 
 async fn view_schema(store: &RocksDbStore, key: &str) -> Result<()> {
+  println!("{{");
   store.prefix_with(key, None, "__SCHEMA__", false, |k, v| {
-    println!("Key: {}", String::from_utf8_lossy(k));
-    print!("Value: ");
+    println!("\"Key\": \"{}\"", String::from_utf8_lossy(k));
+    print!("\"Value\": ");
     match Table::from_bytes(v) {
       Ok(t) => {
         serde_json::to_writer_pretty(std::io::stdout(), &t).unwrap();
@@ -65,11 +70,20 @@ async fn view_schema(store: &RocksDbStore, key: &str) -> Result<()> {
     };
     true
   })?;
+  println!("}}");
   Ok(())
 }
 
 async fn view_table(store: &RocksDbStore, table: &str, key: &str) -> Result<()> {
+  let mut is_first = true;
   store.prefix_with(key, None, table, false, |k, v| {
+    if is_first {
+      is_first = false;
+      println!();
+    } else {
+      println!(",");
+    }
+    println!("{{");
     let index_key = match Key::try_from(k) {
       Ok(k) => k,
       Err(e) => {
@@ -77,8 +91,8 @@ async fn view_table(store: &RocksDbStore, table: &str, key: &str) -> Result<()> 
         return true;
       }
     };
-    println!("Key: {}", index_key);
-    print!("Value: ");
+    println!("\"Key\": \"{}\",", index_key);
+    print!("\"Value\": ");
     if index_key.is_index() {
       match Vec::<IndexItem>::from_bytes(v) {
         Ok(v) => {
@@ -100,7 +114,9 @@ async fn view_table(store: &RocksDbStore, table: &str, key: &str) -> Result<()> 
         }
       }
     };
+    print!("}}");
     true
   })?;
+  println!();
   Ok(())
 }

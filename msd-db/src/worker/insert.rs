@@ -1,5 +1,5 @@
 use msd_table::{DataType, Variant, round_ts};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::{MsdStore, Worker};
 use crate::errors::DbError;
@@ -112,10 +112,21 @@ impl<S: MsdStore> Worker<S> {
 
     // Get the min pk from cached table (first row's pk)
     let cached_min_pk = if cache.cached.row_count() > 0 {
-      cache.cached.cell(0, pk_col).get_u64().copied().unwrap_or(0)
+      cache
+        .cached
+        .cell(0, pk_col)
+        .get_datetime()
+        .copied()
+        .unwrap_or(0)
     } else {
       0
     };
+
+    debug!(
+      key = ?req.key,
+      cached_min_pk = cached_min_pk,
+      "Found existing cache for insert"
+    );
 
     // Track new chunks to flush
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
@@ -153,6 +164,13 @@ impl<S: MsdStore> Worker<S> {
       } else {
         0
       };
+      debug!(
+        key = %req.key,
+        raw_pk,
+        pk,
+        last_cached_pk,
+        "Processing incoming row"
+      );
 
       if pk == last_cached_pk && cached_row_count > 0 {
         // Update existing row using agg states
@@ -182,25 +200,12 @@ impl<S: MsdStore> Worker<S> {
         // First check if we need to rotate chunk
         if cache.cached.row_count() >= chunk_size {
           // Rotate chunk: save current chunk and create new empty one
-          let seq = cache.index.len() as u32;
+          assert!(
+            cache.index.len() > 0,
+            "Cache index should have at least one item when rotating chunk"
+          );
+          let seq = (cache.index.len() - 1) as u32;
           let old_chunk = std::mem::replace(&mut cache.cached, schema.to_empty());
-
-          // Update index for the old chunk
-          let old_start = old_chunk
-            .cell(0, pk_col)
-            .get_datetime()
-            .copied()
-            .unwrap_or(0);
-          let old_end = old_chunk
-            .cell(old_chunk.row_count() - 1, pk_col)
-            .get_datetime()
-            .copied()
-            .unwrap_or(0);
-          cache.index.push(IndexItem {
-            start: old_start,
-            end: old_end,
-            count: old_chunk.row_count() as u64,
-          });
 
           // Queue chunk for flushing
           new_chunks.push((seq, old_chunk));
@@ -211,6 +216,8 @@ impl<S: MsdStore> Worker<S> {
               s.reset();
             }
           }
+          // Add new index item
+          cache.index.push(IndexItem::default());
         }
 
         // Build the row with rounded pk
@@ -228,6 +235,13 @@ impl<S: MsdStore> Worker<S> {
         }
 
         cache.cached.push_row(new_row).map_err(DbError::from)?;
+        cache.index.last_mut().map(|item| {
+          if item.count == 0 {
+            item.start = pk;
+          }
+          item.count += 1;
+          item.end = pk;
+        });
       }
     }
 
@@ -243,6 +257,7 @@ impl<S: MsdStore> Worker<S> {
     // Flush updated index to storage
     let cache = self.cache.get(&req.key).unwrap();
     self.flush_index(&req.key, &cache.index)?;
+    self.flush_chunk(&req.key, &cache.cached, cache.index.len() as u32)?;
 
     Ok(())
   }

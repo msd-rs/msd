@@ -1,4 +1,5 @@
 use std::{collections::HashMap, vec};
+use tracing::debug;
 
 use anyhow::Result;
 use msd_db::{
@@ -7,16 +8,24 @@ use msd_db::{
 };
 use msd_store::RocksDbStore;
 use msd_table::{Series, Table, Variant, parse_datetime, table};
+use tracing_subscriber::field::debug;
 
 const DATA_DIR: &str = "/tmp/msd_store_test_db";
 
 type Db = MsdDb<RocksDbStore>;
+
+fn setup() {
+  tracing_subscriber::fmt()
+    .with_env_filter("msd_db=debug")
+    .init();
+}
 
 async fn create_db() -> Result<Db> {
   let s = RocksDbStore::new(DATA_DIR)?;
   let db = MsdDb::new(s, 1).await?;
   Ok(db)
 }
+
 fn remove_db() -> Result<()> {
   let _ = std::fs::remove_dir_all(DATA_DIR);
   Ok(())
@@ -47,8 +56,8 @@ async fn init_db(clear: bool) -> Result<Db> {
   Ok(db)
 }
 
-fn sample_data(n: usize) -> Vec<Series> {
-  let ts = build_datetime_series("2023-01-01", n, 86400).unwrap();
+fn sample_data(n: usize, start_date: &str) -> Vec<Series> {
+  let ts = build_datetime_series(start_date, n, 86400).unwrap();
   let open = build_f64_series(10.0, n, 1.0);
   vec![ts, open]
 }
@@ -86,11 +95,45 @@ async fn test_insert_new() -> Result<()> {
   let n = 25;
   let (req, rx) = Request::insert(InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
-    data: InsertData::Columns(sample_data(n)),
+    data: InsertData::Columns(sample_data(n, "2023-01-01")),
   });
 
   db.request(req).await?;
   let _res = rx.await??;
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_insert_existing() -> Result<()> {
+  setup();
+
+  let db = init_db(true).await?;
+  let n = 25;
+  let (req, rx) = Request::insert(InsertRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(sample_data(n, "2023-01-01")),
+  });
+
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let (req, rx) = Request::insert(InsertRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(sample_data(n, "2023-01-26")),
+  });
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let (req, rx) = Request::query(QueryRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    ..Default::default()
+  });
+
+  db.request(req).await?;
+  let table = rx.await??;
+  assert_eq!(table.column_count(), 2);
+  assert_eq!(table.row_count(), n * 2);
+
   Ok(())
 }
 
@@ -100,7 +143,7 @@ async fn test_query() -> Result<()> {
   let n = 25;
   let (req, rx) = Request::insert(InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
-    data: InsertData::Columns(sample_data(n)),
+    data: InsertData::Columns(sample_data(n, "2023-01-01")),
   });
 
   db.request(req).await?;
