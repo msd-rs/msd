@@ -124,14 +124,14 @@ mod tests {
     let key0 = Key::new_data("obj1", 0);
     let key1 = Key::new_data("obj1", 1);
     let key2 = Key::new_data("obj1", 2);
-    let keyi = Key::new_index("obj1");
+    let key_index = Key::new_index("obj1");
 
     assert!(key2 < key1);
     assert!(key1 < key0);
 
-    assert!(keyi < key0);
-    assert!(keyi < key1);
-    assert!(keyi < key2);
+    assert!(key_index < key0);
+    assert!(key_index < key1);
+    assert!(key_index < key2);
 
     assert!(
       key1.get_obj() == key2.get_obj(),

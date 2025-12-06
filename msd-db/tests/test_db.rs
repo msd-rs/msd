@@ -1,5 +1,4 @@
 use std::{collections::HashMap, vec};
-use tracing::debug;
 
 use anyhow::Result;
 use msd_db::{
@@ -8,7 +7,6 @@ use msd_db::{
 };
 use msd_store::RocksDbStore;
 use msd_table::{Series, Table, Variant, parse_datetime, table};
-use tracing_subscriber::field::debug;
 
 const DATA_DIR: &str = "/tmp/msd_store_test_db";
 
