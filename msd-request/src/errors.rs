@@ -10,22 +10,8 @@ pub enum RequestError {
   InvalidKeyFormat(Vec<u8>),
   #[error("Table Error")]
   TableError(#[from] msd_table::TableError),
-  //#[error("Encode Error")]
-  // BinaryEncodeError(#[from] bincode::error::EncodeError),
-  // #[error("Decode Error")]
-  // BinaryDecodeError(#[from] bincode::error::DecodeError),
-  #[error("Not found {0}")]
-  NotFound(RequestKey),
-  #[error("Chunk missing for {0} at seq {1}")]
-  ChunkMissing(RequestKey, u32),
-  #[error("Table not found: {0}")]
-  TableNotFound(String),
-  #[error("Invalid agg type for field: {0}")]
-  InvalidAgg(String),
-  #[error("Cache not found for key: {0:?}")]
-  CacheNotFound(RequestKey),
-  #[error("Internal error: {0}")]
-  InternalError(String),
-  #[error("Invalid table schema: {0}")]
-  InvalidTableSchema(String),
+  #[error("SQL Parse Error")]
+  SqlParseError(#[from] sqlparser::parser::ParserError),
+  #[error("Unsupported SQL statement")]
+  UnsupportedSqlStatement,
 }

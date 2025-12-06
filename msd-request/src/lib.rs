@@ -7,6 +7,7 @@ mod errors;
 mod insert;
 mod keys;
 mod query;
+pub mod sql;
 
 pub use base::*;
 pub use broadcast::*;
