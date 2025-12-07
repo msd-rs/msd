@@ -1,8 +1,6 @@
 use anyhow::Result;
 use msd_table::{DataType, Variant, parse_datetime};
-use sqlparser::parser::Parser;
 
-use crate::sql::msd_dialect::MsdSqlDialect;
 #[test]
 fn test_sql_parse_create_table() -> Result<()> {
   let sql = r#"
@@ -64,7 +62,6 @@ fn test_sql_parse_insert() -> Result<()> {
   "#;
 
   let req = super::parse_sql_to_request(sql)?;
-  println!("Parsed requests: {:?}", req);
   assert_eq!(req.len(), 2);
 
   match &req[0] {
@@ -118,10 +115,11 @@ COPY kline1d FROM STDIN WITH (FORMAT CSV, HEADER TRUE);
       assert_eq!(insert_req.table, "kline1d");
       assert_eq!(insert_req.obj, "SH600000");
       match &insert_req.data {
-        crate::sql::InsertData::Rows(rows) => {
-          assert_eq!(rows.len(), 2);
-          assert_eq!(rows[0].len(), 6);
-          assert_eq!(rows[1].len(), 6);
+        crate::sql::InsertData::Csv(rows) => {
+          assert_eq!(
+            rows,
+            "'2023-01-01',100.0,110.0,90.0,105.0\n'2023-01-02',105.0,115.0,95.0,110.0"
+          );
         }
         _ => panic!("Expected Rows data"),
       }
@@ -134,10 +132,11 @@ COPY kline1d FROM STDIN WITH (FORMAT CSV, HEADER TRUE);
       assert_eq!(insert_req.table, "kline1d");
       assert_eq!(insert_req.obj, "SH600001");
       match &insert_req.data {
-        crate::sql::InsertData::Rows(rows) => {
-          assert_eq!(rows.len(), 2);
-          assert_eq!(rows[0].len(), 6);
-          assert_eq!(rows[1].len(), 6);
+        crate::sql::InsertData::Csv(rows) => {
+          assert_eq!(
+            rows,
+            "'2023-01-01',100.0,110.0,90.0,105.0\n'2023-01-02',105.0,115.0,95.0,110.0"
+          );
         }
         _ => panic!("Expected Rows data"),
       }

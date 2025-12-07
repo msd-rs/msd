@@ -62,7 +62,6 @@ impl Dialect for MsdSqlDialect {
     parser: &mut Parser,
   ) -> Result<Option<Result<Option<ColumnOption>, ParserError>>, ParserError> {
     let t = parser.peek_token();
-    println!("parse_column_option: {:?}", t);
     match t.token {
       Token::Word(ref w) if w.keyword == Keyword::NoKeyword => {
         if AGGREGATE_KEYWORDS

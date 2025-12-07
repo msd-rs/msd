@@ -24,6 +24,22 @@ pub enum SqlRequest {
 }
 
 pub fn parse_sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
+  let sql = sql.trim();
+
+  if let Some((first_line, rest)) = sql.split_once('\n') {
+    let mut part = first_line.split(char::is_whitespace);
+    if part.next().map(|s| s.eq_ignore_ascii_case("COPY")) == Some(true) {
+      while let Some(token) = part.next() {
+        // skip empty tokens
+        if token.is_empty() {
+          continue;
+        }
+        // next non-empty token is table name
+        return parse_copy(token, rest);
+      }
+    }
+  }
+
   let dialect = MsdSqlDialect {};
   let ast = Parser::parse_sql(&dialect, sql)?;
 
@@ -243,6 +259,41 @@ fn parse_create_table(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> 
     }
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
+}
+
+fn parse_copy(table_name: &str, csv_data: &str) -> Result<Vec<SqlRequest>, RequestError> {
+  let mut rows = Vec::new();
+  let mut current_obj = "";
+  let mut current_rows = String::new();
+  for line in csv_data.lines() {
+    let line = line.trim();
+    if line.is_empty() {
+      continue;
+    }
+    if let Some((obj, values)) = line.split_once(',') {
+      let obj = obj.trim().trim_matches(|c| c == '\'' || c == '"');
+      if current_obj != "" && current_obj != obj {
+        let req = SqlRequest::Insert(InsertRequest {
+          key: RequestKey::new(table_name, current_obj),
+          data: InsertData::Csv(std::mem::take(&mut current_rows)),
+        });
+        rows.push(req);
+      }
+      current_obj = obj;
+      if !current_rows.is_empty() {
+        current_rows.push('\n');
+      }
+      current_rows.push_str(values);
+    }
+  }
+  if !current_rows.is_empty() {
+    let req = SqlRequest::Insert(InsertRequest {
+      key: RequestKey::new(table_name, current_obj),
+      data: InsertData::Csv(std::mem::take(&mut current_rows)),
+    });
+    rows.push(req);
+  }
+  Ok(rows)
 }
 
 fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {

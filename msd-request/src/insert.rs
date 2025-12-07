@@ -1,6 +1,7 @@
-use msd_table::{Series, Table, Variant};
+use msd_table::{Series, Table, Variant, table_from_csv};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+use std::io::Cursor;
 use std::ops::Deref;
 
 use crate::errors::RequestError;
@@ -11,6 +12,7 @@ use super::base::*;
 pub enum InsertData {
   Rows(Vec<Vec<Variant>>),
   Columns(Vec<Series>),
+  Csv(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,11 @@ impl InsertData {
 
         table.set_columns(cols).map_err(|e| RequestError::from(e))?;
 
+        Ok(table)
+      }
+      InsertData::Csv(csv) => {
+        let table =
+          table_from_csv(Cursor::new(&csv), b',', schema).map_err(|e| RequestError::from(e))?;
         Ok(table)
       }
     }
