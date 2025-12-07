@@ -17,7 +17,7 @@ fn test_sql_parse_create_table() -> Result<()> {
  ); 
   "#;
 
-  let req = super::parse_sql_to_request(sql)?;
+  let req = super::sql_to_request(sql)?;
   assert_eq!(req.len(), 1);
 
   match &req[0] {
@@ -61,7 +61,7 @@ fn test_sql_parse_insert() -> Result<()> {
    ('SH600001', '2023-01-02', 105.0, 115.0, 95.0, 110.0);
   "#;
 
-  let req = super::parse_sql_to_request(sql)?;
+  let req = super::sql_to_request(sql)?;
   assert_eq!(req.len(), 2);
 
   match &req[0] {
@@ -107,7 +107,7 @@ COPY kline1d FROM STDIN WITH (FORMAT CSV, HEADER TRUE);
 'SH600001','2023-01-02',105.0,115.0,95.0,110.0
   "#;
 
-  let req = super::parse_sql_to_request(sql)?;
+  let req = super::sql_to_request(sql)?;
   assert_eq!(req.len(), 2);
 
   match &req[0] {
@@ -157,7 +157,7 @@ fn test_sql_parse_query() -> Result<()> {
  LIMIT 10;
   "#;
 
-  let req = super::parse_sql_to_request(sql)?;
+  let req = super::sql_to_request(sql)?;
   assert_eq!(req.len(), 1);
   match &req[0] {
     super::SqlRequest::Query(query_req) => {

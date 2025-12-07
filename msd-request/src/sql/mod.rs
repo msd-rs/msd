@@ -23,11 +23,35 @@ pub enum SqlRequest {
   Insert(InsertRequest),
 }
 
-pub fn parse_sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
+#[derive(Debug)]
+pub enum SqlRequestType {
+  Unknown,
+  Query,
+  CreateTable,
+  Insert,
+}
+
+pub fn sql_request_type(sql: &str) -> SqlRequestType {
+  if let Some((first_line, _)) = sql.split_once('\n') {
+    let command = first_line.split_whitespace().next().unwrap_or("");
+    if command.eq_ignore_ascii_case("COPY") {
+      return SqlRequestType::Insert;
+    } else if command.eq_ignore_ascii_case("INSERT") {
+      return SqlRequestType::Insert;
+    } else if command.eq_ignore_ascii_case("SELECT") {
+      return SqlRequestType::Query;
+    } else if command.eq_ignore_ascii_case("CREATE") {
+      return SqlRequestType::CreateTable;
+    }
+  }
+  return SqlRequestType::Unknown;
+}
+
+pub fn sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
   let sql = sql.trim();
 
   if let Some((first_line, rest)) = sql.split_once('\n') {
-    let mut part = first_line.split(char::is_whitespace);
+    let mut part = first_line.split_whitespace();
     if part.next().map(|s| s.eq_ignore_ascii_case("COPY")) == Some(true) {
       while let Some(token) = part.next() {
         // skip empty tokens

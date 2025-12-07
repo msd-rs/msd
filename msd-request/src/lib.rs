@@ -8,7 +8,7 @@ mod errors;
 mod insert;
 mod keys;
 mod query;
-pub mod sql;
+mod sql;
 
 pub use agg::*;
 pub use base::*;
@@ -17,3 +17,4 @@ pub use errors::RequestError;
 pub use insert::*;
 pub use keys::*;
 pub use query::*;
+pub use sql::*;
