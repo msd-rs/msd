@@ -2,8 +2,6 @@
 
 use thiserror::Error;
 
-use crate::base::RequestKey;
-
 #[derive(Debug, Error)]
 pub enum RequestError {
   #[error("Invalid key format: {0:?}")]
