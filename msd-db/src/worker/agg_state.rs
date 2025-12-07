@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use msd_request::AggStateId;
 use msd_table::{Field, Table, Variant};
 use rustc_hash::FxHashSet;
 
@@ -17,67 +18,6 @@ pub enum AggState {
   Prev(Variant),            // previous value
 }
 
-#[derive(Debug, Clone)]
-#[repr(u16)]
-pub enum AggStateId {
-  Sum,
-  Count,
-  Min,
-  Max,
-  Avg,
-  Uniq,
-  First,
-  Prev,
-}
-
-impl AggStateId {
-  pub fn from_u16(value: u16) -> Option<Self> {
-    match value {
-      0 => Some(AggStateId::Sum),
-      1 => Some(AggStateId::Count),
-      2 => Some(AggStateId::Min),
-      3 => Some(AggStateId::Max),
-      4 => Some(AggStateId::Avg),
-      5 => Some(AggStateId::First),
-      6 => Some(AggStateId::Uniq),
-      7 => Some(AggStateId::Prev),
-      _ => None,
-    }
-  }
-}
-
-impl FromStr for AggStateId {
-  type Err = ();
-
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
-    match s {
-      "sum" => Ok(AggStateId::Sum),
-      "count" => Ok(AggStateId::Count),
-      "min" => Ok(AggStateId::Min),
-      "max" => Ok(AggStateId::Max),
-      "avg" => Ok(AggStateId::Avg),
-      "first" => Ok(AggStateId::First),
-      "uniq" => Ok(AggStateId::Uniq),
-      "prev" => Ok(AggStateId::Prev),
-      _ => Err(()),
-    }
-  }
-}
-impl ToString for AggStateId {
-  fn to_string(&self) -> String {
-    match self {
-      AggStateId::Sum => "sum".to_string(),
-      AggStateId::Count => "count".to_string(),
-      AggStateId::Min => "min".to_string(),
-      AggStateId::Max => "max".to_string(),
-      AggStateId::Avg => "avg".to_string(),
-      AggStateId::First => "first".to_string(),
-      AggStateId::Uniq => "uniq".to_string(),
-      AggStateId::Prev => "prev".to_string(),
-    }
-  }
-}
-
 impl From<AggStateId> for AggState {
   fn from(id: AggStateId) -> Self {
     match id {
@@ -87,7 +27,7 @@ impl From<AggStateId> for AggState {
       AggStateId::Max => AggState::Max(Variant::Null),
       AggStateId::Avg => AggState::Avg(Variant::Null, 0),
       AggStateId::First => AggState::First(Variant::Null),
-      AggStateId::Uniq => AggState::Uniq(FxHashSet::default()),
+      AggStateId::UniqCount => AggState::Uniq(FxHashSet::default()),
       AggStateId::Prev => AggState::First(Variant::Null),
     }
   }
@@ -102,7 +42,7 @@ impl AggState {
       AggState::Max(_) => AggStateId::Max,
       AggState::Avg(_, _) => AggStateId::Avg,
       AggState::First(_) => AggStateId::First,
-      AggState::Uniq(_) => AggStateId::Uniq,
+      AggState::Uniq(_) => AggStateId::UniqCount,
       AggState::Prev(_) => AggStateId::Prev,
     }
   }

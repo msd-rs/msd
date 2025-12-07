@@ -9,6 +9,16 @@ use sqlparser::{
 #[derive(Debug, Default)]
 pub struct MsdSqlDialect;
 
+const AGGREGATE_KEYWORDS: &[&str] = &[
+  "AGG_FIRST",
+  "AGG_MIN",
+  "AGG_MAX",
+  "AGG_SUM",
+  "AGG_COUNT",
+  "AGG_AVG",
+  "AGG_UNIQ_COUNT",
+];
+
 impl Dialect for MsdSqlDialect {
   // see https://www.sqlite.org/lang_keywords.html
   // parse `...`, [...] and "..." as identifier
@@ -45,6 +55,8 @@ impl Dialect for MsdSqlDialect {
     true
   }
 
+  // msd specific column options
+  // AGG_*: aggregate function, will be parse to a [`super::AggStateId`] to msd table column metadata as 'agg' key
   fn parse_column_option(
     &self,
     parser: &mut Parser,
@@ -53,13 +65,14 @@ impl Dialect for MsdSqlDialect {
     println!("parse_column_option: {:?}", t);
     match t.token {
       Token::Word(ref w) if w.keyword == Keyword::NoKeyword => {
-        match w.value.to_uppercase().as_str() {
-          "AGG_FIRST" | "AGG_MIN" | "AGG_MAX" | "AGG_SUM" | "AGG_COUNT" | "AGG_AVG"
-          | "AGG_UNIQ_COUNT" => {
-            parser.next_token();
-            Ok(Some(Ok(Some(ColumnOption::DialectSpecific(vec![t.token])))))
-          }
-          _ => Ok(None),
+        if AGGREGATE_KEYWORDS
+          .iter()
+          .any(|&kw| kw.eq_ignore_ascii_case(&w.value))
+        {
+          parser.next_token();
+          Ok(Some(Ok(Some(ColumnOption::DialectSpecific(vec![t.token])))))
+        } else {
+          Ok(None)
         }
       }
       _ => Ok(None),
