@@ -32,7 +32,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let store = Arc::new(store);
     let mut workers = Vec::with_capacity(worker_count);
 
-    info!(workers = worker_count, "Starting database workers");
+    info!(workers = worker_count, "database workers starting");
     for i in 0..worker_count {
       let (tx, rx) = mpsc::channel(100);
       workers.push(tx);
@@ -45,7 +45,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       workers,
     };
 
-    info!("Loading database schema");
+    info!("loading database schema");
     match db.load_schema() {
       Ok(schema_map) => {
         db.request(Request::update_schema(schema_map)).await?;
@@ -56,6 +56,18 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     }
 
     Ok(db)
+  }
+
+  pub async fn shutdown(&self) {
+    info!("database workers stopping");
+    for worker in &self.workers {
+      worker
+        .send(Request::Broadcast(Broadcast::Shutdown))
+        .await
+        .unwrap();
+      worker.closed().await;
+    }
+    info!("database workers stopped");
   }
 
   pub async fn request(&self, req: Request) -> Result<(), DbError> {

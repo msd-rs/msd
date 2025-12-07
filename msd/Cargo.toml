@@ -5,9 +5,17 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-
+axum = { version = "0.8", features = [] }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
+msd-db = { path = "../msd-db" }
+msd-request = { path = "../msd-request" }
+msd-table = { path = "../msd-table" }
+serde.workspace = true
 anyhow.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber.workspace = true
 tracing-appender = { version = "0.2" }
 tracing.workspace = true
+tokio.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+time.workspace = true

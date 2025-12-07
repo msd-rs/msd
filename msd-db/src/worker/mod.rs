@@ -9,7 +9,7 @@ use std::sync::Arc;
 use msd_store::MsdStore;
 use msd_table::Table;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::errors::DbError;
 use crate::index::IndexItem;
@@ -43,7 +43,7 @@ impl<S: MsdStore> Worker<S> {
   }
 
   pub async fn run(mut self, mut rx: mpsc::Receiver<Request>) {
-    info!(id = self.id, "Worker started");
+    info!(id = self.id, "worker started");
     while let Some(req) = rx.recv().await {
       match req {
         Request::Insert { req, resp_tx } => {
@@ -53,6 +53,11 @@ impl<S: MsdStore> Worker<S> {
         Request::Query { req, resp_tx } => {
           let res = self.handle_query(req);
           let _ = resp_tx.send(res);
+        }
+        Request::Broadcast(Broadcast::Shutdown) => {
+          self.handle_shutdown();
+          rx.close();
+          break;
         }
         Request::Broadcast(message) => {
           self.handle_broadcast(message);
@@ -73,7 +78,27 @@ impl<S: MsdStore> Worker<S> {
       Broadcast::DropTable(table) => {
         self.schema.remove(&table);
       }
+      _ => { /* ignore other broadcast messages */ }
     }
+  }
+
+  fn handle_shutdown(&self) {
+    info!(id = self.id, "worker stopping");
+    for (key, cache_item) in &self.cache {
+      debug!(?key, "Flushing cache before shutdown");
+      if let Err(err) = self.flush_index(key, &cache_item.index) {
+        warn!(%key, %err, "Failed to flush index for key during shutdown");
+      }
+      if let Err(err) = self.flush_chunk(key, &cache_item.cached, cache_item.index.len() as u32 - 1)
+      {
+        warn!(%key, %err, "Failed to flush chunk for key during shutdown");
+      }
+    }
+    info!(
+      id = self.id,
+      flushed = self.cache.len(),
+      "worker cache flushed"
+    );
   }
 }
 
