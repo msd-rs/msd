@@ -31,6 +31,9 @@ pub enum SqlRequestType {
   Insert,
 }
 
+/// Determine the type of SQL request, based on the first command word.
+/// Only supports single-statement SQL.
+/// It's a quick check before full parsing to test if the SQL is supported.
 pub fn sql_request_type(sql: &str) -> SqlRequestType {
   if let Some((first_line, _)) = sql.split_once('\n') {
     let command = first_line.split_whitespace().next().unwrap_or("");
@@ -47,6 +50,7 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
   return SqlRequestType::Unknown;
 }
 
+/// Parse SQL string to a list of SqlRequest
 pub fn sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
   let sql = sql.trim();
 
