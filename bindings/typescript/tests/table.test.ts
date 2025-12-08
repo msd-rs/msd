@@ -41,6 +41,16 @@ const testTable = `
 `;
 
 test("parse table and access cells", () => {
+  performance.mark("parse-start");
+  for (let i = 0; i < 1000; i++) {
+    parseMsdTable(testTable);
+  }
+  performance.mark("parse-end");
+
+  performance.measure("parse", "parse-start", "parse-end");
+  const measurements = performance.getEntriesByName("parse");
+  console.log(JSON.stringify(measurements, null, 2));
+
   const msdTable = parseMsdTable(testTable);
   expect(msdTable.getRowsCount()).toBe(3);
   expect(msdTable.getColumnsCount()).toBe(3);

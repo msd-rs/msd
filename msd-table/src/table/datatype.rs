@@ -11,19 +11,19 @@ use crate::TableError;
   Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy, bincode::Encode, bincode::Decode,
 )]
 pub enum DataType {
-  Null,
-  String,
-  Bytes,
-  Int32,
-  UInt32,
-  Int64,
-  UInt64,
-  Float32,
-  Float64,
-  Decimal64,
-  Decimal128,
-  Bool,
-  DateTime,
+  Null,       // 0
+  DateTime,   // 1
+  Int64,      // 2
+  Float64,    // 3
+  Decimal64,  // 4
+  String,     // 5
+  Bool,       // 6
+  Int32,      // 7
+  UInt32,     // 8
+  UInt64,     // 9
+  Float32,    // 10
+  Bytes,      // 11
+  Decimal128, // 12
 }
 
 impl DataType {

@@ -6,19 +6,19 @@ use crate::{D64, D128, DataType, TableError, Variant, VariantMutRef, VariantRef}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Series {
-  Null,
-  String(Vec<String>),
-  Bytes(Vec<Vec<u8>>),
-  Int32(Vec<i32>),
-  UInt32(Vec<u32>),
-  Int64(Vec<i64>),
-  UInt64(Vec<u64>),
-  Float32(Vec<f32>),
-  Float64(Vec<f64>),
-  Decimal64(Vec<D64>),
-  Decimal128(Vec<D128>),
-  Bool(Vec<bool>),
-  DateTime(Vec<i64>),
+  Null,                  // 0
+  DateTime(Vec<i64>),    // 1
+  Int64(Vec<i64>),       // 2
+  Float64(Vec<f64>),     // 3
+  Decimal64(Vec<D64>),   // 4
+  String(Vec<String>),   // 5
+  Bool(Vec<bool>),       // 6
+  Int32(Vec<i32>),       // 7
+  UInt32(Vec<u32>),      // 8
+  UInt64(Vec<u64>),      // 9
+  Float32(Vec<f32>),     // 10
+  Bytes(Vec<Vec<u8>>),   // 11
+  Decimal128(Vec<D128>), // 12
 }
 
 impl Series {

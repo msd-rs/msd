@@ -13,19 +13,19 @@ use crate::{D64, D128, DataType, TableError, date::parse_datetime};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Variant {
-  Null,
-  Int32(i32),
-  UInt32(u32),
-  Int64(i64),
-  UInt64(u64),
-  Float32(f32),
-  Float64(f64),
-  String(String),
-  Bytes(Vec<u8>),
-  Bool(bool),
-  Decimal64(D64),
-  Decimal128(D128),
-  DateTime(i64),
+  Null,             // 0
+  DateTime(i64),    // 1
+  Int64(i64),       // 2
+  Float64(f64),     // 3
+  Decimal64(D64),   // 4
+  String(String),   // 5
+  Bool(bool),       // 6
+  Int32(i32),       // 7
+  UInt32(u32),      // 8
+  UInt64(u64),      // 9
+  Float32(f32),     // 10
+  Bytes(Vec<u8>),   // 11
+  Decimal128(D128), // 12
 }
 
 impl Debug for Variant {
