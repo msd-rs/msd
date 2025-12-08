@@ -17,6 +17,8 @@ msd-request = { path = "../msd-request" }
 tokio.workspace = true
 bincode.workspace = true
 rustc-hash = "2.1.1"
+futures.workspace = true
+wildcard = { version = "0.3" }
 
 
 [dev-dependencies]

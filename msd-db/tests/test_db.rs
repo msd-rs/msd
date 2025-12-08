@@ -129,7 +129,7 @@ async fn test_insert_existing() -> Result<()> {
 
   db.request(req).await?;
   let table = rx.await??;
-  assert_eq!(table.column_count(), 2);
+  assert_eq!(table.column_count(), 2 + 1);
   assert_eq!(table.row_count(), n * 2);
 
   Ok(())
@@ -154,7 +154,7 @@ async fn test_query() -> Result<()> {
 
   db.request(req).await?;
   let table = rx.await??;
-  assert_eq!(table.column_count(), 2);
+  assert_eq!(table.column_count(), 2 + 1);
   assert_eq!(table.row_count(), n);
   Ok(())
 }

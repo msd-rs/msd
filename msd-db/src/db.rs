@@ -5,12 +5,15 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::serde::DbBinary;
+use msd_request::{Key, ListObjectsRequest, ListObjectsResponse};
 use msd_store::MsdStore;
-use msd_table::{DataType, Table, parse_unit};
+use msd_table::{DataType, Table, parse_unit, table};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing::{info, warn};
+use wildcard::Wildcard;
 
 use crate::errors::DbError;
 use crate::request::{Broadcast, Request, RequestKey};
@@ -60,11 +63,12 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
   pub async fn shutdown(&self) {
     info!("database workers stopping");
+    let tasks = self
+      .workers
+      .iter()
+      .map(|worker| worker.send(Request::Broadcast(Broadcast::Shutdown)));
+    futures::future::join_all(tasks).await;
     for worker in &self.workers {
-      worker
-        .send(Request::Broadcast(Broadcast::Shutdown))
-        .await
-        .unwrap();
       worker.closed().await;
     }
     info!("database workers stopped");
@@ -92,10 +96,30 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           }
         }
       }
-      false => {
-        let worker = self.get_worker(&key);
-        worker.send(req).await?;
-      }
+      false => match req {
+        Request::ListObjects { req, resp_tx } => {
+          let store = self.store.clone();
+          // spawn a new task to handle the request, but don't wait for it here
+          tokio::spawn(async move {
+            match resp_tx.send(handle_list_objects(store, &req).await) {
+              Ok(_) => {}
+              Err(_) => {
+                warn!(req = ?req, "Failed to send ListObjects response");
+              }
+            }
+          });
+        }
+        _ => {
+          let worker = self.get_worker(&key);
+          // send to worker without awaiting
+          match worker.try_send(req) {
+            Ok(_) => {}
+            Err(e) => {
+              warn!("Failed to send request to worker: {}", e);
+            }
+          }
+        }
+      },
     }
     Ok(())
   }
@@ -207,4 +231,39 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let index = (hash as usize) % self.workers.len();
     &self.workers[index]
   }
+}
+
+/// ## Handlers in manager
+async fn handle_list_objects<S: MsdStore>(
+  store: Arc<S>,
+  req: &ListObjectsRequest,
+) -> Result<ListObjectsResponse, DbError> {
+  let mut objects = Vec::new();
+  let wildcard = if req.obj.is_empty() {
+    None
+  } else {
+    Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
+  };
+  store.prefix_with(Key::index_prefix(), None, &req.table, false, |k, _v| {
+    if k.len() > Key::index_prefix().len() + 1 {
+      let key = &k[Key::index_prefix().len() + 1..];
+      match &wildcard {
+        Some(wc) => {
+          if wc.is_match(key) {
+            objects.push(String::from_utf8_lossy(key).to_string());
+          }
+        }
+        None => {
+          // no wildcard, add all objects
+          objects.push(String::from_utf8_lossy(key).to_string());
+        }
+      }
+    }
+    true
+  })?;
+  Ok(table!( {
+    name: "objects",
+    kind: string,
+    data: objects
+  }))
 }

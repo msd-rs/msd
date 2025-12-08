@@ -116,9 +116,12 @@ impl Table {
     Ok(())
   }
 
-  /// insert a new column at the end of the table
-  pub fn add_column(&mut self, column: Field) {
-    self.columns.push(column);
+  /// insert a new column at the index
+  pub fn insert_column(&mut self, index: usize, column: Field) {
+    if index > self.column_count() {
+      return self.columns.push(column);
+    }
+    self.columns.insert(index, column);
   }
 
   /// remove a column by name

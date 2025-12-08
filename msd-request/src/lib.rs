@@ -7,6 +7,7 @@ mod broadcast;
 mod errors;
 mod insert;
 mod keys;
+mod list_objects;
 mod query;
 mod sql;
 
@@ -16,5 +17,6 @@ pub use broadcast::*;
 pub use errors::RequestError;
 pub use insert::*;
 pub use keys::*;
+pub use list_objects::*;
 pub use query::*;
 pub use sql::*;

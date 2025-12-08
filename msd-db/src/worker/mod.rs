@@ -62,6 +62,9 @@ impl<S: MsdStore> Worker<S> {
         Request::Broadcast(message) => {
           self.handle_broadcast(message);
         }
+        Request::ListObjects { .. } => {
+          panic!("ListObjects should not be handled by Worker");
+        }
       }
     }
     info!(id = self.id, "Worker stopped");

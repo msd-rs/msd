@@ -22,6 +22,10 @@ pub enum Request {
     req: QueryRequest,
     resp_tx: RequestSender<QueryResponse>,
   },
+  ListObjects {
+    req: ListObjectsRequest,
+    resp_tx: RequestSender<ListObjectsResponse>,
+  },
 
   Broadcast(Broadcast),
 }
@@ -64,6 +68,7 @@ impl Deref for Request {
     match self {
       Request::Insert { req, .. } => &req.key,
       Request::Query { req, .. } => &req.key,
+      Request::ListObjects { req, .. } => &req.key,
       Request::Broadcast(_) => broadcast_key(),
     }
   }

@@ -15,6 +15,8 @@ pub enum DbError {
   RequestReceiveFailed(#[from] oneshot::error::RecvError),
   #[error("Table Error")]
   TableError(#[from] msd_table::TableError),
+  #[error("Key Pattern Error")]
+  KeyPatternError(#[from] wildcard::WildcardError),
   #[error("Request Error")]
   RequestError(#[from] msd_request::RequestError),
   #[error("Store Error")]
