@@ -1,8 +1,9 @@
 //! MsdDb implementation.
 //!
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::serde::DbBinary;
 use msd_request::{Key, ListObjectsRequest, ListObjectsResponse};
@@ -10,8 +11,7 @@ use msd_store::MsdStore;
 use msd_table::{DataType, Table, parse_unit, table};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
-use tokio::task::JoinSet;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use wildcard::Wildcard;
 
@@ -26,6 +26,8 @@ const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
   workers: Vec<mpsc::Sender<MsdRequest>>,
+  schemas: Arc<RwLock<HashMap<String, Table>>>,
+  objects: Arc<RwLock<HashMap<String, HashSet<String>>>>,
 }
 
 /// ## Public methods
@@ -43,14 +45,41 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       tokio::spawn(worker.run(rx));
     }
 
+    let schemas = Arc::new(RwLock::new(HashMap::new()));
+    let objects = Arc::new(RwLock::new(HashMap::new()));
+
     let db = Self {
       store: store.clone(),
       workers,
+      schemas,
+      objects,
     };
 
     info!("loading database schema");
     match db.load_schema() {
       Ok(schema_map) => {
+        // Load objects for each table
+        let mut objects_map = HashMap::new();
+        for name in schema_map.keys() {
+          match db.load_objects_for_table(name) {
+            Ok(objs) => {
+              objects_map.insert(name.clone(), objs);
+            }
+            Err(e) => {
+              warn!(%e, table = name, "Failed to load objects for table");
+            }
+          }
+        }
+
+        {
+          let mut schemas = db.schemas.write().unwrap();
+          *schemas = schema_map.clone();
+        }
+        {
+          let mut objects = db.objects.write().unwrap();
+          *objects = objects_map;
+        }
+
         db.request(MsdRequest::update_schema(schema_map)).await?;
       }
       Err(e) => {
@@ -98,19 +127,28 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       }
       false => match req {
         MsdRequest::ListObjects { req, resp_tx } => {
-          let store = self.store.clone();
-          // spawn a new task to handle the request, but don't wait for it here
-          tokio::spawn(async move {
-            match resp_tx.send(handle_list_objects(store, &req).await) {
-              Ok(_) => {}
-              Err(_) => {
-                warn!(req = ?req, "Failed to send ListObjects response");
+          self.matched_objects(req, resp_tx);
+        }
+        MsdRequest::Insert { req, resp_tx } => {
+          // Intercept
+          {
+            if let Ok(mut guard) = self.objects.write() {
+              if let Some(set) = guard.get_mut(&req.key.table) {
+                set.insert(req.key.obj.clone());
               }
             }
-          });
+          }
+          let req = MsdRequest::Insert { req, resp_tx };
+          let worker = self.get_worker(&req);
+          match worker.try_send(req) {
+            Ok(_) => {}
+            Err(e) => {
+              warn!("Failed to send request to worker: {}", e);
+            }
+          }
         }
         _ => {
-          let worker = self.get_worker(&key);
+          let worker = self.get_worker(&req);
           // send to worker without awaiting
           match worker.try_send(req) {
             Ok(_) => {}
@@ -128,10 +166,72 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   pub fn store(&self) -> &Arc<S> {
     &self.store
   }
+
+  pub fn matched_objects(
+    &self,
+    req: ListObjectsRequest,
+    resp_tx: oneshot::Sender<Result<ListObjectsResponse, DbError>>,
+  ) {
+    let objects_cache = self.objects.clone();
+    tokio::spawn(async move {
+      let result = (|| {
+        let guard = objects_cache
+          .read()
+          .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+        let set = guard
+          .get(&req.table)
+          .ok_or(DbError::TableNotFound(req.table.clone()))?;
+
+        let wildcard = if req.obj.is_empty() {
+          None
+        } else {
+          Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
+        };
+
+        let mut objects = Vec::new();
+        for obj in set {
+          match &wildcard {
+            Some(wc) => {
+              if wc.is_match(obj.as_bytes()) {
+                objects.push(obj.clone());
+              }
+            }
+            None => objects.push(obj.clone()),
+          }
+        }
+
+        Ok::<ListObjectsResponse, DbError>(table!({
+          name: "objects",
+          kind: string,
+          data: objects
+        }))
+      })();
+      match resp_tx.send(result) {
+        Ok(_) => {}
+        Err(_) => {
+          warn!(req = ?req, "Failed to send ListObjects response");
+        }
+      }
+    });
+  }
 }
 
 /// ## Private methods
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
+  fn load_objects_for_table(&self, table: &str) -> Result<HashSet<String>, DbError> {
+    let mut objects = HashSet::new();
+    self
+      .store
+      .prefix_with(Key::index_prefix(), None, table, false, |k, _v| {
+        if k.len() > Key::index_prefix().len() + 1 {
+          let key = &k[Key::index_prefix().len() + 1..];
+          objects.insert(String::from_utf8_lossy(key).to_string());
+        }
+        true
+      })?;
+    Ok(objects)
+  }
+
   fn load_schema(&self) -> Result<HashMap<String, Table>, DbError> {
     let mut schema_map: HashMap<String, Table> = HashMap::new();
     self.store.prefix_with(
@@ -217,12 +317,30 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     self
       .store
       .put(key.as_bytes(), value, SCHEMA_TABLE_NAME, None)?;
+
+    {
+      let mut schemas = self.schemas.write().unwrap();
+      schemas.insert(name.to_string(), table.clone());
+    }
+    {
+      let mut objects = self.objects.write().unwrap();
+      objects.insert(name.to_string(), HashSet::new());
+    }
     Ok(())
   }
 
   fn drop_table(&self, name: &str) -> Result<(), DbError> {
     let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, name);
     self.store.delete(key.as_bytes(), SCHEMA_TABLE_NAME)?;
+
+    {
+      let mut schemas = self.schemas.write().unwrap();
+      schemas.remove(name);
+    }
+    {
+      let mut objects = self.objects.write().unwrap();
+      objects.remove(name);
+    }
     Ok(())
   }
 
@@ -234,39 +352,4 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let index = (hash as usize) % self.workers.len();
     &self.workers[index]
   }
-}
-
-/// ## Handlers in manager
-async fn handle_list_objects<S: MsdStore>(
-  store: Arc<S>,
-  req: &ListObjectsRequest,
-) -> Result<ListObjectsResponse, DbError> {
-  let mut objects = Vec::new();
-  let wildcard = if req.obj.is_empty() {
-    None
-  } else {
-    Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
-  };
-  store.prefix_with(Key::index_prefix(), None, &req.table, false, |k, _v| {
-    if k.len() > Key::index_prefix().len() + 1 {
-      let key = &k[Key::index_prefix().len() + 1..];
-      match &wildcard {
-        Some(wc) => {
-          if wc.is_match(key) {
-            objects.push(String::from_utf8_lossy(key).to_string());
-          }
-        }
-        None => {
-          // no wildcard, add all objects
-          objects.push(String::from_utf8_lossy(key).to_string());
-        }
-      }
-    }
-    true
-  })?;
-  Ok(table!( {
-    name: "objects",
-    kind: string,
-    data: objects
-  }))
 }
