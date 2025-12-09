@@ -6,12 +6,12 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use crate::serde::DbBinary;
-use msd_request::{Key, ListObjectsRequest, ListObjectsResponse};
+use msd_request::{Key, ListObjectsRequest};
 use msd_store::MsdStore;
 use msd_table::{DataType, Table, parse_unit, table};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 use wildcard::Wildcard;
 

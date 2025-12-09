@@ -4,7 +4,6 @@ mod server;
 
 use anyhow::Result;
 use msd_table::set_default_timezone;
-use tracing::info;
 
 use crate::app_config::{MsdCommands, app_config};
 
