@@ -172,3 +172,31 @@ async fn test_query() -> Result<()> {
   assert_eq!(table.row_count(), n * 2);
   Ok(())
 }
+
+#[tokio::test]
+async fn test_create_db_kline() -> Result<()> {
+  setup();
+  let db = init_db(true).await?;
+
+  let table = table!(
+    {name: "ts", kind: datetime},
+    {name: "open", kind: f64},
+    {name: "high", kind: f64},
+    {name: "low", kind: f64},
+    {name: "close", kind: f64},
+    {name: "volume", kind: f64},
+    {name: "amount", kind: f64},
+  );
+
+  let metadata: HashMap<String, Variant> = HashMap::from([
+    ("chunkSize".into(), 250u32.into()),
+    ("round".into(), "1d".into()),
+  ]);
+
+  let table = table.with_metadata(metadata);
+
+  let req = MsdRequest::create_table("kline_real", table);
+  db.request(req).await?;
+
+  Ok(())
+}

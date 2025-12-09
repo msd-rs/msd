@@ -248,7 +248,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       SCHEMA_TABLE_NAME,
       false,
       |k, v| {
-        let key = String::from_utf8_lossy(&k).to_string();
+        let key = String::from_utf8_lossy(&k[TABLE_SCHEMA_KEY_PREFIX.len()..]).to_string();
         match DbBinary::from_bytes(&v) {
           Ok(table) => {
             schema_map.insert(key, table);
