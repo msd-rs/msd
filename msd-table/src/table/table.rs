@@ -372,6 +372,43 @@ impl Table {
     }
     tables
   }
+
+  /// Group the table by a column, keep the original order of rows in each group.
+  /// the reuslt table is a HashMap where the key is the column value and the value is the table removed the column.
+  pub fn groupy_by(mut self, column_index: usize) -> Result<HashMap<Variant, Table>, TableError> {
+    if column_index >= self.column_count() {
+      return Err(TableError::ColumnIndexOutOfBounds(
+        column_index,
+        self.column_count(),
+      ));
+    }
+
+    // Move the grouping column out so we don't duplicate it in result tables
+    // The user requirement says "removed the column".
+    let group_col = self.columns.remove(column_index);
+
+    let groups = group_col.data.group_indices();
+
+    let mut result = HashMap::new();
+
+    for (key, indices) in groups {
+      let mut new_columns = Vec::with_capacity(self.columns.len());
+      for col in &self.columns {
+        let new_data = col.data.select(&indices);
+        new_columns.push(col.with_data(new_data));
+      }
+
+      let table = Table {
+        version: self.version,
+        columns: new_columns,
+        metadata: self.metadata.clone(),
+      };
+
+      result.insert(key, table);
+    }
+
+    Ok(result)
+  }
 }
 
 /// # Table metadata access

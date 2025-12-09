@@ -1,6 +1,6 @@
 use std::vec;
 
-use msd_request::InsertResponse;
+use msd_request::{InsertResponse, RequestError};
 use msd_table::{DataType, Table, Variant, parse_unit, round_ts};
 use tracing::{debug, warn};
 
@@ -13,11 +13,16 @@ use crate::worker::cache::CacheValue;
 
 impl<S: MsdStore> Worker<S> {
   pub(super) fn handle_insert(&mut self, req: InsertRequest) -> Result<InsertResponse, DbError> {
+    if req.key.obj.is_empty() {
+      return Err(DbError::RequestError(RequestError::InvalidRequest(
+        "Object name is required".to_string(),
+      )));
+    }
     self.ensure_cache_initialized(&req.key)?;
     self.on_insert_existing(req)
   }
 
-  fn on_insert_existing(&mut self, req: InsertRequest) -> Result<InsertResponse, DbError> {
+  fn on_insert_existing(&mut self, mut req: InsertRequest) -> Result<InsertResponse, DbError> {
     // Get schema for this table
     let schema = self
       .schema
@@ -26,7 +31,7 @@ impl<S: MsdStore> Worker<S> {
     let pk_col = schema.pk_column();
 
     // Convert insert data to table and sort by pk ascending
-    let mut incoming = req.data.to_table(schema)?;
+    let mut incoming = req.take_table()?;
     incoming.sort_by_pk(false);
 
     // Get round unit from table metadata

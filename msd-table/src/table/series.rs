@@ -1,4 +1,4 @@
-use std::{any::Any, cmp::Ordering};
+use std::{any::Any, cmp::Ordering, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -400,6 +400,122 @@ impl Series {
     }
     Ok(Series::from(target))
   }
+
+  pub fn select(&self, indices: &[usize]) -> Self {
+    match self {
+      Series::Null => Series::Null,
+      Series::String(v) => Series::String(select_indices(v, indices)),
+      Series::Bytes(v) => Series::Bytes(select_indices(v, indices)),
+      Series::Int32(v) => Series::Int32(select_indices(v, indices)),
+      Series::UInt32(v) => Series::UInt32(select_indices(v, indices)),
+      Series::Int64(v) => Series::Int64(select_indices(v, indices)),
+      Series::UInt64(v) => Series::UInt64(select_indices(v, indices)),
+      Series::Float32(v) => Series::Float32(select_indices(v, indices)),
+      Series::Float64(v) => Series::Float64(select_indices(v, indices)),
+      Series::Decimal64(v) => Series::Decimal64(select_indices(v, indices)),
+      Series::Decimal128(v) => Series::Decimal128(select_indices(v, indices)),
+      Series::Bool(v) => Series::Bool(select_indices(v, indices)),
+      Series::DateTime(v) => Series::DateTime(select_indices(v, indices)),
+    }
+  }
+  pub fn group_indices(&self) -> HashMap<Variant, Vec<usize>> {
+    let mut groups: HashMap<Variant, Vec<usize>> = HashMap::new();
+    let row_count = self.len();
+
+    match self {
+      Series::Null => {
+        groups
+          .entry(Variant::Null)
+          .or_default()
+          .extend(0..row_count);
+      }
+      Series::String(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups
+            .entry(Variant::String(val.clone()))
+            .or_default()
+            .push(i);
+        }
+      }
+      Series::Bytes(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups
+            .entry(Variant::Bytes(val.clone()))
+            .or_default()
+            .push(i);
+        }
+      }
+      Series::Int32(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Int32(*val)).or_default().push(i);
+        }
+      }
+      Series::UInt32(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::UInt32(*val)).or_default().push(i);
+        }
+      }
+      Series::Int64(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Int64(*val)).or_default().push(i);
+        }
+      }
+      Series::UInt64(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::UInt64(*val)).or_default().push(i);
+        }
+      }
+      Series::Float32(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Float32(*val)).or_default().push(i);
+        }
+      }
+      Series::Float64(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Float64(*val)).or_default().push(i);
+        }
+      }
+      Series::Decimal64(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Decimal64(*val)).or_default().push(i);
+        }
+      }
+      Series::Decimal128(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Decimal128(*val)).or_default().push(i);
+        }
+      }
+      Series::Bool(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::Bool(*val)).or_default().push(i);
+        }
+      }
+      Series::DateTime(v) => {
+        for (i, val) in v.iter().enumerate() {
+          groups.entry(Variant::DateTime(*val)).or_default().push(i);
+        }
+      }
+    }
+    groups
+  }
+}
+
+fn select_indices<T: Clone>(data: &[T], indices: &[usize]) -> Vec<T> {
+  let mut result = Vec::with_capacity(indices.len());
+  for &i in indices {
+    if i < data.len() {
+      result.push(data[i].clone());
+    } else {
+      // Should we panic or return partial?
+      // For safety in this context, and since table logic usually ensures bounds,
+      // panicking or assuming valid indices is reasonable,
+      // OR we return default/panic.
+      // Given `cell` panics on out of bounds, maybe we should just panic or unwap.
+      // However, `data` is a slice here.
+      result.push(data[i].clone());
+    }
+  }
+  result
 }
 
 fn reorder_series<T: Default>(data: &mut Vec<T>, indices: &[usize]) {

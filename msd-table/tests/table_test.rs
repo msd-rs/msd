@@ -137,3 +137,36 @@ fn test_sort_by_pk() {
   assert_eq!(t.cell(2, 0).get_datetime(), Some(&100));
   assert_eq!(t.cell(0, 1).get_str(), Some("c"));
 }
+
+#[test]
+fn test_group_by() {
+  let t = table!(
+      { name: "group", kind: string, data: vec!["A", "B", "A", "C", "B"] },
+      { name: "val", kind: i32, data: vec![1, 2, 3, 4, 5] },
+      { name: "other", kind: i32, data: vec![10, 20, 30, 40, 50] }
+  );
+
+  let groups = t.groupy_by(0).unwrap();
+
+  assert_eq!(groups.len(), 3);
+
+  // Check Group A
+  let t_a = groups.get(&v!("A")).unwrap();
+  assert_eq!(t_a.row_count(), 2);
+  assert_eq!(t_a.column_count(), 2); // 'group' column is removed
+  assert_eq!(t_a.cell(0, 0).get_i32(), Some(&1));
+  assert_eq!(t_a.cell(1, 0).get_i32(), Some(&3));
+  assert_eq!(t_a.cell(0, 1).get_i32(), Some(&10));
+  assert_eq!(t_a.cell(1, 1).get_i32(), Some(&30));
+
+  // Check Group B
+  let t_b = groups.get(&v!("B")).unwrap();
+  assert_eq!(t_b.row_count(), 2);
+  assert_eq!(t_b.cell(0, 0).get_i32(), Some(&2));
+  assert_eq!(t_b.cell(1, 0).get_i32(), Some(&5));
+
+  // Check Group C
+  let t_c = groups.get(&v!("C")).unwrap();
+  assert_eq!(t_c.row_count(), 1);
+  assert_eq!(t_c.cell(0, 0).get_i32(), Some(&4));
+}

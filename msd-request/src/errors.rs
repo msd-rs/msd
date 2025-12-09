@@ -12,4 +12,6 @@ pub enum RequestError {
   SqlParseError(#[from] sqlparser::parser::ParserError),
   #[error("Unsupported SQL statement")]
   UnsupportedSqlStatement,
+  #[error("Invalid request")]
+  InvalidRequest(String),
 }

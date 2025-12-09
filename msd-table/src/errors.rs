@@ -19,6 +19,9 @@ pub enum TableError {
   #[error("index {0} is out of bounds for length {1}")]
   IndexOutOfBounds(usize, usize),
 
+  #[error("column index {0} is out of bounds for length {1}")]
+  ColumnIndexOutOfBounds(usize, usize),
+
   #[error("column count mismatch: expected {0}, found {1}")]
   ColumnCountMismatch(usize, usize),
 
