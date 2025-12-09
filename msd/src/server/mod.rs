@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use crate::app_config::ServerOptions;
 use anyhow::Result;
-use axum::{Router, routing::post};
+use axum::{
+  Router,
+  routing::{post, put},
+};
 use msd_db::MsdDb;
 use msd_store::RocksDbStore;
 use tracing::info;
@@ -42,6 +45,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let db = Arc::new(db);
   let app = Router::new()
     .route("/data", post(handlers::handle_data))
+    .route("/table/{table_name}", put(handlers::handle_table))
     .with_state(db.clone());
   info!("msd server start");
   axum::serve(listener, app)

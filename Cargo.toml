@@ -36,3 +36,4 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 dotenvy = "0.15"
 futures = "0.3"
+csv = "1.4"

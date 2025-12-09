@@ -12,6 +12,6 @@ serde.workspace = true
 time.workspace = true
 tracing.workspace = true
 rust_decimal = "1.37.2"
-csv = "1.4"
+csv.workspace = true
 anyhow.workspace = true
 bincode.workspace = true
