@@ -19,6 +19,8 @@ pub struct QueryRequest {
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
   pub limit: Option<usize>,
+  /// objects to query, replace obj in key with this
+  pub objects: Option<Vec<String>>,
 }
 
 impl QueryRequest {

@@ -146,7 +146,7 @@ fn test_group_by() {
       { name: "other", kind: i32, data: vec![10, 20, 30, 40, 50] }
   );
 
-  let groups = t.groupy_by(0).unwrap();
+  let groups = t.group_by(0).unwrap();
 
   assert_eq!(groups.len(), 3);
 

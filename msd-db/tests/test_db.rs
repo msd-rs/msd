@@ -101,26 +101,34 @@ async fn test_insert_new() -> Result<()> {
   Ok(())
 }
 
+async fn insert_data(
+  db: &Db,
+  table: &str,
+  obj: &str,
+  count: usize,
+  start_date: &str,
+) -> Result<()> {
+  let req = InsertRequest {
+    key: RequestKey::new(table, obj),
+    data: InsertData::Columns(sample_data(count, start_date)),
+  };
+  let mut req = req.to_table(&db.get_schema(table)?)?;
+  assert!(req.len() == 1);
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _res = rx.await??;
+  Ok(())
+}
+
 #[tokio::test]
 async fn test_insert_existing() -> Result<()> {
   setup();
 
   let db = init_db(true).await?;
   let n = 25;
-  let (req, rx) = MsdRequest::insert(InsertRequest {
-    key: RequestKey::new("kline1d", "SH600000"),
-    data: InsertData::Columns(sample_data(n, "2023-01-01")),
-  });
+  insert_data(&db, "kline1d", "SH600000", n, "2023-01-01").await?;
 
-  db.request(req).await?;
-  let _res = rx.await??;
-
-  let (req, rx) = MsdRequest::insert(InsertRequest {
-    key: RequestKey::new("kline1d", "SH600000"),
-    data: InsertData::Columns(sample_data(n, "2023-01-26")),
-  });
-  db.request(req).await?;
-  let _res = rx.await??;
+  insert_data(&db, "kline1d", "SH600000", n, "2023-01-26").await?;
 
   let (req, rx) = MsdRequest::query(QueryRequest {
     key: RequestKey::new("kline1d", "SH600000"),
@@ -132,6 +140,19 @@ async fn test_insert_existing() -> Result<()> {
   assert_eq!(table.column_count(), 2 + 1);
   assert_eq!(table.row_count(), n * 2);
 
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_insert_multiple_objects() -> Result<()> {
+  setup();
+  let db = init_db(true).await?;
+  let objects = vec![
+    "SH600000", "SH600001", "SH600002", "SZ000001", "SZ000002", "SZ000003",
+  ];
+  for obj in objects {
+    insert_data(&db, "kline1d", obj, 25, "2023-01-01").await?;
+  }
   Ok(())
 }
 

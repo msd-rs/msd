@@ -61,7 +61,8 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         // Load objects for each table
         let mut objects_map = HashMap::new();
         for name in schema_map.keys() {
-          match db.load_objects_for_table(name) {
+          let name = name[TABLE_SCHEMA_KEY_PREFIX.len()..].to_string();
+          match db.load_objects_for_table(&name) {
             Ok(objs) => {
               objects_map.insert(name.clone(), objs);
             }
@@ -127,7 +128,15 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       }
       false => match req {
         MsdRequest::ListObjects { req, resp_tx } => {
-          self.matched_objects(req, resp_tx);
+          let resp = self
+            .matched_objects(&req)
+            .map(|s| table!({name: "objects", kind: string, data: s}));
+          match resp_tx.send(resp) {
+            Ok(_) => {}
+            Err(_) => {
+              warn!(req = ?req, "Failed to send ListObjects response");
+            }
+          }
         }
         MsdRequest::Insert { req, resp_tx } => {
           // Intercept
@@ -162,57 +171,56 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(())
   }
 
+  pub fn get_schema(&self, table: &str) -> Result<Table, DbError> {
+    let result = (|| {
+      let guard = self
+        .schemas
+        .read()
+        .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+      guard
+        .get(table)
+        .cloned()
+        .ok_or(DbError::TableNotFound(table.into()))
+    })();
+    result
+  }
+
   /// get the underlying store
   pub fn store(&self) -> &Arc<S> {
     &self.store
   }
 
-  pub fn matched_objects(
-    &self,
-    req: ListObjectsRequest,
-    resp_tx: oneshot::Sender<Result<ListObjectsResponse, DbError>>,
-  ) {
+  pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<Vec<String>, DbError> {
     let objects_cache = self.objects.clone();
-    tokio::spawn(async move {
-      let result = (|| {
-        let guard = objects_cache
-          .read()
-          .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
-        let set = guard
-          .get(&req.table)
-          .ok_or(DbError::TableNotFound(req.table.clone()))?;
+    let result = (|| {
+      let guard = objects_cache
+        .read()
+        .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+      let set = guard
+        .get(&req.table)
+        .ok_or(DbError::TableNotFound(req.table.clone()))?;
 
-        let wildcard = if req.obj.is_empty() {
-          None
-        } else {
-          Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
-        };
+      let wildcard = if req.obj.is_empty() {
+        None
+      } else {
+        Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
+      };
 
-        let mut objects = Vec::new();
-        for obj in set {
-          match &wildcard {
-            Some(wc) => {
-              if wc.is_match(obj.as_bytes()) {
-                objects.push(obj.clone());
-              }
+      let mut objects = Vec::new();
+      for obj in set {
+        match &wildcard {
+          Some(wc) => {
+            if wc.is_match(obj.as_bytes()) {
+              objects.push(obj.clone());
             }
-            None => objects.push(obj.clone()),
           }
-        }
-
-        Ok::<ListObjectsResponse, DbError>(table!({
-          name: "objects",
-          kind: string,
-          data: objects
-        }))
-      })();
-      match resp_tx.send(result) {
-        Ok(_) => {}
-        Err(_) => {
-          warn!(req = ?req, "Failed to send ListObjects response");
+          None => objects.push(obj.clone()),
         }
       }
-    });
+
+      Ok::<Vec<String>, DbError>(objects)
+    })();
+    result
   }
 }
 

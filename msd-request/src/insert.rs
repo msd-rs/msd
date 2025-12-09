@@ -64,7 +64,7 @@ impl InsertRequest {
       let table_name = self.key.table.clone();
       Ok(
         table
-          .groupy_by(0)?
+          .group_by(0)?
           .into_iter()
           .map(|(k, t)| InsertRequest {
             key: RequestKey {
