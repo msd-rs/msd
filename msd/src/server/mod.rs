@@ -4,10 +4,7 @@ use std::sync::Arc;
 
 use crate::app_config::ServerOptions;
 use anyhow::Result;
-use axum::{
-  Router,
-  routing::post,
-};
+use axum::{Router, routing::post};
 use msd_db::MsdDb;
 use msd_store::RocksDbStore;
 use tracing::info;
