@@ -3,14 +3,14 @@
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::request::{Request, RequestKey};
+use crate::request::{MsdRequest, RequestKey};
 
 #[derive(Debug, Error)]
 pub enum DbError {
   #[error("Invalid key format: {0:?}")]
   InvalidKeyFormat(Vec<u8>),
   #[error("Request dispatch failed")]
-  RequestDispatchFailed(#[from] mpsc::error::SendError<Request>),
+  RequestDispatchFailed(#[from] mpsc::error::SendError<MsdRequest>),
   #[error("Request receive failed")]
   RequestReceiveFailed(#[from] oneshot::error::RecvError),
   #[error("Table Error")]
@@ -39,4 +39,6 @@ pub enum DbError {
   InternalError(String),
   #[error("Invalid table schema: {0}")]
   InvalidTableSchema(String),
+  #[error("Unsupported operation")]
+  UnsupportedRequestType,
 }

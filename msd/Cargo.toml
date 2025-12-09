@@ -6,6 +6,7 @@ authors.workspace = true
 
 [dependencies]
 axum = { version = "0.8", features = [] }
+axum-streams = { version = "0.24", features = ["json"] }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
@@ -19,3 +20,4 @@ tokio.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
 time.workspace = true
+tokio-stream = "0.1"

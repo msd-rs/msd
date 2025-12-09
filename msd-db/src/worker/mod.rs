@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 
 use crate::errors::DbError;
 use crate::index::IndexItem;
-use crate::request::{Broadcast, Request, RequestKey};
+use crate::request::{Broadcast, MsdRequest, RequestKey};
 use crate::serde::DbBinary;
 use crate::worker::cache::CacheMap;
 use msd_request::Key;
@@ -42,27 +42,27 @@ impl<S: MsdStore> Worker<S> {
     }
   }
 
-  pub async fn run(mut self, mut rx: mpsc::Receiver<Request>) {
+  pub async fn run(mut self, mut rx: mpsc::Receiver<MsdRequest>) {
     info!(id = self.id, "worker started");
     while let Some(req) = rx.recv().await {
       match req {
-        Request::Insert { req, resp_tx } => {
+        MsdRequest::Insert { req, resp_tx } => {
           let res = self.handle_insert(req);
           let _ = resp_tx.send(res);
         }
-        Request::Query { req, resp_tx } => {
+        MsdRequest::Query { req, resp_tx } => {
           let res = self.handle_query(req);
           let _ = resp_tx.send(res);
         }
-        Request::Broadcast(Broadcast::Shutdown) => {
+        MsdRequest::Broadcast(Broadcast::Shutdown) => {
           self.handle_shutdown();
           rx.close();
           break;
         }
-        Request::Broadcast(message) => {
+        MsdRequest::Broadcast(message) => {
           self.handle_broadcast(message);
         }
-        Request::ListObjects { .. } => {
+        MsdRequest::ListObjects { .. } => {
           panic!("ListObjects should not be handled by Worker");
         }
       }

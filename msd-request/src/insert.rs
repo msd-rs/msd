@@ -62,4 +62,4 @@ impl InsertData {
   }
 }
 
-pub type InsertResponse = ();
+pub type InsertResponse = Table;

@@ -165,14 +165,15 @@ impl MsdStore for RocksDbStore {
     Ok(())
   }
 
-  fn new_table(&self, name: &str) -> Result<(), StoreError> {
+  fn new_table(&self, name: &str) -> Result<bool, StoreError> {
     if self.db.cf_handle(name).is_some() {
-      return Ok(());
+      return Ok(false);
     }
     self
       .db
       .create_cf(name, &Options::default())
       .map_err(|e| StoreError::from(e))
+      .map(|_| true)
   }
 
   fn drop_table(&self, name: &str) -> Result<(), StoreError> {

@@ -1,13 +1,20 @@
+mod handlers;
+
 use std::sync::Arc;
 
 use crate::app_config::ServerOptions;
 use anyhow::Result;
-use axum::{Router, routing::Route};
+use axum::{
+  Router,
+  routing::{Route, post},
+};
 use msd_db::MsdDb;
 use msd_store::RocksDbStore;
 use tracing::info;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+type DBState = Arc<MsdDb<RocksDbStore>>;
 
 pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let app_options = super::app_config::app_config();
@@ -36,7 +43,9 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let db = MsdDb::new(store, server_options.worker_threads).await?;
 
   let db = Arc::new(db);
-  let app = Router::new().with_state(db.clone());
+  let app = Router::new()
+    .route("/data", post(handlers::handle_data))
+    .with_state(db.clone());
   info!("msd server start");
   axum::serve(listener, app)
     .with_graceful_shutdown(shutdown_signal())

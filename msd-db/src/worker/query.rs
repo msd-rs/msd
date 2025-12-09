@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use msd_table::{DataType, Field, Series, Table};
-use tracing::{span, trace};
+use tracing::{debug, span, trace};
 
 use crate::{errors::DbError, request::QueryRequest, serde::DbBinary};
 use msd_request::Key;
@@ -17,6 +17,7 @@ impl<S: MsdStore> Worker<S> {
   /// 3. Load and merge data from relevant chunks
   /// 4. Apply field filtering, time range filtering, ordering, and limit
   pub(super) fn handle_query(&mut self, req: QueryRequest) -> Result<Table, DbError> {
+    debug!(?req, id = self.id, "Handling query request");
     let exist = self.ensure_cache_initialized(&req)?;
     if !exist {
       return Err(DbError::NotFound(req.deref().clone()));
@@ -150,6 +151,7 @@ impl<S: MsdStore> Worker<S> {
         Series::from(vec![req.obj.as_str(); result.row_count()]),
       ),
     );
+    debug!(id = self.id, rows = result.row_count(), "Query completed");
     Ok(result)
   }
 }

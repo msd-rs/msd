@@ -16,7 +16,7 @@ use tracing::{info, warn};
 use wildcard::Wildcard;
 
 use crate::errors::DbError;
-use crate::request::{Broadcast, Request, RequestKey};
+use crate::request::{Broadcast, MsdRequest, RequestKey};
 use crate::worker::Worker;
 
 const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";
@@ -25,7 +25,7 @@ const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
 /// MSD Database
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
-  workers: Vec<mpsc::Sender<Request>>,
+  workers: Vec<mpsc::Sender<MsdRequest>>,
 }
 
 /// ## Public methods
@@ -51,7 +51,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     info!("loading database schema");
     match db.load_schema() {
       Ok(schema_map) => {
-        db.request(Request::update_schema(schema_map)).await?;
+        db.request(MsdRequest::update_schema(schema_map)).await?;
       }
       Err(e) => {
         warn!(%e, "Failed to load database schema");
@@ -66,7 +66,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let tasks = self
       .workers
       .iter()
-      .map(|worker| worker.send(Request::Broadcast(Broadcast::Shutdown)));
+      .map(|worker| worker.send(MsdRequest::Broadcast(Broadcast::Shutdown)));
     futures::future::join_all(tasks).await;
     for worker in &self.workers {
       worker.closed().await;
@@ -74,15 +74,15 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     info!("database workers stopped");
   }
 
-  pub async fn request(&self, req: Request) -> Result<(), DbError> {
+  pub async fn request(&self, req: MsdRequest) -> Result<(), DbError> {
     let key = req.deref();
     match key.is_broadcast() {
       true => {
         match &req {
-          Request::Broadcast(Broadcast::CreateTable(name, table)) => {
+          MsdRequest::Broadcast(Broadcast::CreateTable(name, table)) => {
             self.create_table(name, table)?;
           }
-          Request::Broadcast(Broadcast::DropTable(name)) => {
+          MsdRequest::Broadcast(Broadcast::DropTable(name)) => {
             self.drop_table(name)?;
           }
           _ => {}
@@ -97,7 +97,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         }
       }
       false => match req {
-        Request::ListObjects { req, resp_tx } => {
+        MsdRequest::ListObjects { req, resp_tx } => {
           let store = self.store.clone();
           // spawn a new task to handle the request, but don't wait for it here
           tokio::spawn(async move {
@@ -207,7 +207,10 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
     // Create the table in the store
     self.store.new_table(SCHEMA_TABLE_NAME)?;
-    self.store.new_table(name)?;
+    if !self.store.new_table(name)? {
+      // table already exists
+      return Ok(());
+    }
 
     let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, name);
     let value = table.to_bytes()?;
@@ -224,7 +227,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   }
 
   /// get the appropriate worker for a given hashable object
-  fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<Request> {
+  fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<MsdRequest> {
     let mut hasher = FxHasher::default();
     key.hash(&mut hasher);
     let hash = hasher.finish();

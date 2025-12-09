@@ -3,7 +3,7 @@ use std::{collections::HashMap, vec};
 use anyhow::Result;
 use msd_db::{
   MsdDb,
-  request::{InsertData, InsertRequest, QueryRequest, Request, RequestKey},
+  request::{InsertData, InsertRequest, MsdRequest, QueryRequest, RequestKey},
 };
 use msd_store::RocksDbStore;
 use msd_table::{Series, Table, Variant, parse_datetime, table};
@@ -49,7 +49,7 @@ async fn init_db(clear: bool) -> Result<Db> {
   }
   let db = create_db().await?;
   let table = create_table();
-  let req = Request::create_table("kline1d", table);
+  let req = MsdRequest::create_table("kline1d", table);
   db.request(req).await?;
   Ok(db)
 }
@@ -68,7 +68,7 @@ async fn test_create_db() -> Result<()> {
     {name: "ts", kind: u64}, // invalid primary key
     {name: "open", kind: f64},
   );
-  let req = Request::create_table("invalid_t1", invalid_table);
+  let req = MsdRequest::create_table("invalid_t1", invalid_table);
   let res = db.request(req).await;
   assert!(res.is_err());
 
@@ -91,7 +91,7 @@ fn build_f64_series(start: f64, count: usize, step: f64) -> Series {
 async fn test_insert_new() -> Result<()> {
   let db = init_db(true).await?;
   let n = 25;
-  let (req, rx) = Request::insert(InsertRequest {
+  let (req, rx) = MsdRequest::insert(InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     data: InsertData::Columns(sample_data(n, "2023-01-01")),
   });
@@ -107,7 +107,7 @@ async fn test_insert_existing() -> Result<()> {
 
   let db = init_db(true).await?;
   let n = 25;
-  let (req, rx) = Request::insert(InsertRequest {
+  let (req, rx) = MsdRequest::insert(InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     data: InsertData::Columns(sample_data(n, "2023-01-01")),
   });
@@ -115,14 +115,14 @@ async fn test_insert_existing() -> Result<()> {
   db.request(req).await?;
   let _res = rx.await??;
 
-  let (req, rx) = Request::insert(InsertRequest {
+  let (req, rx) = MsdRequest::insert(InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     data: InsertData::Columns(sample_data(n, "2023-01-26")),
   });
   db.request(req).await?;
   let _res = rx.await??;
 
-  let (req, rx) = Request::query(QueryRequest {
+  let (req, rx) = MsdRequest::query(QueryRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     ..Default::default()
   });
@@ -137,17 +137,10 @@ async fn test_insert_existing() -> Result<()> {
 
 #[tokio::test]
 async fn test_query() -> Result<()> {
-  let db = init_db(true).await?;
+  let db = init_db(false).await?;
   let n = 25;
-  let (req, rx) = Request::insert(InsertRequest {
-    key: RequestKey::new("kline1d", "SH600000"),
-    data: InsertData::Columns(sample_data(n, "2023-01-01")),
-  });
 
-  db.request(req).await?;
-  let _res = rx.await??;
-
-  let (req, rx) = Request::query(QueryRequest {
+  let (req, rx) = MsdRequest::query(QueryRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     ..Default::default()
   });
@@ -155,6 +148,6 @@ async fn test_query() -> Result<()> {
   db.request(req).await?;
   let table = rx.await??;
   assert_eq!(table.column_count(), 2 + 1);
-  assert_eq!(table.row_count(), n);
+  assert_eq!(table.row_count(), n * 2);
   Ok(())
 }

@@ -1,6 +1,7 @@
 use std::vec;
 
-use msd_table::{DataType, Variant, parse_unit, round_ts};
+use msd_request::InsertResponse;
+use msd_table::{DataType, Table, Variant, parse_unit, round_ts};
 use tracing::{debug, warn};
 
 use super::{MsdStore, Worker};
@@ -11,12 +12,12 @@ use crate::worker::agg_state::AggState;
 use crate::worker::cache::CacheValue;
 
 impl<S: MsdStore> Worker<S> {
-  pub(super) fn handle_insert(&mut self, req: InsertRequest) -> Result<(), DbError> {
+  pub(super) fn handle_insert(&mut self, req: InsertRequest) -> Result<InsertResponse, DbError> {
     self.ensure_cache_initialized(&req.key)?;
     self.on_insert_existing(req)
   }
 
-  fn on_insert_existing(&mut self, req: InsertRequest) -> Result<(), DbError> {
+  fn on_insert_existing(&mut self, req: InsertRequest) -> Result<InsertResponse, DbError> {
     // Get schema for this table
     let schema = self
       .schema
@@ -191,8 +192,8 @@ impl<S: MsdStore> Worker<S> {
     // Flush updated index to storage
     let cache = self.cache.get(&req.key).unwrap();
     self.flush_index(&req.key, &cache.index)?;
-    self.flush_chunk(&req.key, &cache.cached, cache.index.len() as u32)?;
+    self.flush_chunk(&req.key, &cache.cached, (cache.index.len() - 1) as u32)?;
 
-    Ok(())
+    Ok(Table::default())
   }
 }

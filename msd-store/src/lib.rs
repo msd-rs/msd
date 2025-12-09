@@ -46,8 +46,8 @@ pub trait MsdStore {
     f: F,
   ) -> Result<(), StoreError>;
 
-  /// create a new table
-  fn new_table(&self, name: &str) -> Result<(), StoreError>;
+  /// create a new table, return false if the table already exists
+  fn new_table(&self, name: &str) -> Result<bool, StoreError>;
   /// drop a table
   fn drop_table(&self, name: &str) -> Result<(), StoreError>;
   /// list tables
