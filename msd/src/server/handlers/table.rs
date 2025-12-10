@@ -1,17 +1,16 @@
 use std::hash::{Hash, Hasher};
 
 use axum::{
+  Json,
   body::Body,
   extract::{Path, State},
-  http::HeaderMap,
-  response::IntoResponse,
 };
 use futures::StreamExt;
 use http_body_util::BodyStream;
 use memchr::memchr;
 use msd_db::request::MsdRequest;
 use msd_request::{InsertData, InsertRequest, RequestKey};
-use msd_table::{DataType, Field, Table, Variant};
+use msd_table::{Table, Variant};
 use rustc_hash::FxHasher;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -19,11 +18,48 @@ use tracing::{error, info};
 
 use crate::server::DBState;
 
+#[derive(Debug, serde::Serialize)]
+pub struct TableResponse {
+  pub total_rows: usize,
+  pub time_used_ms: u64,
+  pub rows_per_sec: u64,
+
+  #[serde(skip)]
+  pub start_at: std::time::Instant,
+}
+
+impl TableResponse {
+  pub fn start() -> Self {
+    Self {
+      start_at: std::time::Instant::now(),
+      total_rows: 0,
+      time_used_ms: 0,
+      rows_per_sec: 0,
+    }
+  }
+
+  pub fn end(&mut self) {
+    let d = self.start_at.elapsed();
+    self.time_used_ms = d.as_millis() as u64;
+    self.rows_per_sec = (self.total_rows as f64 / d.as_secs_f64()).round() as u64;
+  }
+
+  pub fn add_rows(&mut self, rows: usize) {
+    self.total_rows += rows;
+  }
+
+  pub fn add_row(&mut self) {
+    self.total_rows += 1;
+  }
+}
+
 pub async fn handle_table(
   State(db): State<DBState>,
   Path(table_name): Path<String>,
   body: Body,
-) -> Result<(HeaderMap, impl IntoResponse), (axum::http::StatusCode, String)> {
+) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
+  let mut response = TableResponse::start();
+
   // 1. get the schema of the table by table_name
   let schema = db
     .get_schema(&table_name)
@@ -46,17 +82,17 @@ pub async fn handle_table(
 
     worker_tasks.spawn(async move {
       info!(id = worker_idx, "updater started");
-      //let mut flush_tasks = JoinSet::new();
 
       while let Some(line) = rx.recv().await {
         if line.starts_with(b"#exit") {
           break;
         }
-        match process_line(&line, &parse_schema) {
+        match process_csv_block(&line, &parse_schema) {
           Ok((obj, table)) => {
             if obj.is_empty() || table.row_count() == 0 {
               continue;
             }
+            // no need wait flush result
             let _ = flush_table(&db, &table_name, &obj, table);
           }
           Err(e) => {
@@ -75,7 +111,6 @@ pub async fn handle_table(
   let mut buffer = Vec::new();
 
   info!("start parsing csv lines");
-  let mut line_processed = 0;
   while let Some(frame_res) = stream.next().await {
     let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
@@ -118,10 +153,7 @@ pub async fn handle_table(
         block_end += pos + 1;
         line_start = block_end;
 
-        line_processed += 1;
-        if line_processed % 100_000 == 0 {
-          info!(lines = line_processed, "processed lines");
-        }
+        response.add_row();
       }
 
       if block_start < block_end {
@@ -142,7 +174,7 @@ pub async fn handle_table(
 
   // Process remaining buffer
   if !buffer.is_empty() {
-    line_processed += buffer.iter().filter(|&&b| b == b'\n').count();
+    response.add_rows(buffer.iter().filter(|&&b| b == b'\n').count());
 
     let line_bytes = buffer;
     // Calculate hash
@@ -167,7 +199,10 @@ pub async fn handle_table(
     let _ = sender.send(b"#exit".to_vec()).await;
   }
 
-  info!(lines = line_processed, "dispatched, waiting for workers");
+  info!(
+    lines = response.total_rows,
+    "dispatched, waiting for workers"
+  );
 
   // Wait for all workers
   while let Some(res) = worker_tasks.join_next().await {
@@ -180,7 +215,9 @@ pub async fn handle_table(
 
   info!("all task completed");
 
-  Ok((HeaderMap::new(), "DONE"))
+  response.end();
+
+  Ok(Json(response))
 }
 
 async fn flush_table(
@@ -204,10 +241,10 @@ async fn flush_table(
   Ok(())
 }
 
-fn process_line(line: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
+fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
   let mut rdr = csv::ReaderBuilder::new()
     .has_headers(false)
-    .from_reader(line);
+    .from_reader(lines);
 
   let mut table = parse_schema.clone();
   let mut obj = String::default();
@@ -224,13 +261,6 @@ fn process_line(line: &[u8], parse_schema: &Table) -> Result<(String, Table), St
     if obj.is_empty() {
       obj = record[0].to_string();
     }
-    // if obj != record[0] {
-    //   error!("obj mismatch: expected {}, got {}", obj, &record[0]);
-    //   return Err(format!(
-    //     "obj mismatch: expected {}, got {}",
-    //     obj, &record[0]
-    //   ));
-    // }
 
     let mut row = Vec::with_capacity(parse_schema.column_count());
     for (i, field) in parse_schema.columns().iter().enumerate() {
