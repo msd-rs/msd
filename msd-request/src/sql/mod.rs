@@ -2,12 +2,12 @@
 //!
 
 use crate::sql::msd_dialect::MsdSqlDialect;
-use crate::{InsertRequest, QueryRequest, RequestError};
+use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 
 use msd_table::{DataType as TableDataType, Field, Table, Variant};
 use sqlparser::ast::{
-  BinaryOperator, ColumnOption, CreateTableOptions, Expr, Ident, LimitClause, ObjectName, Query,
-  Select, SelectItem, SetExpr, Statement, TableFactor, Value, ValueWithSpan,
+  BinaryOperator, ColumnOption, CreateTableOptions, Expr, FromTable, Ident, LimitClause,
+  ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value, ValueWithSpan,
 };
 use sqlparser::parser::Parser;
 
@@ -21,6 +21,7 @@ pub enum SqlRequest {
   Query(QueryRequest),
   CreateTable(String, Table),
   Insert(InsertRequest),
+  Delete(DeleteRequest),
 }
 
 #[derive(Debug)]
@@ -29,6 +30,7 @@ pub enum SqlRequestType {
   Query,
   CreateTable,
   Insert,
+  Delete,
 }
 
 /// Determine the type of SQL request, based on the first command word.
@@ -45,6 +47,8 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
       return SqlRequestType::Query;
     } else if command.eq_ignore_ascii_case("CREATE") {
       return SqlRequestType::CreateTable;
+    } else if command.eq_ignore_ascii_case("DELETE") {
+      return SqlRequestType::Delete;
     }
   }
   return SqlRequestType::Unknown;
@@ -83,6 +87,7 @@ fn parse_stmt(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
     Statement::Insert(_) => parse_insert(stmt),
     Statement::Query(_) => parse_query(stmt),
     Statement::CreateTable(_) => parse_create_table(stmt),
+    Statement::Delete(_) => parse_delete(stmt),
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
@@ -162,6 +167,42 @@ fn parse_query(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
   }
 }
 
+fn parse_delete(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
+  match stmt {
+    Statement::Delete(delete) => {
+      // Try 'from' field if 'tables' is empty, or assume 'from' is the correct one for DELETE FROM
+      let tables = match delete.from {
+        FromTable::WithFromKeyword(tables) => tables,
+        FromTable::WithoutKeyword(tables) => tables,
+      };
+
+      if tables.len() != 1 {
+        return Err(RequestError::UnsupportedSqlStatement);
+      }
+
+      let table_name = match &tables[0].relation {
+        TableFactor::Table { name, .. } => object_name_to_string(name),
+        _ => return Err(RequestError::UnsupportedSqlStatement),
+      };
+
+      // Note: sqlparser Delete struct: pub tables: Vec<TableFactor>
+      // DELETE [FROM] table_name [WHERE ...]
+
+      let mut req = DeleteRequest {
+        key: RequestKey::new(table_name, "".to_string()),
+        date_range: Default::default(),
+      };
+
+      if let Some(selection) = delete.selection {
+        parse_filter_common(selection, &mut req.key.obj, &mut req.date_range)?;
+      }
+
+      Ok(vec![SqlRequest::Delete(req)])
+    }
+    _ => Err(RequestError::UnsupportedSqlStatement),
+  }
+}
+
 fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
   let Query {
     body,
@@ -195,7 +236,7 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
   req.fields = parse_projection(&projection);
 
   if let Some(expr) = selection {
-    parse_filter(expr, &mut req)?;
+    parse_filter_common(expr, &mut req.key.obj, &mut req.date_range)?;
   }
 
   if let Some(order) = parse_order_by(order_by.as_ref()) {
@@ -347,19 +388,27 @@ fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {
   Some(fields)
 }
 
-fn parse_filter(expr: Expr, req: &mut QueryRequest) -> Result<(), RequestError> {
+fn parse_filter_common(
+  expr: Expr,
+  obj: &mut String,
+  date_range: &mut crate::DateRange,
+) -> Result<(), RequestError> {
   match expr {
     Expr::BinaryOp { left, op, right } => {
       if op == BinaryOperator::And {
-        parse_filter(*left, req)?;
-        parse_filter(*right, req)?;
+        parse_filter_common(*left, obj, date_range)?;
+        parse_filter_common(*right, obj, date_range)?;
         return Ok(());
       }
 
-      if let Expr::Identifier(ident) = *left {
-        apply_predicate(ident, op, *right, req)?;
-      } else if let Expr::Identifier(ident) = *right {
-        apply_predicate(ident, op, *left, req)?;
+      match (*left, *right) {
+        (Expr::Identifier(ident), right_expr) => {
+          apply_predicate_common(ident, op, right_expr, obj, date_range)?;
+        }
+        (left_expr, Expr::Identifier(ident)) => {
+          apply_predicate_common(ident, op, left_expr, obj, date_range)?;
+        }
+        _ => {}
       }
       Ok(())
     }
@@ -367,24 +416,25 @@ fn parse_filter(expr: Expr, req: &mut QueryRequest) -> Result<(), RequestError> 
   }
 }
 
-fn apply_predicate(
+fn apply_predicate_common(
   ident: Ident,
   op: BinaryOperator,
   value_expr: Expr,
-  req: &mut QueryRequest,
+  obj: &mut String,
+  date_range: &mut crate::DateRange,
 ) -> Result<(), RequestError> {
   let name = ident.value;
   match name.to_ascii_lowercase().as_str() {
     "obj" if op == BinaryOperator::Eq => {
-      req.key.obj = expr_to_string(value_expr)?;
+      *obj = expr_to_string(value_expr)?;
     }
     "ts" => {
       let ts = expr_to_datetime(value_expr)?;
       match op {
-        BinaryOperator::Gt => req.date_range.start = Some((ts, false)),
-        BinaryOperator::GtEq => req.date_range.start = Some((ts, true)),
-        BinaryOperator::Lt => req.date_range.end = Some((ts, false)),
-        BinaryOperator::LtEq => req.date_range.end = Some((ts, true)),
+        BinaryOperator::Gt => date_range.start = Some((ts, false)),
+        BinaryOperator::GtEq => date_range.start = Some((ts, true)),
+        BinaryOperator::Lt => date_range.end = Some((ts, false)),
+        BinaryOperator::LtEq => date_range.end = Some((ts, true)),
         _ => {}
       }
     }

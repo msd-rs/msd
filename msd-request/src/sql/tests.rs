@@ -189,3 +189,45 @@ fn test_sql_parse_query() -> Result<()> {
 
   Ok(())
 }
+
+#[test]
+fn test_sql_parse_delete() -> Result<()> {
+  let sql = "DELETE FROM kline1d";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Delete(del) => {
+      assert_eq!(del.key.table, "kline1d");
+      assert_eq!(del.key.obj, "");
+    }
+    _ => panic!("Expected Delete request"),
+  }
+
+  let sql = "DELETE FROM kline1d WHERE obj='SH600000'";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Delete(del) => {
+      assert_eq!(del.key.table, "kline1d");
+      assert_eq!(del.key.obj, "SH600000");
+    }
+    _ => panic!("Expected Delete request"),
+  }
+
+  let sql = "DELETE FROM kline1d WHERE obj='SH600000' AND ts >= '2023-01-01'";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Delete(del) => {
+      assert_eq!(del.key.table, "kline1d");
+      assert_eq!(del.key.obj, "SH600000");
+      assert_eq!(
+        del.date_range.start,
+        Some((parse_datetime("2023-01-01").unwrap(), true))
+      );
+    }
+    _ => panic!("Expected Delete request"),
+  }
+
+  Ok(())
+}
