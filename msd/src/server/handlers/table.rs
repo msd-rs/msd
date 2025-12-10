@@ -9,6 +9,8 @@ use http_body_util::BodyStream;
 use msd_db::request::MsdRequest;
 use msd_request::{InsertData, InsertRequest, RequestKey};
 use msd_table::{DataType, Field, Table, Variant};
+use tokio::task::JoinSet;
+use tracing::info;
 
 use crate::server::DBState;
 
@@ -32,10 +34,15 @@ pub async fn handle_table(
   let mut current_obj: Option<String> = None;
   let mut current_table = schema.to_empty();
 
+  let mut flush_tasks = JoinSet::new();
+
+  info!("start parsing csv lines");
+  let mut line_processed = 0;
   while let Some(frame_res) = stream.next().await {
     let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
     if let Ok(chunk) = frame.into_data() {
+      info!(size = chunk.len(), "processing frame");
       buffer.extend_from_slice(&chunk);
 
       while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
@@ -47,9 +54,14 @@ pub async fn handle_table(
           &mut current_table,
           &db,
           &table_name,
+          &mut flush_tasks,
         )
         .await
         .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+        line_processed += 1;
+        if line_processed % 10000 == 0 {
+          info!(lines = line_processed, "processed");
+        }
       }
     }
   }
@@ -63,22 +75,31 @@ pub async fn handle_table(
       &mut current_table,
       &db,
       &table_name,
+      &mut flush_tasks,
     )
     .await
     .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+    line_processed += 1;
   }
+
+  info!(lines = line_processed, "processed");
 
   // Flush remaining table
   if current_table.row_count() > 0 {
-    flush_table(
-      &db,
-      &table_name,
-      current_obj.as_deref().unwrap_or_default(),
-      current_table,
-    )
-    .await
-    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    flush_tasks.spawn(async move {
+      flush_table(
+        &db,
+        &table_name,
+        current_obj.as_deref().unwrap_or_default(),
+        current_table,
+      )
+      .await
+    });
   }
+
+  info!("all task submitted, waiting ");
+  flush_tasks.join_all().await;
+  info!("all task completed");
 
   Ok((HeaderMap::new(), "DONE"))
 }
@@ -111,6 +132,7 @@ async fn process_line(
   current_table: &mut Table,
   db: &DBState,
   table_name: &str,
+  flush_tasks: &mut JoinSet<Result<(), String>>,
 ) -> Result<(), String> {
   // skip empty lines
   if line.iter().all(|b| b.is_ascii_whitespace()) {
@@ -148,9 +170,15 @@ async fn process_line(
 
     if obj_changed {
       if current_table.row_count() > 0 {
-        let old_obj = current_obj.as_ref().unwrap();
+        let old_obj = current_obj.clone().unwrap_or_default();
         let prev_table = std::mem::replace(current_table, current_table.to_empty());
-        flush_table(db, table_name, old_obj, prev_table).await?;
+        let db = db.clone();
+        let table_name = table_name.to_string();
+        flush_tasks.spawn(async move {
+          flush_table(&db, &table_name, &old_obj, prev_table)
+            .await
+            .map_err(|e| e.to_string())
+        });
       }
       *current_obj = Some(obj.clone());
     }
@@ -167,9 +195,15 @@ async fn process_line(
 
     // Check size limit (10k rows) to manage memory
     if current_table.row_count() >= 10000 {
-      let old_obj = current_obj.as_ref().unwrap();
+      let old_obj = current_obj.clone().unwrap_or_default();
       let prev_table = std::mem::replace(current_table, current_table.to_empty());
-      flush_table(db, table_name, old_obj, prev_table).await?;
+      let db = db.clone();
+      let table_name = table_name.to_string();
+      flush_tasks.spawn(async move {
+        flush_table(&db, &table_name, &old_obj, prev_table)
+          .await
+          .map_err(|e| e.to_string())
+      });
     }
   }
   Ok(())

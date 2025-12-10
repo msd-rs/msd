@@ -45,6 +45,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       tokio::spawn(worker.run(rx));
     }
 
+
     let schemas = Arc::new(RwLock::new(HashMap::new()));
     let objects = Arc::new(RwLock::new(HashMap::new()));
 
@@ -61,7 +62,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         // Load objects for each table
         let mut objects_map = HashMap::new();
         for name in schema_map.keys() {
-          let name = name[TABLE_SCHEMA_KEY_PREFIX.len()..].to_string();
+          let name = name.to_string();
           match db.load_objects_for_table(&name) {
             Ok(objs) => {
               objects_map.insert(name.clone(), objs);
