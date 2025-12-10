@@ -24,3 +24,5 @@ time.workspace = true
 tokio-stream = "0.1"
 http-body-util = "0.1"
 futures.workspace = true
+rustc-hash.workspace = true
+memchr="2"

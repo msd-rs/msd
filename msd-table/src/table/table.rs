@@ -374,7 +374,7 @@ impl Table {
   }
 
   /// Group the table by a column, keep the original order of rows in each group.
-  /// the reuslt table is a HashMap where the key is the column value and the value is the table removed the column.
+  /// the result table is a HashMap where the key is the column value and the value is the table removed the column.
   pub fn group_by(mut self, column_index: usize) -> Result<HashMap<Variant, Table>, TableError> {
     if column_index >= self.column_count() {
       return Err(TableError::ColumnIndexOutOfBounds(

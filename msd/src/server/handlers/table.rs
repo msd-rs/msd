@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use axum::{
   body::Body,
   extract::{Path, State},
@@ -6,11 +8,14 @@ use axum::{
 };
 use futures::StreamExt;
 use http_body_util::BodyStream;
+use memchr::memchr;
 use msd_db::request::MsdRequest;
 use msd_request::{InsertData, InsertRequest, RequestKey};
 use msd_table::{DataType, Field, Table, Variant};
+use rustc_hash::FxHasher;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::server::DBState;
 
@@ -24,17 +29,50 @@ pub async fn handle_table(
     .get_schema(&table_name)
     .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
 
-  // 2. append the 'obj' column to the table schema,
-  let mut parse_schema = schema.clone();
-  parse_schema.insert_column(0, Field::new("obj", DataType::String, 0));
+  let parse_schema = schema.clone();
 
-  // 3. parse the csv lines into table rows, rows with same obj (first column ) are appended to a Table
+  // 3. spawn workers
+  let worker_count = 8;
+  let mut senders = Vec::with_capacity(worker_count);
+  let mut worker_tasks = JoinSet::new();
+
+  for worker_idx in 0..worker_count {
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
+    senders.push(tx);
+
+    let db = db.clone();
+    let table_name = table_name.clone();
+    let parse_schema = parse_schema.clone();
+
+    worker_tasks.spawn(async move {
+      info!(id = worker_idx, "updater started");
+      //let mut flush_tasks = JoinSet::new();
+
+      while let Some(line) = rx.recv().await {
+        if line.starts_with(b"#exit") {
+          break;
+        }
+        match process_line(&line, &parse_schema) {
+          Ok((obj, table)) => {
+            if obj.is_empty() || table.row_count() == 0 {
+              continue;
+            }
+            let _ = flush_table(&db, &table_name, &obj, table);
+          }
+          Err(e) => {
+            error!(%e, id = worker_idx, "process line failed");
+          }
+        }
+      }
+
+      info!(id = worker_idx, "updater completed");
+      Ok::<_, String>(())
+    });
+  }
+
+  // 4. parse the csv lines and dispatch to workers
   let mut stream = BodyStream::new(body);
   let mut buffer = Vec::new();
-  let mut current_obj: Option<String> = None;
-  let mut current_table = schema.to_empty();
-
-  let mut flush_tasks = JoinSet::new();
 
   info!("start parsing csv lines");
   let mut line_processed = 0;
@@ -42,63 +80,104 @@ pub async fn handle_table(
     let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
     if let Ok(chunk) = frame.into_data() {
-      info!(size = chunk.len(), "processing frame");
       buffer.extend_from_slice(&chunk);
 
-      while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-        let line_bytes = buffer.drain(0..=pos).collect::<Vec<u8>>();
-        process_line(
-          &line_bytes,
-          &parse_schema,
-          &mut current_obj,
-          &mut current_table,
-          &db,
-          &table_name,
-          &mut flush_tasks,
-        )
-        .await
-        .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+      let last_line_end = match buffer.iter().rposition(|&b| b == b'\n') {
+        Some(n) => n,
+        None => continue, // no line found, continue reading
+      };
+
+      let mut last_key: &[u8] = b"";
+      let mut block_start = 0;
+      let mut block_end = 0;
+      let mut line_start = 0;
+
+      while let Some(pos) = memchr(b'\n', &buffer[line_start..=last_line_end]) {
+        let line = &buffer[line_start..line_start + pos + 1];
+
+        let first_col_pos = match memchr(b',', line) {
+          Some(pos) => pos,
+          None => continue,
+        };
+        if last_key.is_empty() {
+          last_key = &line[..first_col_pos];
+        }
+        if last_key != &line[..first_col_pos] {
+          let mut hasher = FxHasher::default();
+          last_key.hash(&mut hasher);
+          let hash = hasher.finish();
+          let worker_idx = (hash as usize) % worker_count;
+          let block = Vec::from(&buffer[block_start..block_end]);
+          senders[worker_idx]
+            .send(block)
+            .await
+            .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+          block_start = block_end;
+          last_key = &line[..first_col_pos];
+        }
+        block_end += pos + 1;
+        line_start = block_end;
+
         line_processed += 1;
-        if line_processed % 10000 == 0 {
-          info!(lines = line_processed, "processed");
+        if line_processed % 100_000 == 0 {
+          info!(lines = line_processed, "processed lines");
         }
       }
+
+      if block_start < block_end {
+        let block = Vec::from(&buffer[block_start..block_end]);
+        let mut hasher = FxHasher::default();
+        last_key.hash(&mut hasher);
+        let hash = hasher.finish();
+        let worker_idx = (hash as usize) % worker_count;
+        senders[worker_idx]
+          .send(block)
+          .await
+          .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+      }
+
+      buffer.drain(0..last_line_end + 1);
     }
   }
 
   // Process remaining buffer
   if !buffer.is_empty() {
-    process_line(
-      &buffer,
-      &parse_schema,
-      &mut current_obj,
-      &mut current_table,
-      &db,
-      &table_name,
-      &mut flush_tasks,
-    )
-    .await
-    .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
-    line_processed += 1;
-  }
+    line_processed += buffer.iter().filter(|&&b| b == b'\n').count();
 
-  info!(lines = line_processed, "processed");
+    let line_bytes = buffer;
+    // Calculate hash
+    let end = line_bytes
+      .iter()
+      .position(|&b| b == b',')
+      .unwrap_or(line_bytes.len());
+    let key = &line_bytes[..end];
+    let mut hasher = FxHasher::default();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let worker_idx = (hash as usize) % worker_count;
 
-  // Flush remaining table
-  if current_table.row_count() > 0 {
-    flush_tasks.spawn(async move {
-      flush_table(
-        &db,
-        &table_name,
-        current_obj.as_deref().unwrap_or_default(),
-        current_table,
-      )
+    senders[worker_idx]
+      .send(line_bytes)
       .await
-    });
+      .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
   }
 
-  info!("all task submitted, waiting ");
-  flush_tasks.join_all().await;
+  // Close all channels
+  for sender in senders {
+    let _ = sender.send(b"#exit".to_vec()).await;
+  }
+
+  info!(lines = line_processed, "dispatched, waiting for workers");
+
+  // Wait for all workers
+  while let Some(res) = worker_tasks.join_next().await {
+    match res {
+      Ok(Ok(_)) => {}
+      Ok(Err(e)) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)),
+      Err(e) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+  }
+
   info!("all task completed");
 
   Ok((HeaderMap::new(), "DONE"))
@@ -125,23 +204,51 @@ async fn flush_table(
   Ok(())
 }
 
-async fn process_line(
-  line: &[u8],
-  parse_schema: &Table,
-  current_obj: &mut Option<String>,
-  current_table: &mut Table,
-  db: &DBState,
-  table_name: &str,
-  flush_tasks: &mut JoinSet<Result<(), String>>,
-) -> Result<(), String> {
-  // skip empty lines
-  if line.iter().all(|b| b.is_ascii_whitespace()) {
-    return Ok(());
-  }
-
+fn process_line(line: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
   let mut rdr = csv::ReaderBuilder::new()
     .has_headers(false)
     .from_reader(line);
+
+  let mut table = parse_schema.clone();
+  let mut obj = String::default();
+  while let Some(record) = rdr.records().next() {
+    let record = record.map_err(|e| e.to_string())?;
+    if record.len() != parse_schema.column_count() + 1 {
+      return Err(format!(
+        "Column count mismatch: expected {}, got {}",
+        parse_schema.column_count() + 1,
+        record.len()
+      ));
+    }
+
+    if obj.is_empty() {
+      obj = record[0].to_string();
+    }
+    // if obj != record[0] {
+    //   error!("obj mismatch: expected {}, got {}", obj, &record[0]);
+    //   return Err(format!(
+    //     "obj mismatch: expected {}, got {}",
+    //     obj, &record[0]
+    //   ));
+    // }
+
+    let mut row = Vec::with_capacity(parse_schema.column_count());
+    for (i, field) in parse_schema.columns().iter().enumerate() {
+      let val_str = &record[i + 1];
+      let variant = Variant::from_str(val_str, field.kind).map_err(|e| e.to_string())?;
+      row.push(variant);
+    }
+    match table.push_row(row) {
+      Ok(_) => {}
+      Err(e) => {
+        error!(%e, "push row failed");
+      }
+    }
+  }
+  Ok((obj, table))
+  /*
+  let mut variants = Vec::with_capacity(parse_schema.column_count());
+
   let record = rdr.records().next();
   if let Some(res) = record {
     let record = res.map_err(|e| e.to_string())?;
@@ -207,4 +314,5 @@ async fn process_line(
     }
   }
   Ok(())
+  */
 }
