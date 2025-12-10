@@ -1,4 +1,4 @@
-use std::{fmt::Display, hash::Hash, sync::OnceLock};
+use std::{fmt::Display, hash::Hash, i64, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -31,5 +31,29 @@ impl RequestKey {
 impl Display for RequestKey {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}:{}", self.table, self.obj)
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DateRange {
+  /// start (timestamp, inclusive)
+  pub start: Option<(i64, bool)>,
+  /// end (timestamp, inclusive)
+  pub end: Option<(i64, bool)>,
+}
+
+impl DateRange {
+  pub fn contains(&self, ts: i64) -> bool {
+    let start = self
+      .start
+      .as_ref()
+      .map(|(ts, inclusive)| if *inclusive { *ts } else { *ts - 1 })
+      .unwrap_or(0);
+    let end = self
+      .end
+      .as_ref()
+      .map(|(ts, inclusive)| if *inclusive { *ts } else { *ts + 1 })
+      .unwrap_or(i64::MAX);
+    start <= ts && end >= ts
   }
 }

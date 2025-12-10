@@ -17,16 +17,16 @@ pub async fn handle_data(
   State(db): State<DBState>,
   Json(body): Json<DataRequest>,
 ) -> Result<(HeaderMap, impl IntoResponse), (axum::http::StatusCode, String)> {
-  let reqs = sql_to_request(&body.query).map_err(|e| {
+  let requests = sql_to_request(&body.query).map_err(|e| {
     (
       axum::http::StatusCode::BAD_REQUEST,
       format!("SQL parse error: {}", e),
     )
   })?;
 
-  let reqs = flatten_requests_by_object(db.clone(), reqs);
+  let requests = flatten_requests_by_object(db.clone(), requests);
 
-  let s = stream::iter(reqs)
+  let s = stream::iter(requests)
     .then(move |r| handle_sql_request(db.clone(), r))
     .map(|r| r.map_err(|e| axum::Error::new(e)));
 
@@ -46,8 +46,8 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
   }
 }
 
-fn flatten_requests_by_object(db: DBState, reqs: Vec<SqlRequest>) -> Vec<SqlRequest> {
-  reqs
+fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<SqlRequest> {
+  requests
     .into_iter()
     .flat_map(|r| match r {
       SqlRequest::Query(query_req) => {
@@ -81,14 +81,14 @@ fn flatten_requests_by_object(db: DBState, reqs: Vec<SqlRequest>) -> Vec<SqlRequ
           .collect()
       }
       SqlRequest::Insert(insert_req) => {
-        let sub_reqs = match db.get_schema(&insert_req.table) {
+        let sub_requests = match db.get_schema(&insert_req.table) {
           Ok(schema) => insert_req.to_table(&schema).unwrap_or_default(),
           Err(e) => {
             warn!(%e, table = &insert_req.table, "Failed to get schema");
             vec![]
           }
         };
-        sub_reqs
+        sub_requests
           .into_iter()
           .map(|req| SqlRequest::Insert(req))
           .collect()

@@ -4,6 +4,7 @@
 mod agg;
 mod base;
 mod broadcast;
+mod delete;
 mod errors;
 mod insert;
 mod keys;
@@ -14,6 +15,7 @@ mod sql;
 pub use agg::*;
 pub use base::*;
 pub use broadcast::*;
+pub use delete::*;
 pub use errors::RequestError;
 pub use insert::*;
 pub use keys::*;

@@ -11,10 +11,7 @@ pub struct QueryRequest {
   pub key: RequestKey,
   /// fields to retrieve, None means all fields
   pub fields: Option<Vec<String>>,
-  /// (timestamp, inclusive) start timestamp, None means from the beginning
-  pub start: Option<(i64, bool)>,
-  /// (timestamp, inclusive) end timestamp, None means until the end
-  pub end: Option<(i64, bool)>,
+  pub date_range: DateRange,
   /// whether to sort ascendancy
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
@@ -25,27 +22,7 @@ pub struct QueryRequest {
 
 impl QueryRequest {
   pub fn in_range(&self, ts: i64) -> bool {
-    let start_ok = match self.start {
-      Some((start_ts, inclusive)) => {
-        if inclusive {
-          ts >= start_ts
-        } else {
-          ts > start_ts
-        }
-      }
-      None => true,
-    };
-    let end_ok = match self.end {
-      Some((end_ts, inclusive)) => {
-        if inclusive {
-          ts <= end_ts
-        } else {
-          ts < end_ts
-        }
-      }
-      None => true,
-    };
-    start_ok && end_ok
+    self.date_range.contains(ts)
   }
 }
 

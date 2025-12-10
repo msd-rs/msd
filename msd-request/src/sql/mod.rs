@@ -381,10 +381,10 @@ fn apply_predicate(
     "ts" => {
       let ts = expr_to_datetime(value_expr)?;
       match op {
-        BinaryOperator::Gt => req.start = Some((ts, false)),
-        BinaryOperator::GtEq => req.start = Some((ts, true)),
-        BinaryOperator::Lt => req.end = Some((ts, false)),
-        BinaryOperator::LtEq => req.end = Some((ts, true)),
+        BinaryOperator::Gt => req.date_range.start = Some((ts, false)),
+        BinaryOperator::GtEq => req.date_range.start = Some((ts, true)),
+        BinaryOperator::Lt => req.date_range.end = Some((ts, false)),
+        BinaryOperator::LtEq => req.date_range.end = Some((ts, true)),
         _ => {}
       }
     }

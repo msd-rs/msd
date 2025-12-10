@@ -176,11 +176,11 @@ fn test_sql_parse_query() -> Result<()> {
       assert_eq!(query_req.ascending, Some(false));
       assert_eq!(query_req.limit, Some(10));
       assert_eq!(
-        query_req.start,
+        query_req.date_range.start,
         Some((parse_datetime("2023-01-01").unwrap(), true))
       );
       assert_eq!(
-        query_req.end,
+        query_req.date_range.end,
         Some((parse_datetime("2023-02-01").unwrap(), false))
       );
     }
