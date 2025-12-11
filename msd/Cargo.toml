@@ -26,4 +26,9 @@ http-body-util = "0.1"
 futures.workspace = true
 rustc-hash.workspace = true
 memchr="2"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde_json.workspace = true
+tokio-util = { version = "0.7", features = ["io"] }
+rustyline = "17"
+
+

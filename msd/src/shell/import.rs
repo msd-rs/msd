@@ -1,12 +1,34 @@
-use crate::{app_config::ShellOptions, shell::table_handler::TableHandler};
-use anyhow::Result;
-use msd_table::Table;
+use crate::app_config::ShellOptions;
+use anyhow::{Context, Result};
+use reqwest::Body;
+use tokio::fs::File;
+use tokio_util::io::ReaderStream;
 
 pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Result<()> {
-  //TODO: import the csv file to the table
-  // 1. build full endpoint form opts.server_url
-  // 2. send request
-  // please note: the file may be too large, so we should send it stream instead of all at once
+  let file = File::open(file_path)
+    .await
+    .context(format!("Failed to open file: {}", file_path))?;
+  let stream = ReaderStream::new(file);
+  let body = Body::wrap_stream(stream);
+
+  let client = reqwest::Client::new();
+  let url = format!("{}/table/{}", opts.server_url, table);
+
+  let resp = client
+    .put(&url)
+    .header(reqwest::header::CONTENT_TYPE, "text/csv")
+    .body(body)
+    .send()
+    .await
+    .context("Failed to send import request")?;
+
+  if !resp.status().is_success() {
+    let status = resp.status();
+    let txt = resp.text().await.unwrap_or_default();
+    anyhow::bail!("Import failed: {} - {}", status, txt);
+  } else {
+    println!("Import successful");
+  }
 
   Ok(())
 }

@@ -214,7 +214,7 @@ async fn test_query() -> Result<()> {
 #[tokio::test]
 async fn test_create_db_kline() -> Result<()> {
   setup();
-  let path = "/tmp/msd_store_test_create_db_kline";
+  let path = "/tmp/msd_store_test_db";
   let db = init_db(path, true).await?;
 
   let table = table!(
@@ -234,7 +234,7 @@ async fn test_create_db_kline() -> Result<()> {
 
   let table = table.with_metadata(metadata);
 
-  let req = MsdRequest::create_table("kline_real", table);
+  let req = MsdRequest::create_table("kline", table);
   db.request(req).await?;
 
   Ok(())

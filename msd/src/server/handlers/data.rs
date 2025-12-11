@@ -40,9 +40,16 @@ pub async fn handle_data(
 
 async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbError> {
   debug!("Handling SQL request: {:?}", req);
-  match req {
+  let res = match req {
     SqlRequest::Query(query_req) => handle_query(db, query_req).await,
     _ => Err(DbError::UnsupportedRequestType),
+  };
+  match res {
+    Ok(table) => Ok(table),
+    Err(e) => {
+      debug!(%e, "Failed to handle SQL request");
+      Err(e)
+    }
   }
 }
 

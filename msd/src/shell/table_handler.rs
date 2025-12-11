@@ -29,15 +29,21 @@ impl From<&ShellOptions> for PrintHandler {
 impl TableHandler for PrintHandler {
   fn handle(&self, table: &Table) -> Result<()> {
     let rows = table_to_text(table, self.print_rows);
-    let col_widths = rows
-      .iter()
-      .map(|row| row.iter().map(|s| s.len()).max().unwrap())
-      .collect::<Vec<usize>>();
+    let col_count = if rows.is_empty() { 0 } else { rows[0].len() };
+    let mut col_widths = vec![0; col_count];
+    for row in &rows {
+      for (i, col) in row.iter().enumerate() {
+        if i < col_widths.len() {
+          col_widths[i] = col_widths[i].max(col.len());
+        }
+      }
+    }
     for row in rows {
       print!("|");
       for (col, width) in row.iter().zip(col_widths.iter()) {
         print!("{:>width$}|", col);
       }
+      print!("\n");
     }
     Ok(())
   }

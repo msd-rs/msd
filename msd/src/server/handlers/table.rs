@@ -112,8 +112,10 @@ async fn handle_table_csv(
             if obj.is_empty() || table.row_count() == 0 {
               continue;
             }
-            // no need wait flush result
-            let _ = flush_table(&db, &table_name, &obj, table);
+            let db = db.clone();
+            let table_name = table_name.clone();
+            let obj = obj.clone();
+            let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {
             error!(%e, id = worker_idx, "process line failed");
@@ -300,8 +302,7 @@ async fn handle_table_binary(
 
         match parse_binary_block(&block) {
           Ok((obj, table)) => {
-            // no need wait flush result
-            let _ = flush_table(&db, &table_name, &obj, table);
+            let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {
             error!(%e, id = worker_idx, "process block failed");

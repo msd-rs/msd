@@ -39,7 +39,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
     info!(workers = worker_count, "database workers starting");
     for i in 0..worker_count {
-      let (tx, rx) = mpsc::channel(100);
+      let (tx, rx) = mpsc::channel(200_000);
       workers.push(tx);
       let worker = Worker::new(i, store.clone());
       tokio::spawn(worker.run(rx));

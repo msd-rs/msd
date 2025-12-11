@@ -92,7 +92,7 @@ pub struct ServerOptions {
 }
 
 /// Shell options
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 pub struct ShellOptions {
   /// Optional command to run, will exit after the command is run, otherwise enter interactive mode
   pub command: Option<String>,
