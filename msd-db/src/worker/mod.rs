@@ -16,9 +16,10 @@ use crate::index::IndexItem;
 use crate::request::{Broadcast, MsdRequest, RequestKey};
 use crate::serde::DbBinary;
 use crate::worker::cache::CacheMap;
-use msd_request::Key;
+use msd_request::{DeleteRequest, Key};
 mod agg_state;
 mod cache;
+mod delete;
 mod init;
 mod insert;
 mod query;
@@ -52,6 +53,10 @@ impl<S: MsdStore> Worker<S> {
         }
         MsdRequest::Query { req, resp_tx } => {
           let res = self.handle_query(req);
+          let _ = resp_tx.send(res);
+        }
+        MsdRequest::Delete { req, resp_tx } => {
+          let res = self.handle_delete(req);
           let _ = resp_tx.send(res);
         }
         MsdRequest::Broadcast(Broadcast::Shutdown) => {

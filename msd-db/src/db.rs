@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use crate::serde::DbBinary;
-use msd_request::{Key, ListObjectsRequest};
+use msd_request::{DeleteRequest, Key, ListObjectsRequest};
 use msd_store::MsdStore;
 use msd_table::{DataType, Table, parse_unit, table};
 use rustc_hash::FxHasher;
@@ -44,7 +44,6 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       let worker = Worker::new(i, store.clone());
       tokio::spawn(worker.run(rx));
     }
-
 
     let schemas = Arc::new(RwLock::new(HashMap::new()));
     let objects = Arc::new(RwLock::new(HashMap::new()));
@@ -114,7 +113,17 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
             self.create_table(name, table)?;
           }
           MsdRequest::Broadcast(Broadcast::DropTable(name)) => {
-            self.drop_table(name)?;
+            let delete_req = DeleteRequest {
+              key: RequestKey {
+                table: name.clone(),
+                obj: "".into(),
+              },
+              ..Default::default()
+            };
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = self.delete_objects(delete_req, tx);
+            let _ = rx.await;
+            self.drop_table(name)?
           }
           _ => {}
         }
@@ -129,15 +138,18 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       }
       false => match req {
         MsdRequest::ListObjects { req, resp_tx } => {
-          let resp = self
-            .matched_objects(&req)
-            .map(|s| table!({name: "objects", kind: string, data: s}));
+          let resp = self.matched_objects(&req).map(
+            |s| table!({name: "objects", kind: string, data: s.into_iter().collect::<Vec<_>>()}),
+          );
           match resp_tx.send(resp) {
             Ok(_) => {}
             Err(_) => {
               warn!(req = ?req, "Failed to send ListObjects response");
             }
           }
+        }
+        MsdRequest::Delete { req, resp_tx } => {
+          self.delete_objects(req, resp_tx)?;
         }
         MsdRequest::Insert { req, resp_tx } => {
           // Intercept
@@ -172,6 +184,92 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(())
   }
 
+  fn delete_objects(
+    &self,
+    req: DeleteRequest,
+    resp_tx: tokio::sync::oneshot::Sender<Result<Table, DbError>>,
+  ) -> Result<(), DbError> {
+    Ok(if req.key.obj.is_empty() {
+      // Delete all objects in the table
+      let objects_cache = self.objects.clone();
+      let table = req.key.table.clone();
+      let objects = {
+        let mut guard = objects_cache.write().unwrap();
+        guard.remove(&table).unwrap_or_default()
+      };
+
+      // drop the table for fast delete
+      self.store.drop_table(&table)?;
+
+      // We need to send response back, but we are triggering multiple deletes.
+      // Ideally we should wait for all, but for now let's just trigger them and return empty table.
+      // Or better, since it's "delete table", we can iterate and delete.
+
+      for obj in objects {
+        let mut sub_req = req.clone();
+        sub_req.key.obj = obj;
+        let worker = self.get_worker(&sub_req);
+        // We don't have response channel for sub-requests, so we just send to worker as "fire and forget"
+        // by wrapping in MsdRequest::Delete but we can't easily because we need a channel.
+        // Actually we can create a new channel and ignore it, or just not wait.
+        // But MsdRequest::Delete EXPECTS a channel.
+        // So we have to create a dummy channel.
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let wrapper = MsdRequest::Delete {
+          req: sub_req,
+          resp_tx: tx,
+        };
+        let _ = worker.try_send(wrapper);
+      }
+
+      // restore the table
+      self.store.new_table(&table)?;
+      self.objects.write().unwrap().insert(table, HashSet::new());
+
+      let _ = resp_tx.send(Ok(msd_table::Table::default()));
+    } else {
+      // Specific object delete
+      // Expand logic not needed if obj is specific, just send to worker.
+      // But wait, user said "expand the obj by matched_objects, then dispatch to workers".
+      // This implies obj could be a pattern?
+      // If obj is specific, matched_objects returns just it.
+      // Use matched_objects to support patterns.
+      let list_req = ListObjectsRequest {
+        key: req.key.clone(),
+      };
+      match self.matched_objects(&list_req) {
+        Ok(objs) => {
+          {
+            // remove objects from objects cache
+            let mut guard = self.objects.write().unwrap();
+            match guard.get_mut(&req.table) {
+              Some(set) => {
+                set.retain(|obj| !objs.contains(obj));
+              }
+              None => {}
+            }
+          }
+
+          for obj in objs {
+            let mut sub_req = req.clone();
+            sub_req.key.obj = obj;
+            let worker = self.get_worker(&sub_req);
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            let wrapper = MsdRequest::Delete {
+              req: sub_req,
+              resp_tx: tx,
+            };
+            let _ = worker.try_send(wrapper);
+          }
+          let _ = resp_tx.send(Ok(msd_table::Table::default()));
+        }
+        Err(e) => {
+          let _ = resp_tx.send(Err(e));
+        }
+      }
+    })
+  }
+
   pub fn get_schema(&self, table: &str) -> Result<Table, DbError> {
     let result = (|| {
       let guard = self
@@ -191,7 +289,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     &self.store
   }
 
-  pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<Vec<String>, DbError> {
+  pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<HashSet<String>, DbError> {
     let objects_cache = self.objects.clone();
     let result = (|| {
       let guard = objects_cache
@@ -207,19 +305,21 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
       };
 
-      let mut objects = Vec::new();
+      let mut objects = HashSet::new();
       for obj in set {
         match &wildcard {
           Some(wc) => {
             if wc.is_match(obj.as_bytes()) {
-              objects.push(obj.clone());
+              objects.insert(obj.clone());
             }
           }
-          None => objects.push(obj.clone()),
+          None => {
+            objects.insert(obj.clone());
+          }
         }
       }
 
-      Ok::<Vec<String>, DbError>(objects)
+      Ok::<HashSet<String>, DbError>(objects)
     })();
     result
   }

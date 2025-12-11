@@ -26,6 +26,10 @@ pub enum MsdRequest {
     req: ListObjectsRequest,
     resp_tx: RequestSender<ListObjectsResponse>,
   },
+  Delete {
+    req: DeleteRequest,
+    resp_tx: RequestSender<DeleteResponse>,
+  },
 
   Broadcast(Broadcast),
 }
@@ -49,6 +53,11 @@ impl MsdRequest {
     (MsdRequest::Query { req, resp_tx }, resp_rx)
   }
 
+  pub fn delete(req: DeleteRequest) -> (Self, RequestReceiver<DeleteResponse>) {
+    let (req, resp_tx, resp_rx) = req.to_request();
+    (MsdRequest::Delete { req, resp_tx }, resp_rx)
+  }
+
   pub fn create_table<S: Into<String>>(name: S, table: Table) -> Self {
     MsdRequest::Broadcast(Broadcast::CreateTable(name.into(), table))
   }
@@ -69,6 +78,7 @@ impl Deref for MsdRequest {
       MsdRequest::Insert { req, .. } => &req.key,
       MsdRequest::Query { req, .. } => &req.key,
       MsdRequest::ListObjects { req, .. } => &req.key,
+      MsdRequest::Delete { req, .. } => &req.key,
       MsdRequest::Broadcast(_) => broadcast_key(),
     }
   }
@@ -98,4 +108,8 @@ impl DbRequest for InsertRequest {
 
 impl DbRequest for QueryRequest {
   type Response = QueryResponse;
+}
+
+impl DbRequest for DeleteRequest {
+  type Response = DeleteResponse;
 }

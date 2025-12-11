@@ -16,7 +16,7 @@
 //!
 //! MSD-DB store the `DbTable` in a partitioned by `ObjectName` then partitioned by `Time` way. Because the underlying storage engine is `MsdStore`, which is a key-value store, the key is designed as below:
 //!
-//! ```
+//! ```text
 //! Key = DataKey | IndexKey
 //! DataKey = ObjectName + SequenceNumber
 //! SequenceNumber = Hex(-COUNT_OF_CHUNKS_BEFORE - 1) # to ensure lexicographical order

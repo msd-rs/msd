@@ -43,7 +43,11 @@ pub struct DateRange {
 }
 
 impl DateRange {
+  // Check if the timestamp is within the range, default to true if range is not set
   pub fn contains(&self, ts: i64) -> bool {
+    if !self.is_set() {
+      return true;
+    }
     let start = self
       .start
       .as_ref()
@@ -55,5 +59,9 @@ impl DateRange {
       .map(|(ts, inclusive)| if *inclusive { *ts } else { *ts + 1 })
       .unwrap_or(i64::MAX);
     start <= ts && end >= ts
+  }
+  // Check if any start or end is set
+  pub fn is_set(&self) -> bool {
+    self.start.is_some() || self.end.is_some()
   }
 }
