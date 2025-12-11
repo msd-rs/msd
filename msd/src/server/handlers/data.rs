@@ -104,7 +104,7 @@ fn matched_objects(db: DBState, table: &str, pattern: &str) -> Vec<String> {
       key: RequestKey::new(table, pattern),
     };
     match db.matched_objects(&req) {
-      Ok(objects) => objects,
+      Ok(objects) => objects.into_iter().collect(),
       Err(e) => {
         warn!(%e, table, pattern, "Failed to get matched objects");
         vec![]

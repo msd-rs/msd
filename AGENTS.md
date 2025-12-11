@@ -15,6 +15,7 @@ The project is organized as a Cargo workspace with the following members:
   - `Series`: A data structure for storing a data series
   - `Variant`: A data structure for storing data with any type, it is used to interact with `Series` and `Table`. `Variant` has a set of API convent between native types. There also
 - **`msd-db`**: A library crate implementing the database logic, including request handling, worker management, and caching.
+- **`msd-request`**: A library crate defining the request and response types used for communication between different components of the system.
 
 ## Technical Stack
 
