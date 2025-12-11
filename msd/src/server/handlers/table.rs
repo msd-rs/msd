@@ -4,10 +4,12 @@ use axum::{
   Json,
   body::Body,
   extract::{Path, State},
+  http::HeaderMap,
 };
 use futures::StreamExt;
 use http_body_util::BodyStream;
 use memchr::memchr;
+use msd_db::DbBinary;
 use msd_db::request::MsdRequest;
 use msd_request::{InsertData, InsertRequest, RequestKey};
 use msd_table::{Table, Variant};
@@ -56,6 +58,24 @@ impl TableResponse {
 pub async fn handle_table(
   State(db): State<DBState>,
   Path(table_name): Path<String>,
+  headers: HeaderMap,
+  body: Body,
+) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
+  let content_type = headers
+    .get(axum::http::header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("text/csv");
+
+  if content_type == "application/msd-table" {
+    handle_table_binary(db, table_name, body).await
+  } else {
+    handle_table_csv(db, table_name, body).await
+  }
+}
+
+async fn handle_table_csv(
+  db: DBState,
+  table_name: String,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
@@ -220,6 +240,160 @@ pub async fn handle_table(
   Ok(Json(response))
 }
 
+fn parse_string(data: &[u8]) -> Result<(String, usize), String> {
+  if data.len() < 4 {
+    return Err(format!("buffer to small, need {}, got {}", 4, data.len()));
+  }
+  let mut size: [u8; 4] = [0, 0, 0, 0];
+  size.copy_from_slice(&data[0..4]);
+  let size = u32::from_be_bytes(size) as usize;
+
+  if size + 4 > data.len() {
+    return Err(format!(
+      "buffer to small, need {}, got {}",
+      size + 4,
+      data.len()
+    ));
+  }
+
+  Ok((
+    String::from_utf8_lossy(&data[4..size + 4]).to_string(),
+    size + 4,
+  ))
+}
+
+fn parse_binary_block(data: &[u8]) -> Result<(String, Table), String> {
+  let mut offset = 0;
+  let (obj, used) = parse_string(&data[offset..])?;
+  offset += used;
+  let table = Table::from_bytes(&data[offset..]).map_err(|e| e.to_string())?;
+
+  Ok((obj, table))
+}
+
+async fn handle_table_binary(
+  db: DBState,
+  table_name: String,
+  body: Body,
+) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
+  let mut response = TableResponse::start();
+
+  // 3. spawn workers
+  let worker_count = 8;
+  let mut senders = Vec::with_capacity(worker_count);
+  let mut worker_tasks = JoinSet::new();
+
+  for worker_idx in 0..worker_count {
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
+    senders.push(tx);
+
+    let db = db.clone();
+    let table_name = table_name.clone();
+
+    worker_tasks.spawn(async move {
+      info!(id = worker_idx, "updater started");
+
+      while let Some(block) = rx.recv().await {
+        if block.starts_with(b"#exit") {
+          break;
+        }
+
+        match parse_binary_block(&block) {
+          Ok((obj, table)) => {
+            // no need wait flush result
+            let _ = flush_table(&db, &table_name, &obj, table);
+          }
+          Err(e) => {
+            error!(%e, id = worker_idx, "process block failed");
+          }
+        }
+      }
+
+      info!(id = worker_idx, "updater completed");
+      Ok::<_, String>(())
+    });
+  }
+
+  // 4. parse the binary stream and dispatch to workers
+  let mut stream = BodyStream::new(body);
+  let mut buffer = Vec::new();
+  let mut worker_idx_rr = 0;
+
+  info!("start parsing binary stream");
+  while let Some(frame_res) = stream.next().await {
+    let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    if let Ok(chunk) = frame.into_data() {
+      buffer.extend_from_slice(&chunk);
+
+      loop {
+        if buffer.len() < 4 {
+          break;
+        }
+
+        let size_bytes = &buffer[0..4];
+        let size = u32::from_le_bytes(size_bytes.try_into().unwrap()) as usize;
+
+        // BLOCK = SIZE (4 bytes) + DATA (size - 8 bytes) + CRC64 (8 bytes)
+        // Total length of remaining part after SIZE is `size`.
+        // Total block length = 4 + size.
+        let total_len = 4 + size;
+
+        if buffer.len() < total_len {
+          break;
+        }
+
+        // Extract DATA. DATA starts at 4, length is size - 8.
+        if size < 8 {
+          return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "Invalid size".to_string(),
+          ));
+        }
+        let data_len = size - 8;
+        let data = &buffer[4..4 + data_len];
+
+        // Dispatch DATA
+        senders[worker_idx_rr]
+          .send(data.to_vec())
+          .await
+          .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        worker_idx_rr = (worker_idx_rr + 1) % worker_count;
+        response.add_row(); // Count blocks
+
+        // Remove processed block
+        buffer.drain(0..total_len);
+      }
+    }
+  }
+
+  // Close all channels
+  for sender in senders {
+    let _ = sender.send(b"#exit".to_vec()).await;
+  }
+
+  info!(
+    blocks = response.total_rows,
+    "dispatched, waiting for workers"
+  );
+
+  // Wait for all workers
+  while let Some(res) = worker_tasks.join_next().await {
+    match res {
+      Ok(Ok(_)) => {}
+      Ok(Err(e)) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)),
+      Err(e) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+  }
+
+  info!("all task completed");
+
+  response.end();
+
+  Ok(Json(response))
+}
+
 async fn flush_table(
   db: &DBState,
   table_name: &str,
@@ -269,80 +443,11 @@ fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Tabl
       row.push(variant);
     }
     match table.push_row(row) {
-      Ok(_) => {}
+      Ok(_) => {} // Ignore Ok result
       Err(e) => {
         error!(%e, "push row failed");
       }
     }
   }
   Ok((obj, table))
-  /*
-  let mut variants = Vec::with_capacity(parse_schema.column_count());
-
-  let record = rdr.records().next();
-  if let Some(res) = record {
-    let record = res.map_err(|e| e.to_string())?;
-
-    // Check header
-    if record.len() == parse_schema.column_count() {
-      if &record[0] == "obj" {
-        return Ok(());
-      }
-    }
-
-    if record.len() != parse_schema.column_count() {
-      return Err(format!(
-        "Column count mismatch: expected {}, got {}",
-        parse_schema.column_count(),
-        record.len()
-      ));
-    }
-
-    let obj = record[0].to_string();
-
-    let obj_changed = match current_obj {
-      Some(curr) => curr != &obj,
-      None => true,
-    };
-
-    if obj_changed {
-      if current_table.row_count() > 0 {
-        let old_obj = current_obj.clone().unwrap_or_default();
-        let prev_table = std::mem::replace(current_table, current_table.to_empty());
-        let db = db.clone();
-        let table_name = table_name.to_string();
-        flush_tasks.spawn(async move {
-          flush_table(&db, &table_name, &old_obj, prev_table)
-            .await
-            .map_err(|e| e.to_string())
-        });
-      }
-      *current_obj = Some(obj.clone());
-    }
-
-    let mut row_variants = Vec::with_capacity(parse_schema.column_count() - 1);
-    for (i, field) in parse_schema.columns().iter().enumerate().skip(1) {
-      let val_str = &record[i];
-      let variant = Variant::from_str(val_str, field.kind).map_err(|e| e.to_string())?;
-      row_variants.push(variant);
-    }
-    current_table
-      .push_row(row_variants)
-      .map_err(|e| e.to_string())?;
-
-    // Check size limit (10k rows) to manage memory
-    if current_table.row_count() >= 10000 {
-      let old_obj = current_obj.clone().unwrap_or_default();
-      let prev_table = std::mem::replace(current_table, current_table.to_empty());
-      let db = db.clone();
-      let table_name = table_name.to_string();
-      flush_tasks.spawn(async move {
-        flush_table(&db, &table_name, &old_obj, prev_table)
-          .await
-          .map_err(|e| e.to_string())
-      });
-    }
-  }
-  Ok(())
-  */
 }

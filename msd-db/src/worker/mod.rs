@@ -16,7 +16,7 @@ use crate::index::IndexItem;
 use crate::request::{Broadcast, MsdRequest, RequestKey};
 use crate::serde::DbBinary;
 use crate::worker::cache::CacheMap;
-use msd_request::{DeleteRequest, Key};
+use msd_request::Key;
 mod agg_state;
 mod cache;
 mod delete;
