@@ -51,6 +51,8 @@ pub fn app_config() -> &'static MsdOptions {
 pub enum MsdCommands {
   /// Start the Msd server
   Server(ServerOptions),
+  /// Start a client shell
+  Shell(ShellOptions),
 }
 
 #[derive(Debug, Args)]
@@ -87,4 +89,24 @@ pub struct ServerOptions {
     env = "MSD_WORKERS"
   )]
   pub worker_threads: usize,
+}
+
+/// Shell options
+#[derive(Debug, Args)]
+pub struct ShellOptions {
+  /// Optional command to run, will exit after the command is run, otherwise enter interactive mode
+  pub command: Option<String>,
+
+  /// Server URL
+  #[arg(
+    short = 's',
+    long = "server",
+    default_value = "http://127.0.0.1:50510",
+    env = "MSD_SERVER_URL"
+  )]
+  pub server_url: String,
+
+  /// Max table rows print in reactive mode, 0 for unlimited
+  #[arg(short = 'r', long = "reactive-rows", default_value = "30")]
+  pub reactive_rows: usize,
 }

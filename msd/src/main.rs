@@ -1,6 +1,7 @@
 mod app_config;
 mod logging;
 mod server;
+mod shell;
 
 use anyhow::Result;
 use msd_table::set_default_timezone;
@@ -19,6 +20,9 @@ async fn main() -> Result<()> {
   match &main_options.command {
     MsdCommands::Server(options) => {
       server::run(options).await?;
+    }
+    MsdCommands::Shell(options) => {
+      shell::run(options).await?;
     }
   }
 
