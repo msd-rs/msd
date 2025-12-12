@@ -9,6 +9,8 @@ thiserror.workspace = true
 msd-table = { path = "../msd-table" }
 serde.workspace = true
 sqlparser = { version = "0.59" }
+crc-fast = "1.8"
+bincode.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
