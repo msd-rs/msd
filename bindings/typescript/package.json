@@ -21,6 +21,5 @@
   },
   "type": "module",
   "dependencies": {
-    "bincode-ts": "^1.0.0"
   }
 }
