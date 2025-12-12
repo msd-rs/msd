@@ -463,31 +463,34 @@ fn expr_to_variant(expr: Expr, col: Option<&Ident>) -> Result<Variant, RequestEr
 }
 
 fn expr_to_string(expr: Expr) -> Result<String, RequestError> {
+  // match expr {
+  //   Expr::Value(ValueWithSpan {
+  //     value: Value::SingleQuotedString(s),
+  //     ..
+  //   }) => Ok(s),
+  //   Expr::Value(ValueWithSpan {
+  //     value: Value::DoubleQuotedString(s),
+  //     ..
+  //   }) => Ok(s),
+  //   Expr::Value(ValueWithSpan {
+  //     value: Value::Number(s, _),
+  //     ..
+  //   }) => Ok(s),
+  //   _ => Err(RequestError::UnsupportedSqlStatement),
+  // }
   match expr {
-    Expr::Value(ValueWithSpan {
-      value: Value::SingleQuotedString(s),
-      ..
-    }) => Ok(s),
-    Expr::Value(ValueWithSpan {
-      value: Value::Number(s, _),
-      ..
-    }) => Ok(s),
+    Expr::Value(v) => match v.value {
+      Value::Number(s, _) => Ok(s),
+      _ => v.into_string().ok_or(RequestError::UnsupportedSqlStatement),
+    },
+    Expr::Identifier(ident) => Ok(ident.value),
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
 
 fn expr_to_datetime(expr: Expr) -> Result<i64, RequestError> {
-  match expr {
-    Expr::Value(ValueWithSpan {
-      value: Value::SingleQuotedString(s),
-      ..
-    }) => msd_table::parse_datetime(&s).map_err(RequestError::from),
-    Expr::Value(ValueWithSpan {
-      value: Value::Number(s, _),
-      ..
-    }) => msd_table::parse_datetime(&s).map_err(RequestError::from),
-    _ => Err(RequestError::UnsupportedSqlStatement),
-  }
+  let s = expr_to_string(expr)?;
+  msd_table::parse_datetime(&s).map_err(RequestError::from)
 }
 
 fn expr_to_usize(expr: &Expr) -> Result<Option<usize>, RequestError> {

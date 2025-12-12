@@ -152,7 +152,7 @@ fn test_sql_parse_query() -> Result<()> {
   let sql = r#"
  SELECT ts, open, high, low, close
  FROM kline1d
- WHERE obj='SH6000000' AND ts >= '2023-01-01' AND ts < '2023-02-01'
+ WHERE obj="SH6000000" AND ts >= "2023-01-01" AND ts < '2023-02-01'
  ORDER BY ts DESC
  LIMIT 10;
   "#;
