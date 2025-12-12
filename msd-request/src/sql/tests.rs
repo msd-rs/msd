@@ -191,6 +191,48 @@ fn test_sql_parse_query() -> Result<()> {
 }
 
 #[test]
+fn test_sql_parse_query_in() -> Result<()> {
+  let sql = r#"
+ SELECT ts, open, high, low, close
+ FROM kline1d
+ WHERE obj IN ('SH600000', 'SH600001')
+ ORDER BY ts DESC
+ LIMIT 10;
+  "#;
+
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+
+  match &req[0] {
+    super::SqlRequest::Query(query_req) => {
+      assert_eq!(query_req.key.table, "kline1d");
+      assert_eq!(query_req.key.obj, "");
+      assert_eq!(
+        query_req.fields,
+        Some(vec![
+          "ts".to_string(),
+          "open".to_string(),
+          "high".to_string(),
+          "low".to_string(),
+          "close".to_string()
+        ])
+      );
+      assert_eq!(query_req.ascending, Some(false));
+      assert_eq!(query_req.limit, Some(10));
+      assert_eq!(query_req.date_range.start, None);
+      assert_eq!(query_req.date_range.end, None);
+      assert_eq!(
+        query_req.objects,
+        Some(vec!["SH600000".into(), "SH600001".into()])
+      );
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  Ok(())
+}
+
+#[test]
 fn test_sql_parse_delete() -> Result<()> {
   let sql = "DELETE FROM kline1d";
   let req = super::sql_to_request(sql)?;

@@ -14,7 +14,7 @@ use sqlparser::parser::Parser;
 mod msd_dialect;
 
 use crate::{AggStateId, InsertData, RequestKey};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub enum SqlRequest {
@@ -189,15 +189,35 @@ fn parse_delete(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
       // DELETE [FROM] table_name [WHERE ...]
 
       let mut req = DeleteRequest {
-        key: RequestKey::new(table_name, "".to_string()),
+        key: RequestKey::new(table_name.clone(), "".to_string()),
         date_range: Default::default(),
       };
+      let mut objects = HashSet::new();
+      let mut object = String::default();
 
       if let Some(selection) = delete.selection {
-        parse_filter_common(selection, &mut req.key.obj, &mut req.date_range)?;
+        parse_filter_common(selection, &mut object, &mut objects, &mut req.date_range)?;
       }
 
-      Ok(vec![SqlRequest::Delete(req)])
+      if !objects.is_empty() {
+        if !object.is_empty() {
+          objects.insert(object);
+        }
+        Ok(
+          objects
+            .into_iter()
+            .map(|obj| {
+              SqlRequest::Delete(DeleteRequest {
+                key: RequestKey::new(table_name.clone(), obj),
+                date_range: req.date_range.clone(),
+              })
+            })
+            .collect(),
+        )
+      } else {
+        req.key.obj = object;
+        Ok(vec![SqlRequest::Delete(req)])
+      }
     }
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
@@ -234,9 +254,10 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
   let mut req = QueryRequest::default();
   req.key.table = table_name;
   req.fields = parse_projection(&projection);
+  let mut objects = HashSet::new();
 
   if let Some(expr) = selection {
-    parse_filter_common(expr, &mut req.key.obj, &mut req.date_range)?;
+    parse_filter_common(expr, &mut req.key.obj, &mut objects, &mut req.date_range)?;
   }
 
   if let Some(order) = parse_order_by(order_by.as_ref()) {
@@ -257,6 +278,12 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
         }
       }
     }
+  }
+  if !objects.is_empty() {
+    if !req.key.obj.is_empty() {
+      objects.insert(std::mem::take(&mut req.key.obj));
+    }
+    req.objects = Some(objects.into_iter().collect());
   }
 
   Ok(SqlRequest::Query(req))
@@ -391,13 +418,14 @@ fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {
 fn parse_filter_common(
   expr: Expr,
   obj: &mut String,
+  objects: &mut HashSet<String>,
   date_range: &mut crate::DateRange,
 ) -> Result<(), RequestError> {
   match expr {
     Expr::BinaryOp { left, op, right } => {
       if op == BinaryOperator::And {
-        parse_filter_common(*left, obj, date_range)?;
-        parse_filter_common(*right, obj, date_range)?;
+        parse_filter_common(*left, obj, objects, date_range)?;
+        parse_filter_common(*right, obj, objects, date_range)?;
         return Ok(());
       }
 
@@ -409,6 +437,16 @@ fn parse_filter_common(
           apply_predicate_common(ident, op, left_expr, obj, date_range)?;
         }
         _ => {}
+      }
+      Ok(())
+    }
+    Expr::InList { expr, list, .. } => {
+      let expr = expr_to_string(*expr)?;
+      if expr == "obj" {
+        for item in list {
+          let item = expr_to_string(item)?;
+          objects.insert(item);
+        }
       }
       Ok(())
     }
@@ -463,21 +501,6 @@ fn expr_to_variant(expr: Expr, col: Option<&Ident>) -> Result<Variant, RequestEr
 }
 
 fn expr_to_string(expr: Expr) -> Result<String, RequestError> {
-  // match expr {
-  //   Expr::Value(ValueWithSpan {
-  //     value: Value::SingleQuotedString(s),
-  //     ..
-  //   }) => Ok(s),
-  //   Expr::Value(ValueWithSpan {
-  //     value: Value::DoubleQuotedString(s),
-  //     ..
-  //   }) => Ok(s),
-  //   Expr::Value(ValueWithSpan {
-  //     value: Value::Number(s, _),
-  //     ..
-  //   }) => Ok(s),
-  //   _ => Err(RequestError::UnsupportedSqlStatement),
-  // }
   match expr {
     Expr::Value(v) => match v.value {
       Value::Number(s, _) => Ok(s),
