@@ -82,12 +82,11 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
       let readline = rl.readline("> ");
       match readline {
         Ok(line) => {
+          let _ = rl.add_history_entry(line.trim());
           let line = line.trim().trim_end_matches(';').trim();
           if line.is_empty() {
             continue;
           }
-
-          let _ = rl.add_history_entry(line);
 
           if EXIT_COMMANDS.contains(&line) {
             break;
