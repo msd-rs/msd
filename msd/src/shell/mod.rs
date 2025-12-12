@@ -2,6 +2,8 @@ mod import;
 mod query;
 mod table_handler;
 
+use std::sync::OnceLock;
+
 use crate::app_config::ShellOptions;
 use anyhow::Result;
 use rustyline::DefaultEditor;
@@ -18,6 +20,8 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
     run_command(&shell_options, &cmd).await?;
   } else {
     // interactive shell
+
+    print_help();
 
     let mut rl = DefaultEditor::new()?;
 
@@ -81,6 +85,12 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
   Ok(())
 }
 
+fn get_client() -> &'static reqwest::Client {
+  static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+  CLIENT.get_or_init(|| reqwest::Client::new())
+}
+
 async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
   if cmd.starts_with(IMPORT_COMMAND) {
     let arg = cmd.trim_start_matches(IMPORT_COMMAND);
@@ -99,6 +109,7 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
 }
 
 fn print_help() {
+  println!("Input some SQL or commands");
   println!("Available commands:");
   println!("  \\server <url>    Set server url");
   println!("  \\rows <num>      Set reactive rows");

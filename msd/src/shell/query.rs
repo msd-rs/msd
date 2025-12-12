@@ -1,3 +1,6 @@
+use std::sync::OnceLock;
+
+use super::get_client;
 use crate::{
   app_config::ShellOptions,
   shell::table_handler::{TableHandler, build_table_handler},
@@ -8,8 +11,9 @@ use msd_table::Table;
 use tokio::io::AsyncBufReadExt;
 
 pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
-  let client = reqwest::Client::new();
+  let client = get_client();
   let url = format!("{}/data", opts.server_url);
+  let timer = std::time::Instant::now();
 
   let resp = client
     .post(&url)
@@ -33,13 +37,28 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   );
   let mut reader = tokio::io::BufReader::new(stream_reader).lines();
 
+  let mut fetched_rows = 0;
+  let mut objects = 0;
   while let Some(line) = reader.next_line().await? {
     if line.trim().is_empty() {
       continue;
     }
     let table: Table =
       serde_json::from_str(&line).context("Failed to parse table from response")?;
+    fetched_rows += table.row_count();
+    objects += 1;
     handler.handle(&table)?;
+  }
+
+  if opts.verbose {
+    let s = timer.elapsed().as_secs_f64();
+    eprintln!(
+      "Fetched {} objects with {} rows in {:.3} s, {:.0} rows/s",
+      objects,
+      fetched_rows,
+      s,
+      fetched_rows as f64 / s
+    );
   }
 
   Ok(())

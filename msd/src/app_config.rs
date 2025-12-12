@@ -109,4 +109,7 @@ pub struct ShellOptions {
   /// Max table rows print in reactive mode, 0 for unlimited
   #[arg(short = 'r', long = "reactive-rows", default_value = "30")]
   pub reactive_rows: usize,
+
+  #[arg(short = 'v', long = "verbose", default_value_t = true)]
+  pub verbose: bool,
 }
