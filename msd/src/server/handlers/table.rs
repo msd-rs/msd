@@ -408,11 +408,9 @@ async fn flush_table(
     },
     data: InsertData::Table(table),
   };
-  let (req, rx) = MsdRequest::insert(req);
+  // ignore response from rx
+  let (req, _rx) = MsdRequest::insert(req);
   db.request(req).await.map_err(|e| e.to_string())?;
-  rx.await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
   Ok(())
 }
 

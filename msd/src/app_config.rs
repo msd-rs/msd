@@ -112,4 +112,8 @@ pub struct ShellOptions {
 
   #[arg(short = 'v', long = "verbose", default_value_t = true)]
   pub verbose: bool,
+
+  /// Whether to use binary protocol
+  #[arg(short = 'm', long = "msd-client", default_value_t = true)]
+  pub msd_client: bool,
 }

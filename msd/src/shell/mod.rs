@@ -2,17 +2,65 @@ mod import;
 mod query;
 mod table_handler;
 
-use std::sync::OnceLock;
+use std::{env, path::PathBuf, sync::OnceLock};
 
 use crate::app_config::ShellOptions;
 use anyhow::Result;
-use rustyline::DefaultEditor;
+use rustyline::{
+  Completer, Editor, Helper, Highlighter, Hinter,
+  error::ReadlineError,
+  validate::{ValidationContext, ValidationResult, Validator},
+};
 
 const IMPORT_COMMAND: &str = "\\import";
 const HELP_COMMAND: &str = "\\help";
 const EXIT_COMMANDS: [&str; 3] = ["\\exit", "\\quit", "\\q"];
 const SET_SERVER_COMMAND: &str = "\\server";
 const SET_REACTIVE_ROWS_COMMAND: &str = "\\rows";
+
+fn shell_history_file() -> PathBuf {
+  match env::home_dir() {
+    Some(mut path) => {
+      #[cfg(target_os = "windows")]
+      {
+        use std::fs;
+
+        path.push("AppData");
+        path.push("Local");
+        path.push("msd");
+        fs::create_dir_all(&path).ok();
+      }
+      #[cfg(not(target_os = "windows"))]
+      {
+        path.push(".local");
+        path.push("share");
+        path.push("msd");
+        std::fs::create_dir_all(&path).ok();
+      }
+      path.push(".msd_history");
+      path
+    }
+    None => PathBuf::from(".msd_history"),
+  }
+}
+
+#[derive(Completer, Helper, Highlighter, Hinter)]
+struct InputValidator {}
+
+impl Validator for InputValidator {
+  fn validate(&self, ctx: &mut ValidationContext) -> Result<ValidationResult, ReadlineError> {
+    use rustyline::validate::ValidationResult::{Incomplete, Valid};
+    let input = ctx.input();
+    if input.starts_with('\\') {
+      return Ok(Valid(None));
+    }
+    if !input.ends_with(';') {
+      Ok(Incomplete)
+    } else {
+      Ok(Valid(None))
+    }
+  }
+}
 
 pub async fn run(shell_options: &ShellOptions) -> Result<()> {
   let mut shell_options = shell_options.clone();
@@ -23,13 +71,18 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
 
     print_help();
 
-    let mut rl = DefaultEditor::new()?;
+    let mut rl = Editor::new()?;
+
+    let h = InputValidator {};
+    rl.set_helper(Some(h));
+
+    rl.load_history(&shell_history_file()).ok();
 
     loop {
       let readline = rl.readline("> ");
       match readline {
         Ok(line) => {
-          let line = line.trim();
+          let line = line.trim().trim_end_matches(';').trim();
           if line.is_empty() {
             continue;
           }
@@ -71,7 +124,9 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
             eprintln!("Error: {}", e);
           }
         }
-        Err(rustyline::error::ReadlineError::Interrupted) => break,
+        Err(rustyline::error::ReadlineError::Interrupted) => {
+          continue;
+        }
         Err(rustyline::error::ReadlineError::Eof) => break,
         Err(e) => {
           eprintln!("Error reading line: {}", e);
@@ -79,16 +134,23 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
         }
       }
     }
+    rl.save_history(&shell_history_file()).ok();
     eprintln!("Bye!");
   }
 
   Ok(())
 }
 
-fn get_client() -> &'static reqwest::Client {
+fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
   static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
-  CLIENT.get_or_init(|| reqwest::Client::new())
+  CLIENT.get_or_init(|| {
+    let mut client = reqwest::ClientBuilder::new();
+    if opts.msd_client {
+      client = client.user_agent("msd-client");
+    }
+    client.build().unwrap()
+  })
 }
 
 async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
@@ -109,7 +171,7 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
 }
 
 fn print_help() {
-  println!("Input some SQL or commands");
+  println!("Input some SQL or commands, SQL should end with semicolon(;)");
   println!("Available commands:");
   println!("  \\server <url>    Set server url");
   println!("  \\rows <num>      Set reactive rows");

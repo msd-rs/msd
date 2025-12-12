@@ -1,11 +1,15 @@
+use super::is_msd_client;
 use crate::server::DBState;
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
-use axum_streams::StreamBodyAs;
+use axum_streams::{StreamBodyAs, StreamBodyAsOptions, StreamingFormat};
+use futures::{StreamExt, stream::BoxStream};
 use msd_db::{errors::DbError, request::MsdRequest};
-use msd_request::{ListObjectsRequest, QueryRequest, RequestKey, SqlRequest, sql_to_request};
+use msd_request::{
+  ListObjectsRequest, QueryRequest, RequestKey, SqlRequest, pack_table_frame, sql_to_request,
+};
 use msd_table::Table;
 use serde::{Deserialize, Serialize};
-use tokio_stream::{self as stream, StreamExt};
+use tokio_stream::{self as stream};
 use tracing::{debug, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,8 +19,9 @@ pub struct DataRequest {
 
 pub async fn handle_data(
   State(db): State<DBState>,
+  headers: HeaderMap,
   Json(body): Json<DataRequest>,
-) -> Result<(HeaderMap, impl IntoResponse), (axum::http::StatusCode, String)> {
+) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
   let requests = sql_to_request(&body.query).map_err(|e| {
     (
       axum::http::StatusCode::BAD_REQUEST,
@@ -30,12 +35,11 @@ pub async fn handle_data(
     .then(move |r| handle_sql_request(db.clone(), r))
     .map(|r| r.map_err(|e| axum::Error::new(e)));
 
-  let mut headers = HeaderMap::new();
-  headers.insert(
-    axum::http::header::CONTENT_TYPE,
-    "application/x-ndjson".parse().unwrap(),
-  );
-  Ok((headers, StreamBodyAs::json_nl_with_errors(s)))
+  if is_msd_client(&headers) {
+    Ok(StreamBodyAs::new(TableFrameFormat {}, s))
+  } else {
+    Ok(StreamBodyAs::new(TableNdJsonFormat {}, s))
+  }
 }
 
 async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbError> {
@@ -126,4 +130,65 @@ async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> 
   let (msd_req, resp_rx) = MsdRequest::query(req);
   db.request(msd_req).await.map_err(|e| e)?;
   resp_rx.await.map_err(|e| e)?
+}
+
+struct TableFrameFormat {}
+
+impl StreamingFormat<Table> for TableFrameFormat {
+  fn to_bytes_stream<'a, 'b>(
+    &'a self,
+    stream: BoxStream<'b, Result<Table, axum::Error>>,
+    _: &'a StreamBodyAsOptions,
+  ) -> BoxStream<'b, Result<axum::body::Bytes, axum::Error>> {
+    Box::pin({
+      stream.map(|obj_res| match obj_res {
+        // ignore error
+        Err(_) => Ok(axum::body::Bytes::default()),
+        Ok(table) => {
+          let package = pack_table_frame("", &table);
+          Ok(axum::body::Bytes::from(package))
+        }
+      })
+    })
+  }
+
+  fn http_response_headers(&self, _: &StreamBodyAsOptions) -> Option<HeaderMap> {
+    let mut header_map = HeaderMap::new();
+    header_map.insert(
+      axum::http::header::CONTENT_TYPE,
+      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
+    );
+    Some(header_map)
+  }
+}
+
+struct TableNdJsonFormat {}
+
+impl StreamingFormat<Table> for TableNdJsonFormat {
+  fn to_bytes_stream<'a, 'b>(
+    &'a self,
+    stream: BoxStream<'b, Result<Table, axum::Error>>,
+    _: &'a StreamBodyAsOptions,
+  ) -> BoxStream<'b, Result<axum::body::Bytes, axum::Error>> {
+    Box::pin({
+      stream.map(|obj_res| match obj_res {
+        // ignore error
+        Err(_) => Ok(axum::body::Bytes::default()),
+        Ok(table) => {
+          let mut package = serde_json::to_vec(&table).unwrap();
+          package.push(b'\n');
+          Ok(axum::body::Bytes::from(package))
+        }
+      })
+    })
+  }
+
+  fn http_response_headers(&self, _: &StreamBodyAsOptions) -> Option<HeaderMap> {
+    let mut header_map = HeaderMap::new();
+    header_map.insert(
+      axum::http::header::CONTENT_TYPE,
+      axum::http::header::HeaderValue::from_static("application/x-ndjson"),
+    );
+    Some(header_map)
+  }
 }
