@@ -9,6 +9,7 @@ members = [
   "msd-db",
   "msd-db-viewer",
   "msd-request",
+  "bindings/python",
 ]
 
 [workspace.package]
