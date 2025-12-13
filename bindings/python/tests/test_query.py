@@ -17,7 +17,7 @@ type Handler[R] = Callable[[Table], R]
 def msd_query(sql: str, h: Handler[R] = None) -> Generator[R, None, None] :
   endpoint = f"{BASE_URL}/data"
   response = requests.post(endpoint, json={"query": sql}, stream=True, headers={
-    "User-Agent": "msd-client"
+    "User-Agent": msd.MSD_USER_AGENT
   })
   if response.status_code != 200:
     raise Exception(f"Query failed: {response.text}")
@@ -86,10 +86,8 @@ def test_query_concat_polars(benchmark) -> None :
 
   @benchmark
   def concat_polars() -> None :
-    df = None
+    dfs = []
     for table in msd_query(sql, lambda t: pl.DataFrame(t)) :
-      if df is None :
-        df = table
-      else :
-        df.vstack(table)
+      dfs.append(table)
+    df = pl.concat(dfs)
     assert df.height == want_n
