@@ -2,12 +2,12 @@
 main:
   push:
     - services:
-      - docker
-    - docker:
+        - docker
+      docker:
         image: docker.cnb.cool/elsejj/ci/py312-rust:latest
         volumes: 
           - ./target
-    - stages:
+      stages:
         - name: build msd
           script: cargo build --release
         - name: set docker tag
