@@ -21,6 +21,10 @@ pub fn set_default_timezone(tz: i8) {
   TZ_LOCAL.store(tz, Ordering::Relaxed);
 }
 
+pub fn get_local_offset() -> i64 {
+  TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000
+}
+
 fn parse_i64(s: &[u8]) -> i64 {
   let mut n = 0;
   for &b in s {

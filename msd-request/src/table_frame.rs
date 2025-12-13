@@ -48,28 +48,35 @@ pub fn pack_table_frame(obj: &str, table: &Table) -> Vec<u8> {
   frame
 }
 
-pub fn unpack_table_frame(buf: &[u8]) -> Result<(String, Table), TableFrameError> {
-  if buf.len() < 8 {
-    return Err(TableFrameError::BufferTooSmall(8, buf.len()));
-  }
+pub fn unpack_table_frame(
+  buf: &[u8],
+  skip_header: bool,
+) -> Result<(String, Table), TableFrameError> {
+  let content_and_footer = if skip_header {
+    buf
+  } else {
+    if buf.len() < 8 {
+      return Err(TableFrameError::BufferTooSmall(8, buf.len()));
+    }
 
-  let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
-  if magic != MAGIC {
-    return Err(TableFrameError::InvalidTableFrame);
-  }
+    let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
+    if magic != MAGIC {
+      return Err(TableFrameError::InvalidTableFrame);
+    }
 
-  let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
-  if version != VERSION {
-    return Err(TableFrameError::InvalidTableFrame);
-  }
+    let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
+    if version != VERSION {
+      return Err(TableFrameError::InvalidTableFrame);
+    }
 
-  let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
-  if buf.len() < 8 + frame_size {
-    return Err(TableFrameError::BufferTooSmall(8 + frame_size, buf.len()));
-  }
+    let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
+    if buf.len() < 8 + frame_size {
+      return Err(TableFrameError::BufferTooSmall(8 + frame_size, buf.len()));
+    }
+    &buf[8..8 + frame_size]
+  };
 
   // TABLE_DATA + FOOTER (CRC)
-  let content_and_footer = &buf[8..8 + frame_size];
   if content_and_footer.len() < 4 {
     return Err(TableFrameError::InvalidTableFrame);
   }
@@ -123,7 +130,7 @@ mod tests {
     // Note: Empty table for now, or populate it if needed for deeper test
 
     let packed = pack_table_frame(obj_name, &table);
-    let (unpacked_obj, unpacked_table) = unpack_table_frame(&packed).unwrap();
+    let (unpacked_obj, unpacked_table) = unpack_table_frame(&packed, false).unwrap();
 
     assert_eq!(unpacked_obj, obj_name);
     assert_eq!(unpacked_table.column_count(), table.column_count());
@@ -134,7 +141,7 @@ mod tests {
   fn test_invalid_magic() {
     let mut packed = pack_table_frame("obj", &Table::default());
     packed[0] = 0x00; // Corrupt magic
-    let err = unpack_table_frame(&packed).unwrap_err();
+    let err = unpack_table_frame(&packed, false).unwrap_err();
     match err {
       TableFrameError::InvalidTableFrame => (),
       _ => panic!("Expected InvalidTableFrame"),
@@ -149,7 +156,7 @@ mod tests {
     let len = packed.len();
     packed[len - 5] ^= 0xFF; // Corrupt last byte of data (before CRC footer)
 
-    let err = unpack_table_frame(&packed).unwrap_err();
+    let err = unpack_table_frame(&packed, false).unwrap_err();
     match err {
       TableFrameError::InvalidCrc => (),
       _ => panic!("Expected InvalidCrc, got {:?}", err),

@@ -53,7 +53,7 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
         let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap());
         buf.resize((frame_size + 8) as usize, 0);
         rd.read_exact(&mut buf[8..]).await?;
-        let (_, table) = unpack_table_frame(&buf)?;
+        let (_, table) = unpack_table_frame(&buf, false)?;
 
         fetched_rows += table.row_count();
         objects += 1;

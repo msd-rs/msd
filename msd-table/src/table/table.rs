@@ -449,6 +449,12 @@ impl Table {
   }
 }
 
+impl Into<Vec<Field>> for Table {
+  fn into(self) -> Vec<Field> {
+    self.columns
+  }
+}
+
 pub struct RowIter<'a> {
   table: &'a Table,
   index: usize,

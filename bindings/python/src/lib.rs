@@ -1,13 +1,49 @@
 use pyo3::prelude::*;
+mod py_table;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-mod python {
-  use pyo3::prelude::*;
+mod msd {
+  use msd_request::unpack_table_frame;
+  use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
 
-  /// Formats the sum of two numbers as string.
+  use crate::py_table::table_to_py_dict;
+
   #[pyfunction]
-  fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
-    Ok((a + b).to_string())
+  fn set_local_zone(tz: i8) {
+    msd_table::set_default_timezone(tz)
+  }
+
+  #[pyfunction]
+  fn get_local_offset() -> i64 {
+    msd_table::get_local_offset()
+  }
+
+  /// Checks if the buffer is a table frame.
+  ///
+  /// Returns the frame size if it is a table frame.
+  #[pyfunction]
+  #[pyo3(signature = (buffer, /))]
+  fn check_table_frame(buffer: &[u8]) -> PyResult<usize> {
+    if buffer.len() < 8 {
+      return Err(PyValueError::new_err("buffer is too short"));
+    }
+    if !buffer.starts_with(b"\x7c\x4d\x01\x00") {
+      return Err(PyValueError::new_err("buffer is not a table frame"));
+    }
+    let frame_size = u32::from_le_bytes(buffer[4..8].try_into().unwrap());
+    Ok(frame_size as usize)
+  }
+
+  /// Parses a table frame.
+  ///
+  /// Returns the table as a dict, keys are field names, values are numpy arrays.
+  #[pyfunction]
+  #[pyo3(signature = (buffer, /))]
+  fn parse_table_frame<'py>(py: Python<'py>, buffer: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+    let (_, table) =
+      unpack_table_frame(buffer, true).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Ok(table_to_py_dict(py, table))
   }
 }
