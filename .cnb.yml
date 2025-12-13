@@ -1,0 +1,28 @@
+# 分支名
+main:
+  push:
+    - services:
+      - docker
+    - docker:
+        image: docker.cnb.cool/elsejj/ci/py312-rust:latest
+        volumes: 
+          - ./target
+    - stages:
+        - name: build msd
+          script: cargo build --release
+        - name: set docker tag
+          script: echo -n "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest"
+          exports:
+            info: IMAGE_TAG
+        - name: build docker image
+          script: docker build -t $IMAGE_TAG .
+        - name: push docker image
+          script: docker push $IMAGE_TAG
+        - name: build python binding
+          script: maturin build -r -m bindings/python/Cargo.toml
+        - name: push python binding
+          script:
+            - export TWINE_USERNAME="cnb"
+            - export TWINE_PASSWORD=$CNB_TOKEN
+            - export TWINE_REPOSITORY_URL="https://pypi.cnb.cool/elsejj/msd/-/packages/simple"
+            - twine upload target/wheels/*
