@@ -3,12 +3,13 @@ use crate::{
   app_config::ShellOptions,
   shell::table_handler::{TableHandler, build_table_handler},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use futures::StreamExt;
-use msd_request::unpack_table_frame;
+use msd_request::{check_table_frame, unpack_table_frame};
 use msd_table::Table;
 use reqwest::header;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+use tracing::error;
 
 pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   let client = get_client(opts);
@@ -49,21 +50,24 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
 
     buf.resize(8, 0);
     while rd.read_exact(&mut buf).await.is_ok() {
-      if buf.starts_with(b"\x7c\x4d\x01\x00") {
-        let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap());
-        buf.resize((frame_size + 8) as usize, 0);
-        rd.read_exact(&mut buf[8..]).await?;
-        let (_, table) = unpack_table_frame(&buf, false)?;
+      let (header_size, data_size) = match check_table_frame(&buf) {
+        Ok(size) => size,
+        Err(err) => {
+          error!(%err, "invalid table frame");
+          break;
+        }
+      };
 
-        fetched_rows += table.row_count();
-        objects += 1;
-        handler.handle(&table)?;
+      buf.resize(header_size + data_size, 0);
+      rd.read_exact(&mut buf[header_size..]).await?;
+      let (_, table) = unpack_table_frame(&buf, false)?;
 
-        buf.clear();
-        buf.resize(8, 0);
-      } else {
-        bail!("Invalid table frame");
-      }
+      fetched_rows += table.row_count();
+      objects += 1;
+      handler.handle(&table)?;
+
+      buf.clear();
+      buf.resize(header_size, 0);
     }
   } else {
     // response is ndjson

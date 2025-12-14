@@ -17,7 +17,7 @@ pub use agg::*;
 pub use base::*;
 pub use broadcast::*;
 pub use delete::*;
-pub use errors::RequestError;
+pub use errors::*;
 pub use insert::*;
 pub use keys::*;
 pub use list_objects::*;

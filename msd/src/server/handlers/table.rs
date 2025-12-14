@@ -9,16 +9,17 @@ use axum::{
 use futures::StreamExt;
 use http_body_util::BodyStream;
 use memchr::memchr;
-use msd_db::DbBinary;
 use msd_db::request::MsdRequest;
-use msd_request::{InsertData, InsertRequest, RequestKey};
+use msd_request::{
+  InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
+};
 use msd_table::{Table, Variant};
 use rustc_hash::FxHasher;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
-use crate::server::DBState;
+use crate::server::{DBState, handlers::is_msd_table_format};
 
 #[derive(Debug, serde::Serialize)]
 pub struct TableResponse {
@@ -61,12 +62,7 @@ pub async fn handle_table(
   headers: HeaderMap,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
-  let content_type = headers
-    .get(axum::http::header::CONTENT_TYPE)
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("text/csv");
-
-  if content_type == "application/msd-table" {
+  if is_msd_table_format(&headers) {
     handle_table_binary(db, table_name, body).await
   } else {
     handle_table_csv(db, table_name, body).await
@@ -242,37 +238,6 @@ async fn handle_table_csv(
   Ok(Json(response))
 }
 
-fn parse_string(data: &[u8]) -> Result<(String, usize), String> {
-  if data.len() < 4 {
-    return Err(format!("buffer to small, need {}, got {}", 4, data.len()));
-  }
-  let mut size: [u8; 4] = [0, 0, 0, 0];
-  size.copy_from_slice(&data[0..4]);
-  let size = u32::from_be_bytes(size) as usize;
-
-  if size + 4 > data.len() {
-    return Err(format!(
-      "buffer to small, need {}, got {}",
-      size + 4,
-      data.len()
-    ));
-  }
-
-  Ok((
-    String::from_utf8_lossy(&data[4..size + 4]).to_string(),
-    size + 4,
-  ))
-}
-
-fn parse_binary_block(data: &[u8]) -> Result<(String, Table), String> {
-  let mut offset = 0;
-  let (obj, used) = parse_string(&data[offset..])?;
-  offset += used;
-  let table = Table::from_bytes(&data[offset..]).map_err(|e| e.to_string())?;
-
-  Ok((obj, table))
-}
-
 async fn handle_table_binary(
   db: DBState,
   table_name: String,
@@ -294,14 +259,16 @@ async fn handle_table_binary(
 
     worker_tasks.spawn(async move {
       info!(id = worker_idx, "updater started");
+      let mut rows = 0;
 
       while let Some(block) = rx.recv().await {
         if block.starts_with(b"#exit") {
           break;
         }
 
-        match parse_binary_block(&block) {
+        match unpack_table_frame(&block, false) {
           Ok((obj, table)) => {
+            rows += table.row_count();
             let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {
@@ -311,7 +278,7 @@ async fn handle_table_binary(
       }
 
       info!(id = worker_idx, "updater completed");
-      Ok::<_, String>(())
+      Ok::<_, String>(rows)
     });
   }
 
@@ -328,43 +295,29 @@ async fn handle_table_binary(
       buffer.extend_from_slice(&chunk);
 
       loop {
-        if buffer.len() < 4 {
-          break;
+        let frame_size = match check_table_frame(&buffer) {
+          Ok((header, data)) => header + data,
+          Err(TableFrameError::BufferTooSmall(_, _)) => {
+            continue;
+          }
+          Err(err) => {
+            error!(%err, "invalid table frame");
+            break;
+          }
+        };
+        if buffer.len() < frame_size {
+          continue;
         }
-
-        let size_bytes = &buffer[0..4];
-        let size = u32::from_le_bytes(size_bytes.try_into().unwrap()) as usize;
-
-        // BLOCK = SIZE (4 bytes) + DATA (size - 8 bytes) + CRC64 (8 bytes)
-        // Total length of remaining part after SIZE is `size`.
-        // Total block length = 4 + size.
-        let total_len = 4 + size;
-
-        if buffer.len() < total_len {
-          break;
-        }
-
-        // Extract DATA. DATA starts at 4, length is size - 8.
-        if size < 8 {
-          return Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            "Invalid size".to_string(),
-          ));
-        }
-        let data_len = size - 8;
-        let data = &buffer[4..4 + data_len];
+        let data = buffer.drain(0..frame_size).collect::<Vec<u8>>();
 
         // Dispatch DATA
         senders[worker_idx_rr]
-          .send(data.to_vec())
+          .send(data)
           .await
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         worker_idx_rr = (worker_idx_rr + 1) % worker_count;
         response.add_row(); // Count blocks
-
-        // Remove processed block
-        buffer.drain(0..total_len);
       }
     }
   }
@@ -382,7 +335,7 @@ async fn handle_table_binary(
   // Wait for all workers
   while let Some(res) = worker_tasks.join_next().await {
     match res {
-      Ok(Ok(_)) => {}
+      Ok(Ok(rows)) => response.add_rows(rows),
       Ok(Err(e)) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e)),
       Err(e) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }

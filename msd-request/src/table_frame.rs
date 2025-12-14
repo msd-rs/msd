@@ -18,6 +18,17 @@ use std::convert::TryInto;
 const MAGIC: u16 = 0x4d7c;
 const VERSION: u16 = 0x0001;
 
+/// Pack a table frame
+///
+/// # Arguments
+///
+/// * `obj` - The object name
+/// * `table` - The table to pack
+///
+/// # Returns
+///
+/// * `Vec<u8>` - The packed table frame
+///
 pub fn pack_table_frame(obj: &str, table: &Table) -> Vec<u8> {
   let mut table_data = Vec::new();
 
@@ -48,6 +59,46 @@ pub fn pack_table_frame(obj: &str, table: &Table) -> Vec<u8> {
   frame
 }
 
+/// Check if the buffer is a valid table frame
+///
+/// # Arguments
+///
+/// * `buf` - The buffer to check
+///
+/// # Returns
+///
+/// * `Result<(usize, usize), TableFrameError>` - The size of the (header, data) tuple
+///
+pub fn check_table_frame(buf: &[u8]) -> Result<(usize, usize), TableFrameError> {
+  if buf.len() < 8 {
+    return Err(TableFrameError::BufferTooSmall(8, buf.len()));
+  }
+
+  let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
+  if magic != MAGIC {
+    return Err(TableFrameError::InvalidTableFrame);
+  }
+
+  let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
+  if version != VERSION {
+    return Err(TableFrameError::InvalidTableFrame);
+  }
+
+  let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
+  Ok((8, frame_size))
+}
+
+/// Unpack a table frame
+///
+/// # Arguments
+///
+/// * `buf` - The buffer to unpack
+/// * `skip_header` - Whether to skip the header
+///
+/// # Returns
+///
+/// * `Result<(String, Table), TableFrameError>` - The unpacked table frame
+///
 pub fn unpack_table_frame(
   buf: &[u8],
   skip_header: bool,
