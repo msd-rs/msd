@@ -7,6 +7,9 @@ main:
         image: docker.cnb.cool/elsejj/ci/py312-rust:latest
         volumes: 
           - ./target
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 16
       stages:
         - name: build msd
           script: cargo build --release
