@@ -7,6 +7,7 @@ use msd_db::{
 };
 use msd_store::RocksDbStore;
 use msd_table::{Series, Table, Variant, parse_datetime, table};
+use tracing::info;
 
 type Db = MsdDb<RocksDbStore>;
 
@@ -233,6 +234,8 @@ async fn test_create_db_kline() -> Result<()> {
   ]);
 
   let table = table.with_metadata(metadata);
+
+  info!(?table, "Creating table");
 
   let req = MsdRequest::create_table("kline", table);
   db.request(req).await?;

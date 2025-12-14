@@ -8,7 +8,7 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Resul
   let file = File::open(file_path)
     .await
     .context(format!("Failed to open file: {}", file_path))?;
-  let stream = ReaderStream::new(file);
+  let stream = ReaderStream::with_capacity(file, 8 * 1024 * 1024);
   let body = Body::wrap_stream(stream);
 
   let client = reqwest::Client::new();
@@ -27,7 +27,8 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Resul
     let txt = resp.text().await.unwrap_or_default();
     anyhow::bail!("Import failed: {} - {}", status, txt);
   } else {
-    println!("Import successful");
+    let txt = resp.text().await.unwrap_or_default();
+    println!("Import successful: {}", txt);
   }
 
   Ok(())

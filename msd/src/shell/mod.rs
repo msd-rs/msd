@@ -50,7 +50,7 @@ struct InputValidator {}
 impl Validator for InputValidator {
   fn validate(&self, ctx: &mut ValidationContext) -> Result<ValidationResult, ReadlineError> {
     use rustyline::validate::ValidationResult::{Incomplete, Valid};
-    let input = ctx.input();
+    let input = ctx.input().trim();
     if input.starts_with('\\') {
       return Ok(Valid(None));
     }
@@ -65,7 +65,29 @@ impl Validator for InputValidator {
 pub async fn run(shell_options: &ShellOptions) -> Result<()> {
   let mut shell_options = shell_options.clone();
   if let Some(cmd) = shell_options.command.clone() {
-    run_command(&shell_options, &cmd).await?;
+    let commands = if PathBuf::from(&cmd).is_file() {
+      let content = std::fs::read_to_string(&cmd)?;
+      content
+        .split(';')
+        .map_while(|s| {
+          let s = s.trim();
+          if s.is_empty() {
+            None
+          } else {
+            Some(s.to_string())
+          }
+        })
+        .collect::<Vec<_>>()
+    } else {
+      vec![cmd]
+    };
+    for cmd in commands {
+      if cmd.trim().is_empty() {
+        continue;
+      }
+      println!("> {}", cmd.trim());
+      run_command(&shell_options, &cmd).await?;
+    }
   } else {
     // interactive shell
 
@@ -154,7 +176,7 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
 
 async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
   if cmd.starts_with(IMPORT_COMMAND) {
-    let arg = cmd.trim_start_matches(IMPORT_COMMAND);
+    let arg = cmd.trim_start_matches(IMPORT_COMMAND).trim();
     let (table, file_path) = arg.split_once(' ').unwrap_or((arg, ""));
     let table = table.trim();
     let file_path = file_path.trim();
