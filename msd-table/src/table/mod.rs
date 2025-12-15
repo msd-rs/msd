@@ -1,5 +1,6 @@
 mod datatype;
 mod field;
+mod rows_table;
 mod series;
 mod table;
 

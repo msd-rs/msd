@@ -6,6 +6,10 @@ use crate::{Field, Series, TableError, Variant, VariantMutRef, VariantRef};
 
 const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 
+/// # Table
+/// A table is a columnar data structure, where each column has the same data type.
+/// It's efficient for columnar data processing.
+/// It also provide some row orientation APIs for data processing.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Table {
   version: u32,
