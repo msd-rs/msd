@@ -10,6 +10,9 @@ use axum::{
 };
 use msd_db::MsdDb;
 use msd_store::RocksDbStore;
+use tower_http::{
+  compression::CompressionLayer, cors::CorsLayer, decompression::DecompressionLayer,
+};
 use tracing::info;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -44,9 +47,12 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
 
   let db = Arc::new(db);
   let app = Router::new()
+    .layer(CorsLayer::permissive())
+    .layer(DecompressionLayer::new())
     .route("/data", post(handlers::handle_data))
     .route("/table/{table_name}", put(handlers::handle_table))
-    .with_state(db.clone());
+    .with_state(db.clone())
+    .layer(CompressionLayer::new());
   info!("msd server start");
   axum::serve(listener, app)
     .with_graceful_shutdown(shutdown_signal())

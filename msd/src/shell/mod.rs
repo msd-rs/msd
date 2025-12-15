@@ -168,7 +168,7 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
   CLIENT.get_or_init(|| {
     let mut client = reqwest::ClientBuilder::new();
     if opts.msd_client {
-      client = client.user_agent("msd-client");
+      client = client.user_agent("msd-client").zstd(true)
     }
     client.build().unwrap()
   })

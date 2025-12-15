@@ -31,6 +31,8 @@ pub async fn handle_data(
 
   let requests = flatten_requests_by_object(db.clone(), requests);
 
+  debug!(count = requests.len(), "start to handle requests");
+
   let s = stream::iter(requests)
     .then(move |r| handle_sql_request(db.clone(), r))
     .map(|r| r.map_err(|e| axum::Error::new(e)));

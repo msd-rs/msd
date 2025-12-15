@@ -31,7 +31,7 @@ impl<S: MsdStore> Worker<S> {
     let pk_col = schema.pk_column();
 
     // Convert insert data to table and sort by pk ascending
-    let mut incoming = req.take_rows()?;
+    let mut incoming = req.take_table()?;
     incoming.sort_by_pk(false);
 
     // Get round unit from table metadata
@@ -76,7 +76,7 @@ impl<S: MsdStore> Worker<S> {
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
 
     // Process each incoming row
-    for row in incoming.rows() {
+    for row in incoming.rows(false) {
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
       let pk = round_ts(raw_pk, &round_unit).unwrap_or(raw_pk);
@@ -115,17 +115,17 @@ impl<S: MsdStore> Worker<S> {
       if pk == last_cached_pk && cached_row_count > 0 {
         // Update existing row using agg states
         let last_row_idx = cached_row_count - 1;
-        for (col_idx, cell_ref) in row.iter().enumerate() {
+        for (col_idx, cell_value) in row.iter().enumerate() {
           if col_idx == pk_col {
             continue; // Skip pk column
           }
 
           // Skip empty cells
-          if cell_ref.is_empty() {
+          if cell_value.is_empty() {
             continue;
           }
 
-          let cell_value: Variant = cell_ref.clone();
+          let cell_value: Variant = cell_value.to_variant();
 
           // Update agg state and set the aggregated value
           if let Some(Some(agg_state)) = cache.state.get_mut(col_idx) {
@@ -137,7 +137,7 @@ impl<S: MsdStore> Worker<S> {
           } else {
             // No agg state, just overwrite with the new value
             if let Some(cell_mut) = cache.cached.get_cell_mut(last_row_idx, col_idx) {
-              let _ = cell_mut.set(cell_value);
+              let _ = cell_mut.set(cell_value.clone());
             }
           }
         }

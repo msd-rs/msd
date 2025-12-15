@@ -1,11 +1,11 @@
 create table kline (
   ts datetime,
-  open double,
-  high double,
-  low double,
-  close double,
-  volume double,
-  amount double
+  open Decimal64,
+  high Decimal64,
+  low Decimal64,
+  close Decimal64,
+  volume Decimal64,
+  amount Decimal64
 ) with (
   chunkSize = 250,
   round='1d'

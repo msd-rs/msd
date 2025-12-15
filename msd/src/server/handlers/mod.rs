@@ -1,8 +1,8 @@
-mod data;
-mod table;
+mod import;
+mod query;
 
-pub use data::handle_data;
-pub use table::handle_table;
+pub use import::handle_table;
+pub use query::handle_data;
 
 fn is_msd_client(headers: &axum::http::HeaderMap) -> bool {
   headers

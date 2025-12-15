@@ -13,7 +13,7 @@ use msd_db::request::MsdRequest;
 use msd_request::{
   InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
 };
-use msd_table::{RowsTable, Table, TableError, Variant};
+use msd_table::{Table, Variant};
 use rustc_hash::FxHasher;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -103,7 +103,7 @@ async fn handle_table_csv(
         if line.starts_with(b"#exit") {
           break;
         }
-        match process_csv_block_rows(&line, &parse_schema) {
+        match process_csv_block(&line, &parse_schema) {
           Ok((obj, table)) => {
             if obj.is_empty() || table.row_count() == 0 {
               continue;
@@ -111,7 +111,7 @@ async fn handle_table_csv(
             let db = db.clone();
             let table_name = table_name.clone();
             let obj = obj.clone();
-            let _ = flush_rows_table(&db, &table_name, &obj, table).await;
+            let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {
             error!(%e, id = worker_idx, "process line failed");
@@ -365,64 +365,6 @@ async fn flush_table(
   let (req, _rx) = MsdRequest::insert(req);
   db.request(req).await.map_err(|e| e.to_string())?;
   Ok(())
-}
-
-async fn flush_rows_table(
-  db: &DBState,
-  table_name: &str,
-  obj: &str,
-  table: RowsTable,
-) -> Result<(), String> {
-  let req = InsertRequest {
-    key: RequestKey {
-      table: table_name.to_string(),
-      obj: obj.to_string(),
-    },
-    data: InsertData::Rows(table),
-  };
-  // ignore response from rx
-  let (req, _rx) = MsdRequest::insert(req);
-  db.request(req).await.map_err(|e| e.to_string())?;
-  Ok(())
-}
-
-fn process_csv_block_rows(
-  lines: &[u8],
-  parse_schema: &Table,
-) -> Result<(String, RowsTable), String> {
-  let mut rdr = csv::ReaderBuilder::new()
-    .has_headers(false)
-    .from_reader(lines);
-
-  let mut table = parse_schema.clone();
-  let mut obj = String::default();
-  let mut rows = Vec::new();
-  while let Some(record) = rdr.records().next() {
-    let record = record.map_err(|e| e.to_string())?;
-    if record.len() != parse_schema.column_count() + 1 {
-      return Err(format!(
-        "Column count mismatch: expected {}, got {}",
-        parse_schema.column_count() + 1,
-        record.len()
-      ));
-    }
-
-    if obj.is_empty() {
-      obj = record[0].to_string();
-    }
-
-    match record
-      .iter()
-      .skip(1)
-      .zip(parse_schema.columns())
-      .map(|(cell, field)| Variant::from_str(cell, field.kind))
-      .collect::<Result<Vec<Variant>, TableError>>()
-    {
-      Ok(row) => rows.push(row),
-      Err(e) => return Err(e.to_string()),
-    }
-  }
-  Ok((obj, RowsTable::new(Some(&table), rows)))
 }
 
 fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
