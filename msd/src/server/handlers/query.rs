@@ -1,14 +1,22 @@
 use super::is_msd_client;
 use crate::server::DBState;
-use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
+use axum::{
+  Json,
+  body::{Body, HttpBody},
+  extract::State,
+  http::{HeaderMap, Response},
+  response::IntoResponse,
+};
 use axum_streams::{StreamBodyAs, StreamBodyAsOptions, StreamingFormat};
 use futures::{StreamExt, stream::BoxStream};
+use http_body::Frame;
 use msd_db::{errors::DbError, request::MsdRequest};
 use msd_request::{
   ListObjectsRequest, QueryRequest, RequestKey, SqlRequest, pack_table_frame, sql_to_request,
 };
-use msd_table::Table;
+use msd_table::{Table, table};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinSet;
 use tokio_stream::{self as stream};
 use tracing::{debug, info, warn};
 
@@ -17,6 +25,59 @@ pub struct DataRequest {
   pub query: String,
 }
 
+#[derive(Debug)]
+struct TableFrameBody {
+  set: JoinSet<Result<Table, DbError>>,
+}
+
+impl TableFrameBody {
+  fn new(db: DBState, requests: Vec<SqlRequest>) -> Self {
+    let mut set = JoinSet::new();
+    for req in requests {
+      set.spawn(handle_sql_request(db.clone(), req));
+    }
+    Self { set }
+  }
+}
+
+impl HttpBody for TableFrameBody {
+  type Data = axum::body::Bytes;
+  type Error = axum::Error;
+
+  fn poll_frame(
+    self: std::pin::Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    let this = self.get_mut();
+    let res = this.set.try_join_next();
+    match res {
+      None => {
+        if this.set.is_empty() {
+          std::task::Poll::Ready(None)
+        } else {
+          cx.waker().wake_by_ref();
+          std::task::Poll::Pending
+        }
+      }
+      Some(Ok(Ok(table))) => {
+        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame("", &table)));
+        std::task::Poll::Ready(Some(Ok(frame)))
+      }
+      Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+      Some(Err(e)) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+    }
+  }
+}
+impl IntoResponse for TableFrameBody {
+  fn into_response(self) -> Response<Body> {
+    let mut resp = Response::new(Body::new(self));
+    resp.headers_mut().insert(
+      axum::http::header::CONTENT_TYPE,
+      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
+    );
+    resp
+  }
+}
 pub async fn handle_data(
   State(db): State<DBState>,
   headers: HeaderMap,
@@ -33,14 +94,15 @@ pub async fn handle_data(
 
   debug!(count = requests.len(), "start to handle requests");
 
-  let s = stream::iter(requests)
-    .then(move |r| handle_sql_request(db.clone(), r))
-    .map(|r| r.map_err(|e| axum::Error::new(e)));
-
   if is_msd_client(&headers) {
-    Ok(StreamBodyAs::new(TableFrameFormat {}, s))
+    let body = TableFrameBody::new(db.clone(), requests);
+    Ok(body.into_response())
   } else {
-    Ok(StreamBodyAs::new(TableNdJsonFormat {}, s))
+    let s = stream::iter(requests)
+      .then(move |r| handle_sql_request(db.clone(), r))
+      .map(|r| r.map_err(|e| axum::Error::new(e)));
+
+    Ok(StreamBodyAs::new(TableNdJsonFormat {}, s).into_response())
   }
 }
 
@@ -65,6 +127,9 @@ fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<Sql
     .into_iter()
     .flat_map(|r| match r {
       SqlRequest::Query(query_req) => {
+        if is_list_objects(&query_req) {
+          return vec![SqlRequest::Query(query_req)];
+        }
         let objects = if query_req
           .objects
           .as_ref()
@@ -129,7 +194,22 @@ fn matched_objects(db: DBState, table: &str, pattern: &str) -> Vec<String> {
   }
 }
 
+fn is_list_objects(req: &QueryRequest) -> bool {
+  req
+    .fields
+    .as_ref()
+    .map(|f| f.len() == 1 && f[0] == "obj")
+    .unwrap_or(false)
+}
+
 async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> {
+  if is_list_objects(&req) {
+    let req = ListObjectsRequest { key: req.key };
+    let mut objs = db.matched_objects(&req)?.into_iter().collect::<Vec<_>>();
+    objs.sort();
+    return Ok(table!({name : "obj", kind : string, data : objs}));
+  }
+
   let (msd_req, resp_rx) = MsdRequest::query(req);
   db.request(msd_req).await.map_err(|e| e)?;
   resp_rx.await.map_err(|e| e)?
@@ -140,36 +220,6 @@ async fn handle_create_table(db: DBState, name: String, table: Table) -> Result<
   let msd_req = MsdRequest::create_table(name, table);
   db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
-}
-
-struct TableFrameFormat {}
-
-impl StreamingFormat<Table> for TableFrameFormat {
-  fn to_bytes_stream<'a, 'b>(
-    &'a self,
-    stream: BoxStream<'b, Result<Table, axum::Error>>,
-    _: &'a StreamBodyAsOptions,
-  ) -> BoxStream<'b, Result<axum::body::Bytes, axum::Error>> {
-    Box::pin({
-      stream.map(|obj_res| match obj_res {
-        // ignore error
-        Err(_) => Ok(axum::body::Bytes::default()),
-        Ok(table) => {
-          let package = pack_table_frame("", &table);
-          Ok(axum::body::Bytes::from(package))
-        }
-      })
-    })
-  }
-
-  fn http_response_headers(&self, _: &StreamBodyAsOptions) -> Option<HeaderMap> {
-    let mut header_map = HeaderMap::new();
-    header_map.insert(
-      axum::http::header::CONTENT_TYPE,
-      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
-    );
-    Some(header_map)
-  }
 }
 
 struct TableNdJsonFormat {}
