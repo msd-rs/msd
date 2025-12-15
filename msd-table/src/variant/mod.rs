@@ -113,6 +113,18 @@ impl Variant {
     matches!(self, Variant::Null)
   }
 
+  pub fn is_empty(&self) -> bool {
+    match self {
+      Variant::Null => true,
+      Variant::String(s) => s.is_empty(),
+      Variant::Bytes(b) => b.is_empty(),
+      Variant::Float32(v) => v.is_nan(),
+      Variant::Float64(v) => v.is_nan(),
+      Variant::Decimal64(v) => v.is_nan(),
+      _ => false,
+    }
+  }
+
   pub fn from_str(s: &str, dtype: DataType) -> Result<Self, TableError> {
     match dtype {
       DataType::Null => Ok(Variant::Null),

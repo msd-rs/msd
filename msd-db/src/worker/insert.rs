@@ -31,7 +31,7 @@ impl<S: MsdStore> Worker<S> {
     let pk_col = schema.pk_column();
 
     // Convert insert data to table and sort by pk ascending
-    let mut incoming = req.take_table()?;
+    let mut incoming = req.take_rows()?;
     incoming.sort_by_pk(false);
 
     // Get round unit from table metadata
@@ -76,7 +76,7 @@ impl<S: MsdStore> Worker<S> {
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
 
     // Process each incoming row
-    for row in incoming.rows(false) {
+    for row in incoming.rows() {
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
       let pk = round_ts(raw_pk, &round_unit).unwrap_or(raw_pk);
@@ -125,7 +125,7 @@ impl<S: MsdStore> Worker<S> {
             continue;
           }
 
-          let cell_value: Variant = cell_ref.to_variant();
+          let cell_value: Variant = cell_ref.clone();
 
           // Update agg state and set the aggregated value
           if let Some(Some(agg_state)) = cache.state.get_mut(col_idx) {

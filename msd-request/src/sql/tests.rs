@@ -69,10 +69,10 @@ fn test_sql_parse_insert() -> Result<()> {
       assert_eq!(insert_req.table, "kline1d");
       assert_eq!(insert_req.obj, "SH600000");
       match &insert_req.data {
-        crate::sql::InsertData::Rows(rows) => {
-          assert_eq!(rows.len(), 2);
-          assert_eq!(rows[0].len(), 5);
-          assert_eq!(rows[1].len(), 5);
+        crate::sql::InsertData::Rows(table) => {
+          assert_eq!(table.row_count(), 2);
+          assert_eq!(table.rows[0].len(), 5);
+          assert_eq!(table.rows[1].len(), 5);
         }
         _ => panic!("Expected Rows data"),
       }
@@ -84,10 +84,10 @@ fn test_sql_parse_insert() -> Result<()> {
       assert_eq!(insert_req.table, "kline1d");
       assert_eq!(insert_req.obj, "SH600001");
       match &insert_req.data {
-        crate::sql::InsertData::Rows(rows) => {
-          assert_eq!(rows.len(), 2);
-          assert_eq!(rows[0].len(), 5);
-          assert_eq!(rows[1].len(), 5);
+        crate::sql::InsertData::Rows(table) => {
+          assert_eq!(table.row_count(), 2);
+          assert_eq!(table.rows[0].len(), 5);
+          assert_eq!(table.rows[1].len(), 5);
         }
         _ => panic!("Expected Rows data"),
       }

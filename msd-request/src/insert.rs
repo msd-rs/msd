@@ -1,4 +1,4 @@
-use msd_table::{DataType, Field, Series, Table, Variant, table_from_csv};
+use msd_table::{DataType, Field, RowsTable, Series, Table, table_from_csv};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::io::Cursor;
@@ -10,7 +10,7 @@ use super::base::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InsertData {
-  Rows(Vec<Vec<Variant>>),
+  Rows(RowsTable),
   Columns(Vec<Series>),
   Csv(String),
   Table(Table),
@@ -47,7 +47,7 @@ impl InsertRequest {
       table.insert_column(0, Field::new("obj", DataType::String, 0));
       let table = match self.data {
         InsertData::Rows(mut rows) => {
-          for row in rows.drain(..) {
+          for row in rows.rows.drain(..) {
             table.push_row(row).map_err(|e| RequestError::from(e))?;
           }
           table
@@ -79,7 +79,7 @@ impl InsertRequest {
       let mut table = schema.to_empty();
       let table = match self.data {
         InsertData::Rows(mut rows) => {
-          for row in rows.drain(..) {
+          for row in rows.rows.drain(..) {
             table.push_row(row).map_err(|e| RequestError::from(e))?;
           }
           table
@@ -105,6 +105,14 @@ impl InsertRequest {
       InsertData::Table(table) => Ok(std::mem::take(table)),
       _ => Err(RequestError::InvalidRequest(
         "Data is not a table".to_string(),
+      )),
+    }
+  }
+  pub fn take_rows(&mut self) -> Result<RowsTable, RequestError> {
+    match &mut self.data {
+      InsertData::Rows(rows) => Ok(std::mem::take(rows)),
+      _ => Err(RequestError::InvalidRequest(
+        "Data is not a rows table".to_string(),
       )),
     }
   }

@@ -4,7 +4,7 @@
 use crate::sql::msd_dialect::MsdSqlDialect;
 use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 
-use msd_table::{DataType as TableDataType, Field, Table, Variant};
+use msd_table::{DataType as TableDataType, Field, RowsTable, Table, Variant};
 use sqlparser::ast::{
   BinaryOperator, ColumnOption, CreateTableOptions, Expr, FromTable, Ident, LimitClause,
   ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value, ValueWithSpan,
@@ -137,7 +137,7 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
             if obj != current_obj && !current_obj.is_empty() {
               let req = SqlRequest::Insert(InsertRequest {
                 key: RequestKey::new(&table, &current_obj),
-                data: InsertData::Rows(std::mem::take(&mut current_rows)),
+                data: InsertData::Rows(RowsTable::new(None, std::mem::take(&mut current_rows))),
               });
               rows.push(req);
             }
@@ -147,7 +147,7 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
           if current_rows.len() > 0 {
             let req = SqlRequest::Insert(InsertRequest {
               key: RequestKey::new(&table, &current_obj),
-              data: InsertData::Rows(std::mem::take(&mut current_rows)),
+              data: InsertData::Rows(RowsTable::new(None, std::mem::take(&mut current_rows))),
             });
             rows.push(req);
           }
