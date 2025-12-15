@@ -38,6 +38,7 @@ Desktop.ini
 *.gcda
 *.gcno
 *.gcov
+.denv
 
 /logs/
 /dev/
