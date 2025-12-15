@@ -40,7 +40,15 @@ impl Table {
 
   /// attach metadata to the table
   pub fn with_metadata(mut self, metadata: HashMap<String, Variant>) -> Self {
-    self.metadata = Some(metadata);
+    match self.metadata {
+      Some(mut meta) => {
+        meta.extend(metadata);
+        self.metadata = Some(meta);
+      }
+      None => {
+        self.metadata = Some(metadata);
+      }
+    }
     self
   }
 

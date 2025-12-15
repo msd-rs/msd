@@ -62,6 +62,13 @@ export type MsdTableApi = {
   row<T = { [key: string]: CellType }>(row: number): T;
 
   /**
+   * Get the metadata of a specific column
+   * @param key The key of the metadata
+   * @returns The value of the metadata if it exists, otherwise null
+   */
+  getMetadata(key: string): CellType; 
+
+  /**
    * Iterate over all rows in the table
    * @returns An iterator over all rows in the table
    */
@@ -124,6 +131,18 @@ export function parseMsdTable(data: string): MsdTable & MsdTableApi {
 
   obj.getColumnsCount = function (): number {
     return this.columns.length;
+  };
+
+  obj.getMetadata = function (key: string): CellType {
+    const v = this.metadata?.[key];
+    if (v === undefined) {
+      return null;
+    }
+    if (typeof v === 'object') {
+      return Object.values(v)[0] as CellType;
+    }else{
+      return v;
+    }
   };
 
   obj.cell = function <
