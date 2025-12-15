@@ -360,6 +360,18 @@ impl VariantRef<'_> {
     }
   }
 
+  pub fn is_empty(&self) -> bool {
+    match self {
+      VariantRef::Null => true,
+      VariantRef::String(v) => v.is_empty(),
+      VariantRef::Bytes(v) => v.is_empty(),
+      VariantRef::Float32(v) => f32::is_nan(**v),
+      VariantRef::Float64(v) => f64::is_nan(**v),
+      VariantRef::Decimal64(v) => v.is_nan(),
+      _ => false,
+    }
+  }
+
   pub fn to_variant(&self) -> Variant {
     Variant::from(self.clone())
   }

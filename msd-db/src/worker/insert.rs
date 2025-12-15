@@ -119,7 +119,13 @@ impl<S: MsdStore> Worker<S> {
           if col_idx == pk_col {
             continue; // Skip pk column
           }
-          let cell_value: Variant = cell_ref.clone().into();
+
+          // Skip empty cells
+          if cell_ref.is_empty() {
+            continue;
+          }
+
+          let cell_value: Variant = cell_ref.to_variant();
 
           // Update agg state and set the aggregated value
           if let Some(Some(agg_state)) = cache.state.get_mut(col_idx) {
