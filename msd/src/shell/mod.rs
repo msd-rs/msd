@@ -12,11 +12,11 @@ use rustyline::{
   validate::{ValidationContext, ValidationResult, Validator},
 };
 
-const IMPORT_COMMAND: &str = "\\import";
-const HELP_COMMAND: &str = "\\help";
-const EXIT_COMMANDS: [&str; 3] = ["\\exit", "\\quit", "\\q"];
-const SET_SERVER_COMMAND: &str = "\\server";
-const SET_REACTIVE_ROWS_COMMAND: &str = "\\rows";
+const IMPORT_COMMAND: &str = ".import";
+const HELP_COMMAND: &str = ".help";
+const EXIT_COMMANDS: [&str; 3] = [".exit", ".quit", ".q"];
+const SET_SERVER_COMMAND: &str = ".server";
+const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
 
 fn shell_history_file() -> PathBuf {
   match env::home_dir() {
@@ -51,7 +51,7 @@ impl Validator for InputValidator {
   fn validate(&self, ctx: &mut ValidationContext) -> Result<ValidationResult, ReadlineError> {
     use rustyline::validate::ValidationResult::{Incomplete, Valid};
     let input = ctx.input().trim();
-    if input.starts_with('\\') {
+    if input.starts_with('.') {
       return Ok(Valid(None));
     }
     if !input.ends_with(';') {
@@ -181,7 +181,7 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
     let table = table.trim();
     let file_path = file_path.trim();
     if table.is_empty() || file_path.is_empty() {
-      eprintln!("Usage: \\import <table> <file_path>");
+      eprintln!("Usage: .import <table> <file_path>");
       return Ok(());
     }
     return import::execute(opts, table, file_path).await;
@@ -194,9 +194,9 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
 fn print_help() {
   println!("Input some SQL or commands, SQL should end with semicolon(;)");
   println!("Available commands:");
-  println!("  \\server <url>    Set server url");
-  println!("  \\rows <num>      Set reactive rows");
-  println!("  \\import <table> <file_path>  Import csv file to table");
-  println!("  \\help            Print this help message");
-  println!("  \\exit | \\quit | \\q  Exit shell");
+  println!("  .server <url>    Set server url");
+  println!("  .rows <num>      Set reactive rows");
+  println!("  .import <table> <file_path>  Import csv file to table");
+  println!("  .help            Print this help message");
+  println!("  .exit | .quit | .q  Exit shell");
 }

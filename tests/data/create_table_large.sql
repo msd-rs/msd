@@ -11,4 +11,4 @@ create table kline (
   round='1d'
 );
 
-\import kline /home/jia/datas/tdx/shlday4.csv;
+.import kline /home/jia/datas/tdx/shlday4.csv;

@@ -1,14 +1,15 @@
+.output /dev/null
+.timer on
 create table kline (
-  ts datetime,
+  obj string,
+  ts int,
   open double,
   high double,
   low double,
   close double,
   volume double,
   amount double
-) with (
-  chunkSize = 250,
-  round='1d'
 );
 
-.import kline dev/demo.csv;
+.separator ,
+.import /home/jia/datas/tdx/shlday4.csv kline
