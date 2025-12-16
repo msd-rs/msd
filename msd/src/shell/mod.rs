@@ -17,6 +17,7 @@ const HELP_COMMAND: &str = ".help";
 const EXIT_COMMANDS: [&str; 3] = [".exit", ".quit", ".q"];
 const SET_SERVER_COMMAND: &str = ".server";
 const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
+const SCHEMA_COMMAND: &str = ".schema";
 
 fn shell_history_file() -> PathBuf {
   match env::home_dir() {
@@ -185,6 +186,16 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
       return Ok(());
     }
     return import::execute(opts, table, file_path).await;
+  }
+
+  if cmd.starts_with(SCHEMA_COMMAND) {
+    let arg = cmd.trim_start_matches(SCHEMA_COMMAND).trim();
+    let table = arg.trim();
+    if table.is_empty() {
+      eprintln!("Usage: .schema <table>");
+      return Ok(());
+    }
+    return query::execute(opts, &format!("DESCRIBE {}", table)).await;
   }
 
   // default query

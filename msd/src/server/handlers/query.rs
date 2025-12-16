@@ -25,6 +25,7 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DataRequest {
   pub query: String,
+  pub only_schema: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -113,6 +114,7 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
   let res = match req {
     SqlRequest::Query(query_req) => handle_query(db, query_req).await,
     SqlRequest::CreateTable(name, table) => handle_create_table(db, name, table).await,
+    SqlRequest::Schema(name) => handle_schema(db, name).await,
     _ => Err(DbError::UnsupportedRequestType),
   };
   match res {
@@ -202,6 +204,10 @@ fn is_list_objects(req: &QueryRequest) -> bool {
     .as_ref()
     .map(|f| f.len() == 1 && f[0] == "obj")
     .unwrap_or(false)
+}
+
+async fn handle_schema(db: DBState, name: String) -> Result<Table, DbError> {
+  db.get_schema(&name)
 }
 
 async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> {

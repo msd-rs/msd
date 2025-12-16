@@ -9,7 +9,7 @@ use sqlparser::ast::{
   BinaryOperator, ColumnOption, CreateTableOptions, Expr, FromTable, Ident, LimitClause,
   ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value, ValueWithSpan,
 };
-use sqlparser::parser::Parser;
+use sqlparser::parser::{Parser, ParserError};
 
 mod msd_dialect;
 
@@ -22,22 +22,24 @@ pub enum SqlRequest {
   CreateTable(String, Table),
   Insert(InsertRequest),
   Delete(DeleteRequest),
+  Schema(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SqlRequestType {
   Unknown,
   Query,
   CreateTable,
   Insert,
   Delete,
+  Schema,
 }
 
 /// Determine the type of SQL request, based on the first command word.
 /// Only supports single-statement SQL.
 /// It's a quick check before full parsing to test if the SQL is supported.
 pub fn sql_request_type(sql: &str) -> SqlRequestType {
-  if let Some((first_line, _)) = sql.split_once('\n') {
+  if let Some(first_line) = sql.split('\n').next() {
     let command = first_line.split_whitespace().next().unwrap_or("");
     if command.eq_ignore_ascii_case("COPY") {
       return SqlRequestType::Insert;
@@ -49,6 +51,8 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
       return SqlRequestType::CreateTable;
     } else if command.eq_ignore_ascii_case("DELETE") {
       return SqlRequestType::Delete;
+    } else if command.eq_ignore_ascii_case("DESC") || command.eq_ignore_ascii_case("DESCRIBE") {
+      return SqlRequestType::Schema;
     }
   }
   return SqlRequestType::Unknown;
@@ -57,6 +61,10 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
 /// Parse SQL string to a list of SqlRequest
 pub fn sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
   let sql = sql.trim();
+
+  if sql_request_type(sql) == SqlRequestType::Schema {
+    return parse_schema(sql);
+  }
 
   if let Some((first_line, rest)) = sql.split_once('\n') {
     let mut part = first_line.split_whitespace();
@@ -89,6 +97,23 @@ fn parse_stmt(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
     Statement::CreateTable(_) => parse_create_table(stmt),
     Statement::Delete(_) => parse_delete(stmt),
     _ => Err(RequestError::UnsupportedSqlStatement),
+  }
+}
+
+fn parse_schema(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
+  match sql.split_once(char::is_whitespace) {
+    Some((cmd, table)) => {
+      if cmd.eq_ignore_ascii_case("DESC") || cmd.eq_ignore_ascii_case("DESCRIBE") {
+        return Ok(vec![SqlRequest::Schema(table.to_string())]);
+      } else {
+        return Err(RequestError::UnsupportedSqlStatement);
+      }
+    }
+    None => {
+      return Err(RequestError::SqlParseError(ParserError::ParserError(
+        "table name is missing for DESC command".to_string(),
+      )));
+    }
   }
 }
 
