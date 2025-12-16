@@ -72,6 +72,7 @@ impl<S: MsdStore> Worker<S> {
 
     // Base on data key design, chunk keys for the same object are stored contiguously and in reverse order
     let _scan_span = span!(tracing::Level::TRACE, "query_scan").entered();
+    let mut collected_rows = 0;
     self.store.prefix_with(
       start_key,
       Some(prefix_len),
@@ -99,7 +100,7 @@ impl<S: MsdStore> Worker<S> {
           return false;
         }
 
-        let table: Table = match DbBinary::from_bytes(v) {
+        let mut table: Table = match DbBinary::from_bytes(v) {
           Ok(t) => t,
           Err(e) => {
             trace!(key=%key, error=%e, "Failed to deserialize table in query");
@@ -107,6 +108,7 @@ impl<S: MsdStore> Worker<S> {
             return true;
           }
         };
+        Self::filter_table_columns(&mut table, &req);
 
         if result.column_count() == 0 {
           // first chunk being processed, initialize result table with its schema
@@ -115,7 +117,6 @@ impl<S: MsdStore> Worker<S> {
 
         // collect rows from this chunk that match the time range
         let pk_col = table.pk_column();
-        let mut collected_rows = result.row_count();
         trace!(%key, collected_rows, limit, descending, "begin filtering rows in chunk");
         let status = result.extend_filtered(&table, descending, |row| {
           if collected_rows >= limit {
@@ -153,5 +154,14 @@ impl<S: MsdStore> Worker<S> {
     );
     debug!(id = self.id, rows = result.row_count(), "Query completed");
     Ok(result)
+  }
+
+  fn filter_table_columns(table: &mut Table, req: &QueryRequest) {
+    match req.fields.as_ref() {
+      Some(fields) => {
+        table.retain_columns_by(|col| fields.iter().any(|f| f.eq_ignore_ascii_case(&col.name)));
+      }
+      None => {}
+    }
   }
 }

@@ -145,6 +145,18 @@ impl Table {
     }
   }
 
+  /// retain columns by filter
+  pub fn retain_columns_by(&mut self, filter: impl Fn(&Field) -> bool) {
+    let pk_col = self.pk_column();
+    let pk_col = self.column_by_index(pk_col).map(|col| col.name.clone());
+    self.columns.retain(|col| {
+      filter(col)
+        || pk_col
+          .as_ref()
+          .is_some_and(|pk| pk.eq_ignore_ascii_case(col.name.as_str()))
+    });
+  }
+
   /// get the number of rows in the table
   pub fn row_count(&self) -> usize {
     if self.columns.is_empty() {
