@@ -155,16 +155,15 @@ impl<S: MsdStore> Worker<S> {
 
           // Queue chunk for flushing
           new_chunks.push((seq, old_chunk));
-
-          // Reset agg states
-          for state in cache.state.iter_mut() {
-            if let Some(s) = state {
-              s.reset();
-            }
-          }
-          // Add new index item
-          cache.index.push(IndexItem::default());
         }
+        // Reset agg states
+        for state in cache.state.iter_mut() {
+          if let Some(s) = state {
+            s.reset();
+          }
+        }
+        // Add new index item
+        cache.index.push(IndexItem::default());
 
         // Build the row with rounded pk
         let mut new_row: Vec<Variant> = row.iter().map(|r| r.clone().into()).collect();

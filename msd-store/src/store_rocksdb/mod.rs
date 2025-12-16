@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use crate::MsdStore;
 pub use crate::StoreError;
@@ -21,25 +21,29 @@ fn safe_utf8(s: &[u8]) -> &str {
 }
 
 impl RocksDbStore {
-  pub fn new(path: &str) -> Result<Self, StoreError> {
-    let (opts, cfs) =
-      rocksdb::Options::load_latest(path, Env::new()?, true, Cache::new_lru_cache(1024 * 8))
-        .unwrap_or_else(|_e| {
-          // create a new options and column families if the database does not exist
-          let mut opts = Options::default();
-          opts.create_if_missing(true);
-          opts.create_missing_column_families(true);
-          opts.set_enable_blob_files(true);
-          opts.set_compression_type(DBCompressionType::Zstd);
+  pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, StoreError> {
+    let (opts, cfs) = rocksdb::Options::load_latest(
+      path.as_ref(),
+      Env::new()?,
+      true,
+      Cache::new_lru_cache(1024 * 8),
+    )
+    .unwrap_or_else(|_e| {
+      // create a new options and column families if the database does not exist
+      let mut opts = Options::default();
+      opts.create_if_missing(true);
+      opts.create_missing_column_families(true);
+      opts.set_enable_blob_files(true);
+      opts.set_compression_type(DBCompressionType::Zstd);
 
-          (
-            opts,
-            vec![TTL_CF]
-              .iter()
-              .map(|&cf| ColumnFamilyDescriptor::new(cf, Options::default()))
-              .collect(),
-          )
-        });
+      (
+        opts,
+        vec![TTL_CF]
+          .iter()
+          .map(|&cf| ColumnFamilyDescriptor::new(cf, Options::default()))
+          .collect(),
+      )
+    });
 
     let db = DB::open_cf_descriptors(&opts, path, cfs).map_err(|e| StoreError::from(e))?;
 

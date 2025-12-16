@@ -39,6 +39,13 @@ impl Field {
     self
   }
 
+  pub fn add_metadata(&mut self, key: String, value: Variant) {
+    self
+      .metadata
+      .get_or_insert(HashMap::new())
+      .insert(key, value);
+  }
+
   pub fn to_empty(&self) -> Self {
     Self {
       name: self.name.clone(),

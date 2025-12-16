@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{D64, D128, DataType, TableError, Variant, VariantMutRef, VariantRef};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Series {
   Null,                  // 0
   DateTime(Vec<i64>),    // 1
