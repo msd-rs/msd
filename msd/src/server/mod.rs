@@ -47,11 +47,11 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
 
   let db = Arc::new(db);
   let app = Router::new()
-    .layer(CorsLayer::permissive())
     .layer(DecompressionLayer::new())
     .route("/data", post(handlers::handle_data))
     .route("/table/{table_name}", put(handlers::handle_table))
     .with_state(db.clone())
+    .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
   info!("msd server start");
   axum::serve(listener, app)
