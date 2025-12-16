@@ -177,11 +177,11 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
 async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
   if cmd.starts_with(IMPORT_COMMAND) {
     let arg = cmd.trim_start_matches(IMPORT_COMMAND).trim();
-    let (table, file_path) = arg.split_once(' ').unwrap_or((arg, ""));
-    let table = table.trim();
+    let (file_path, table) = arg.rsplit_once(' ').unwrap_or((arg, ""));
     let file_path = file_path.trim();
+    let table = table.trim();
     if table.is_empty() || file_path.is_empty() {
-      eprintln!("Usage: .import <table> <file_path>");
+      eprintln!("Usage: .import <file_path> <table>");
       return Ok(());
     }
     return import::execute(opts, table, file_path).await;
@@ -196,7 +196,7 @@ fn print_help() {
   println!("Available commands:");
   println!("  .server <url>    Set server url");
   println!("  .rows <num>      Set reactive rows");
-  println!("  .import <table> <file_path>  Import csv file to table");
+  println!("  .import <file_path> <table> Import csv file to table");
   println!("  .help            Print this help message");
   println!("  .exit | .quit | .q  Exit shell");
 }
