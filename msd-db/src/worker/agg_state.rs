@@ -12,10 +12,12 @@ pub enum AggState {
   Count(usize),        // count
   Min(Variant),
   Max(Variant),
-  Avg(Variant, usize),      // (current sum, count)
-  First(Variant),           // first value
-  Uniq(FxHashSet<Variant>), // set of unique values
-  Prev(Variant),            // previous value
+  Avg(Variant, usize),         // (current sum, count)
+  First(Variant),              // first value
+  Uniq(FxHashSet<Variant>),    // set of unique values
+  Prev(Variant),               // previous value
+  DiffPrev(Variant, Variant),  // diff from previous value
+  DiffFirst(Variant, Variant), // diff from first value
 }
 
 impl From<AggStateId> for AggState {
@@ -28,7 +30,9 @@ impl From<AggStateId> for AggState {
       AggStateId::Avg => AggState::Avg(Variant::Null, 0),
       AggStateId::First => AggState::First(Variant::Null),
       AggStateId::UniqCount => AggState::Uniq(FxHashSet::default()),
-      AggStateId::Prev => AggState::First(Variant::Null),
+      AggStateId::Prev => AggState::Prev(Variant::Null),
+      AggStateId::DiffPrev => AggState::DiffPrev(Variant::Null, Variant::Null),
+      AggStateId::DiffFirst => AggState::DiffFirst(Variant::Null, Variant::Null),
     }
   }
 }
@@ -44,6 +48,8 @@ impl AggState {
       AggState::First(_) => AggStateId::First,
       AggState::Uniq(_) => AggStateId::UniqCount,
       AggState::Prev(_) => AggStateId::Prev,
+      AggState::DiffPrev(_, _) => AggStateId::DiffPrev,
+      AggState::DiffFirst(_, _) => AggStateId::DiffFirst,
     }
   }
 }
@@ -87,6 +93,18 @@ impl AggState {
       AggState::Prev(prev_value) => {
         *prev_value = value.clone();
       }
+      AggState::DiffPrev(prev, diff_prev) => {
+        *diff_prev = value - prev;
+        *prev = value.clone();
+      }
+      AggState::DiffFirst(first, diff_first) => {
+        if first.is_null() {
+          *first = value.clone();
+          *diff_first = value.clone();
+        } else {
+          *diff_first = value - first;
+        }
+      }
     }
   }
 
@@ -116,6 +134,12 @@ impl AggState {
       AggState::Prev(_) => {
         *self = AggState::Prev(Variant::Null);
       }
+      AggState::DiffPrev(_, _) => {
+        *self = AggState::DiffPrev(Variant::Null, Variant::Null);
+      }
+      AggState::DiffFirst(_, _) => {
+        *self = AggState::DiffFirst(Variant::Null, Variant::Null);
+      }
     }
   }
 
@@ -135,6 +159,8 @@ impl AggState {
       AggState::First(first_value) => first_value.clone(),
       AggState::Uniq(uniq_set) => Variant::Int64(uniq_set.len() as i64),
       AggState::Prev(prev_value) => prev_value.clone(),
+      AggState::DiffPrev(_, diff_prev) => diff_prev.clone(),
+      AggState::DiffFirst(_, diff_first) => diff_first.clone(),
     }
   }
 }

@@ -11,6 +11,8 @@ pub enum AggStateId {
   UniqCount,
   First,
   Prev,
+  DiffPrev,
+  DiffFirst,
 }
 
 impl AggStateId {
@@ -24,6 +26,8 @@ impl AggStateId {
       5 => Some(AggStateId::First),
       6 => Some(AggStateId::UniqCount),
       7 => Some(AggStateId::Prev),
+      8 => Some(AggStateId::DiffPrev),
+      9 => Some(AggStateId::DiffFirst),
       _ => None,
     }
   }
@@ -42,6 +46,8 @@ impl FromStr for AggStateId {
       "first" => Ok(AggStateId::First),
       "uniq_count" => Ok(AggStateId::UniqCount),
       "prev" => Ok(AggStateId::Prev),
+      "diff_prev" => Ok(AggStateId::DiffPrev),
+      "diff_first" => Ok(AggStateId::DiffFirst),
       _ => Err(()),
     }
   }
@@ -57,6 +63,8 @@ impl ToString for AggStateId {
       AggStateId::First => "first".to_string(),
       AggStateId::UniqCount => "uniq_count".to_string(),
       AggStateId::Prev => "prev".to_string(),
+      AggStateId::DiffPrev => "diff_prev".to_string(),
+      AggStateId::DiffFirst => "diff_first".to_string(),
     }
   }
 }
