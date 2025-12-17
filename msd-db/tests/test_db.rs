@@ -440,3 +440,136 @@ async fn test_insert_agg() -> Result<()> {
 
   Ok(())
 }
+
+// This test chan function, we insert data to snapshot table, and chan to kline1m table
+#[tokio::test]
+async fn test_chan() -> Result<()> {
+  setup();
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+
+  let snapshot_table = table!(
+    {name: "ts", kind: datetime},
+    {name: "open", kind: f64},
+    {name: "high", kind: f64},
+    {name: "low", kind: f64},
+    {name: "close", kind: f64},
+    {name: "volume", kind: f64},
+  );
+
+  let mut kline1m_table = snapshot_table.clone().with_metadata(HashMap::from([
+    ("chunkSize".into(), 250u32.into()),
+    ("round".into(), "1m".into()),
+  ]));
+
+  let snapshot_table = snapshot_table.with_metadata(HashMap::from([
+    ("chunkSize".into(), 250u32.into()),
+    (
+      "chan".into(),
+      "kline1m: ts, open, high, low, close, volume".into(),
+    ),
+  ]));
+
+  let fields_agg = [
+    ("open", AggStateId::First),
+    ("high", AggStateId::Max),
+    ("low", AggStateId::Min),
+    ("volume", AggStateId::Sum),
+  ];
+
+  fields_agg
+    .iter()
+    .for_each(|(name, agg)| match kline1m_table.column_mut(name) {
+      Some(col) => col.add_metadata("agg".into(), Variant::String(agg.to_string())),
+      None => {}
+    });
+
+  let n = 60 * 4;
+
+  // build snapshot data every 3 seconds
+  let data = vec![
+    build_datetime_series("2023-01-01 09:30:00", n, 3).unwrap(),
+    build_f64_series(0.0, n, 1.0), // open
+    build_f64_series(0.0, n, 1.0), // high
+    build_f64_series(0.0, n, 1.0), // low
+    build_f64_series(0.0, n, 1.0), // close
+    build_f64_series(1.0, n, 0.0), // volume
+  ];
+
+  let db = init_db(path, true, "kline1m", kline1m_table).await?;
+  db.request(MsdRequest::create_table("snapshot", snapshot_table))
+    .await?;
+
+  let req = InsertRequest {
+    key: RequestKey::new("snapshot", "SH600000"),
+    data: InsertData::Columns(data),
+  };
+  let mut req = req.to_table(&db.get_schema("snapshot")?)?;
+  assert!(req.len() == 1);
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let table = do_query(&db, "kline1m", "SH600000").await?;
+  assert_eq!(table.column_count(), 6 + 1);
+  assert_eq!(table.row_count(), n * 3 / 60);
+
+  assert_eq!(
+    table.column("ts").unwrap().data,
+    Series::DateTime(vec![
+      1672536600000000, // 2023-01-01 09:30:00
+      1672536660000000, // 2023-01-01 09:31:00
+      1672536720000000, // 2023-01-01 09:32:00
+      1672536780000000, // 2023-01-01 09:33:00
+      1672536840000000, // 2023-01-01 09:34:00
+      1672536900000000, // 2023-01-01 09:35:00
+      1672536960000000, // 2023-01-01 09:36:00
+      1672537020000000, // 2023-01-01 09:37:00
+      1672537080000000, // 2023-01-01 09:38:00
+      1672537140000000, // 2023-01-01 09:39:00
+      1672537200000000, // 2023-01-01 09:40:00
+      1672537260000000, // 2023-01-01 09:41:00
+    ])
+  );
+
+  assert_eq!(
+    table.column("open").unwrap().data,
+    Series::Float64(vec![
+      0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 220.0
+    ]),
+    "open wrong, should be first value of each minute"
+  );
+
+  assert_eq!(
+    table.column("high").unwrap().data,
+    Series::Float64(vec![
+      19.0, 39.0, 59.0, 79.0, 99.0, 119.0, 139.0, 159.0, 179.0, 199.0, 219.0, 239.0
+    ]),
+    "high wrong, should be max value of each minute"
+  );
+
+  assert_eq!(
+    table.column("low").unwrap().data,
+    Series::Float64(vec![
+      0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 220.0
+    ]),
+    "low wrong, should be min value of each minute"
+  );
+
+  assert_eq!(
+    table.column("close").unwrap().data,
+    Series::Float64(vec![
+      19.0, 39.0, 59.0, 79.0, 99.0, 119.0, 139.0, 159.0, 179.0, 199.0, 219.0, 239.0
+    ]),
+    "close wrong, should be last value of each minute"
+  );
+
+  assert_eq!(
+    table.column("volume").unwrap().data,
+    Series::Float64(vec![
+      20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0
+    ]),
+    "volume sum wrong, should be sum of each minute"
+  );
+
+  Ok(())
+}

@@ -1,5 +1,5 @@
 use super::Variant;
-use crate::{D64, D128};
+use crate::{D64, D128, DataType, TableError, parse_datetime};
 
 macro_rules! impl_variant_from {
   ($name:ident, $type:ty) => {
@@ -44,5 +44,70 @@ impl From<&[u8]> for Variant {
 impl From<usize> for Variant {
   fn from(value: usize) -> Self {
     Variant::UInt64(value as u64)
+  }
+}
+
+impl From<(i64, DataType)> for Variant {
+  fn from(value: (i64, DataType)) -> Self {
+    let val = Variant::Int64(value.0);
+    val.cast(value.1).unwrap()
+  }
+}
+
+impl TryFrom<(&str, DataType)> for Variant {
+  type Error = TableError;
+
+  fn try_from(value: (&str, DataType)) -> Result<Self, Self::Error> {
+    match value.1 {
+      DataType::String => Ok(Variant::String(value.0.to_string())),
+      DataType::Bytes => Ok(Variant::Bytes(value.0.as_bytes().to_vec())),
+      DataType::Null => Ok(Variant::Null),
+      DataType::DateTime => parse_datetime(value.0).map(|v| Variant::DateTime(v)),
+      DataType::Int64 => value
+        .0
+        .parse()
+        .map(|v| Variant::Int64(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Float64 => value
+        .0
+        .parse()
+        .map(|v| Variant::Float64(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Decimal64 => value
+        .0
+        .parse()
+        .map(|v| Variant::Decimal64(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Bool => value
+        .0
+        .parse()
+        .map(|v| Variant::Bool(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Int32 => value
+        .0
+        .parse()
+        .map(|v| Variant::Int32(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::UInt32 => value
+        .0
+        .parse()
+        .map(|v| Variant::UInt32(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::UInt64 => value
+        .0
+        .parse()
+        .map(|v| Variant::UInt64(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Float32 => value
+        .0
+        .parse()
+        .map(|v| Variant::Float32(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      DataType::Decimal128 => value
+        .0
+        .parse()
+        .map(|v| Variant::Decimal128(v))
+        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+    }
   }
 }

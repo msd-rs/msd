@@ -6,15 +6,13 @@
 ///
 #[macro_export]
 macro_rules! v {
+
+
   ($val:expr) => {
     Variant::from($val)
   };
-  ($($element:expr),+) => {
-    {
-      let mut a = Vec::new();
-      $(a.push(Variant::from($element));)*
-      a
-    }
+  ($val:expr, $kind:ident) => {
+    Variant::try_from(($val,  table!(@type $kind))).unwrap()
   };
 }
 

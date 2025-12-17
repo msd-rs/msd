@@ -23,7 +23,7 @@ fn test_table_set() {
     { name: "name", kind: string }
   );
 
-  table.push_row(v![1, "Alice"]).unwrap();
+  table.push_row(vec![v!(1), v!("Alice")]).unwrap();
 
   assert_eq!(table.row_count(), 1);
   assert_eq!(table.column_count(), 2);
@@ -47,7 +47,7 @@ fn test_variant_v_macro() {
   assert_eq!(v!("test").get_str(), Some("test"));
   assert_eq!(v!("test").get_string(), Some("test".to_string()).as_ref());
 
-  assert_eq!(v!(1, 2, 3), vec![v!(1), v!(2), v!(3)]);
+  assert_eq!(v!(1, datetime).get_datetime(), Some(&1_i64))
 }
 
 #[test]

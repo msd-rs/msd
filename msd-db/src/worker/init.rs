@@ -2,7 +2,7 @@ use crate::{
   errors::DbError,
   index::IndexItem,
   serde::DbBinary,
-  worker::{agg_state::AggState, cache::CacheValue},
+  worker::{agg_state::AggState, cache::CacheValue, chan::Chan},
 };
 
 use super::Worker;
@@ -40,12 +40,14 @@ impl<S: MsdStore> Worker<S> {
       .ok_or(DbError::ChunkMissing(key.clone(), last_seq))?;
     let table: Table = DbBinary::from_bytes(&data)?;
     let state = AggState::table_states(&table);
+    let chan = Chan::try_from(&table).ok();
     self.cache.insert(
       key.clone(),
       CacheValue {
         cached: table,
         index,
         state,
+        chan,
       },
     );
     Ok(true)

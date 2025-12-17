@@ -41,4 +41,6 @@ pub enum DbError {
   InvalidTableSchema(String),
   #[error("Unsupported operation")]
   UnsupportedRequestType,
+  #[error("Chan format error: {0}")]
+  ChanFormatError(String),
 }

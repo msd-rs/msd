@@ -36,4 +36,7 @@ pub enum TableError {
 
   #[error("{0} can't be parsed as duration")]
   BadDurationFormat(String),
+
+  #[error("{0} can't be parsed as {1}")]
+  VariantParseError(String, String),
 }

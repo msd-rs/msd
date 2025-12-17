@@ -1,15 +1,16 @@
 use std::vec;
 
-use msd_request::{InsertResponse, RequestError};
+use msd_request::{InsertResponse, RequestError, RequestKey};
 use msd_table::{DataType, Table, Variant, parse_unit, round_ts};
 use tracing::{debug, warn};
 
 use super::{MsdStore, Worker};
 use crate::errors::DbError;
 use crate::index::IndexItem;
-use crate::request::InsertRequest;
+use crate::request::{InsertRequest, MsdRequest};
 use crate::worker::agg_state::AggState;
 use crate::worker::cache::CacheValue;
+use crate::worker::chan::Chan;
 
 impl<S: MsdStore> Worker<S> {
   pub(super) fn handle_insert(&mut self, req: InsertRequest) -> Result<InsertResponse, DbError> {
@@ -18,11 +19,24 @@ impl<S: MsdStore> Worker<S> {
         "Object name is required".to_string(),
       )));
     }
+
+    let key = req.key.clone();
     self.ensure_cache_initialized(&req.key)?;
-    self.on_insert_existing(req)
+    let (resp, chan_table) = self.on_insert_existing(req)?;
+
+    match chan_table {
+      Some(table) => {
+        self.on_insert_chan(&key, table)?;
+      }
+      None => {}
+    }
+    Ok(resp)
   }
 
-  fn on_insert_existing(&mut self, mut req: InsertRequest) -> Result<InsertResponse, DbError> {
+  fn on_insert_existing(
+    &mut self,
+    mut req: InsertRequest,
+  ) -> Result<(InsertResponse, Option<Table>), DbError> {
     // Get schema for this table
     let schema = self
       .schema
@@ -51,7 +65,8 @@ impl<S: MsdStore> Worker<S> {
     let cache = self.cache.entry(req.key.clone()).or_insert(CacheValue {
       index: vec![IndexItem::default()],
       cached: schema.to_empty(),
-      state: AggState::table_states(&schema),
+      state: AggState::table_states(schema),
+      chan: Chan::try_from(schema).ok(),
     });
 
     // Get the min pk from cached table (first row's pk)
@@ -74,6 +89,13 @@ impl<S: MsdStore> Worker<S> {
 
     // Track new chunks to flush
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
+
+    let mut chan_table = cache
+      .chan
+      .as_ref()
+      .and_then(|chan| chan.table())
+      .and_then(|name| self.schema.get(name))
+      .map(|schema| schema.to_empty());
 
     // Process each incoming row
     for row in incoming.rows(false) {
@@ -179,6 +201,21 @@ impl<S: MsdStore> Worker<S> {
           }
         }
 
+        cache
+          .chan
+          .as_mut()
+          .zip(chan_table.as_mut())
+          .map(|(chan, table)| match table.push_row(chan.apply(&new_row)) {
+            Ok(_) => {}
+            Err(err) => {
+              debug!(
+                key = ?req.key,
+                %err,
+                "Failed to push row to chan table"
+              );
+            }
+          });
+
         cache.cached.push_row(new_row).map_err(DbError::from)?;
         cache.index.last_mut().map(|item| {
           if item.count == 0 {
@@ -204,6 +241,40 @@ impl<S: MsdStore> Worker<S> {
     self.flush_index(&req.key, &cache.index)?;
     self.flush_chunk(&req.key, &cache.cached, (cache.index.len() - 1) as u32)?;
 
-    Ok(Table::default())
+    Ok((Table::default(), chan_table))
+  }
+
+  fn on_insert_chan(&mut self, key: &RequestKey, chan_table: Table) -> Result<(), DbError> {
+    match self
+      .cache
+      .get(key)
+      .and_then(|cache| cache.chan.as_ref())
+      .map(|chan| chan.tables())
+    {
+      Some(tables) => {
+        for table in tables {
+          let chan_request = InsertRequest {
+            key: RequestKey {
+              table: table.clone(),
+              obj: key.obj.clone(),
+            },
+            data: msd_request::InsertData::Table(chan_table.clone()),
+          };
+
+          let (chan_request, _rx) = MsdRequest::insert(chan_request);
+
+          match self.tx.try_send(chan_request) {
+            Ok(_) => {
+              debug!("Sent chan insert request");
+            }
+            Err(e) => {
+              warn!("Failed to send chan insert request: {}", e);
+            }
+          }
+        }
+      }
+      None => {}
+    }
+    Ok(())
   }
 }

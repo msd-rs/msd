@@ -19,10 +19,13 @@ use crate::worker::cache::CacheMap;
 use msd_request::Key;
 mod agg_state;
 mod cache;
+mod chan;
 mod delete;
 mod init;
 mod insert;
 mod query;
+
+pub use chan::Chan;
 
 /// Database worker that processes requests.
 pub struct Worker<S: MsdStore> {
@@ -30,16 +33,18 @@ pub struct Worker<S: MsdStore> {
   pub store: Arc<S>,
   pub cache: CacheMap,
   pub schema: HashMap<String, Table>,
+  pub tx: mpsc::Sender<MsdRequest>,
 }
 
 /// # management functions for Worker
 impl<S: MsdStore> Worker<S> {
-  pub fn new(id: usize, store: Arc<S>) -> Self {
+  pub fn new(id: usize, store: Arc<S>, tx: mpsc::Sender<MsdRequest>) -> Self {
     Self {
       id,
       store,
       cache: CacheMap::default(),
       schema: HashMap::new(),
+      tx,
     }
   }
 

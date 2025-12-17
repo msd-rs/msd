@@ -17,7 +17,7 @@ use wildcard::Wildcard;
 
 use crate::errors::DbError;
 use crate::request::{Broadcast, MsdRequest, RequestKey};
-use crate::worker::Worker;
+use crate::worker::{Chan, Worker};
 
 const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";
 const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
@@ -40,8 +40,8 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     info!(workers = worker_count, "database workers starting");
     for i in 0..worker_count {
       let (tx, rx) = mpsc::channel(200_000);
-      workers.push(tx);
-      let worker = Worker::new(i, store.clone());
+      workers.push(tx.clone());
+      let worker = Worker::new(i, store.clone(), tx);
       tokio::spawn(worker.run(rx));
     }
 
@@ -412,6 +412,41 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       parse_unit(round).map_err(|_| {
         DbError::InvalidTableSchema("round metadata has invalid time unit".to_string())
       })?;
+    }
+
+    if let Some(chan) = table.get_table_meta("chan") {
+      // if chan metadata exists, it must be of type String
+      let chan = chan.get_str().ok_or(DbError::InvalidTableSchema(
+        "chan metadata must be of type String".to_string(),
+      ))?;
+      let targets = Chan::parse_targets(chan)?;
+      let (first_target, other_targets) = targets.split_first().ok_or(
+        DbError::InvalidTableSchema("chan metadata must have at least one target".to_string()),
+      )?;
+      let schema = self.schemas.read().unwrap();
+      let target = schema
+        .get(*first_target)
+        .ok_or(DbError::TableNotFound(first_target.to_string()))?;
+
+      // verify all targets exist and have same schema
+      for &target_name in other_targets {
+        let other_target = schema
+          .get(target_name)
+          .ok_or(DbError::TableNotFound(target_name.to_string()))?;
+        if !target.same_shape(other_target) {
+          return Err(DbError::InvalidTableSchema(format!(
+            "chan targets have different schema for '{}' and '{}'",
+            first_target, target_name
+          )));
+        }
+      }
+      // verify all chan descriptions are valid
+      let chan = Chan::try_from(table)?;
+      if !chan.match_target(target) {
+        return Err(DbError::InvalidTableSchema(
+          "chan should have same number of columns as target".to_string(),
+        ));
+      }
     }
 
     // Create the table in the store
