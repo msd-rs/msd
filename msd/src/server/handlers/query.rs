@@ -28,59 +28,6 @@ pub struct DataRequest {
   pub only_schema: Option<bool>,
 }
 
-#[derive(Debug)]
-struct TableFrameBody {
-  set: JoinSet<Result<Table, DbError>>,
-}
-
-impl TableFrameBody {
-  fn new(db: DBState, requests: Vec<SqlRequest>) -> Self {
-    let mut set = JoinSet::new();
-    for req in requests {
-      set.spawn(handle_sql_request(db.clone(), req));
-    }
-    Self { set }
-  }
-}
-
-impl HttpBody for TableFrameBody {
-  type Data = axum::body::Bytes;
-  type Error = axum::Error;
-
-  fn poll_frame(
-    self: std::pin::Pin<&mut Self>,
-    cx: &mut std::task::Context<'_>,
-  ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-    let this = self.get_mut();
-    let res = this.set.try_join_next();
-    match res {
-      None => {
-        if this.set.is_empty() {
-          std::task::Poll::Ready(None)
-        } else {
-          cx.waker().wake_by_ref();
-          std::task::Poll::Pending
-        }
-      }
-      Some(Ok(Ok(table))) => {
-        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame("", &table)));
-        std::task::Poll::Ready(Some(Ok(frame)))
-      }
-      Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
-      Some(Err(e)) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
-    }
-  }
-}
-impl IntoResponse for TableFrameBody {
-  fn into_response(self) -> Response<Body> {
-    let mut resp = Response::new(Body::new(self));
-    resp.headers_mut().insert(
-      axum::http::header::CONTENT_TYPE,
-      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
-    );
-    resp
-  }
-}
 pub async fn handle_data(
   State(db): State<DBState>,
   headers: HeaderMap,
@@ -235,6 +182,60 @@ async fn handle_create_table(db: DBState, name: String, table: Table) -> Result<
   let msd_req = MsdRequest::create_table(name, table);
   db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
+}
+
+#[derive(Debug)]
+struct TableFrameBody {
+  set: JoinSet<Result<Table, DbError>>,
+}
+
+impl TableFrameBody {
+  fn new(db: DBState, requests: Vec<SqlRequest>) -> Self {
+    let mut set = JoinSet::new();
+    for req in requests {
+      set.spawn(handle_sql_request(db.clone(), req));
+    }
+    Self { set }
+  }
+}
+
+impl HttpBody for TableFrameBody {
+  type Data = axum::body::Bytes;
+  type Error = axum::Error;
+
+  fn poll_frame(
+    self: std::pin::Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    let this = self.get_mut();
+    let res = this.set.try_join_next();
+    match res {
+      None => {
+        if this.set.is_empty() {
+          std::task::Poll::Ready(None)
+        } else {
+          cx.waker().wake_by_ref();
+          std::task::Poll::Pending
+        }
+      }
+      Some(Ok(Ok(table))) => {
+        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame("", &table)));
+        std::task::Poll::Ready(Some(Ok(frame)))
+      }
+      Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+      Some(Err(e)) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+    }
+  }
+}
+impl IntoResponse for TableFrameBody {
+  fn into_response(self) -> Response<Body> {
+    let mut resp = Response::new(Body::new(self));
+    resp.headers_mut().insert(
+      axum::http::header::CONTENT_TYPE,
+      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
+    );
+    resp
+  }
 }
 
 struct TableNdJsonFormat {}

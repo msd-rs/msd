@@ -5,31 +5,32 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 axum = { version = "0.8" }
 axum-streams = { version = "0.24", features = ["json"] }
+clap.workspace = true
 csv.workspace = true
-msd-store = { path = "../msd-store", features = ["rocksdb"] }
+dotenvy.workspace = true
+futures.workspace = true
+http-body = "1"
+http-body-util = "0.1"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+memchr="2"
 msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
+msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd"] }
+rustc-hash.workspace = true
+rustyline = {version="17", features=["derive"]}
 serde.workspace = true
-anyhow.workspace = true
-tracing-subscriber.workspace = true
-tracing-appender = { version = "0.2" }
-tracing.workspace = true
-tokio.workspace = true
-clap.workspace = true
-dotenvy.workspace = true
+serde_json.workspace = true
 time.workspace = true
 tokio-stream = "0.1"
-http-body-util = "0.1"
-futures.workspace = true
-rustc-hash.workspace = true
-memchr="2"
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd"] }
-serde_json.workspace = true
 tokio-util = { version = "0.7", features = ["io"] }
+tokio.workspace = true
 tower-http = {version="0.6", features=["compression-full", "cors", "decompression-full"]}
-rustyline = {version="17", features=["derive"]}
-http-body = "1"
+tracing-appender = { version = "0.2" }
+tracing-subscriber.workspace = true
+tracing.workspace = true
 
