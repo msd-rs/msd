@@ -53,6 +53,8 @@ pub enum MsdCommands {
   Server(ServerOptions),
   /// Start a client shell
   Shell(ShellOptions),
+  /// Generate a JWT token
+  Token(TokenOptions),
 }
 
 #[derive(Debug, Args)]
@@ -116,4 +118,19 @@ pub struct ShellOptions {
   /// Whether to use binary protocol
   #[arg(short = 'm', long = "msd-client", default_value_t = true)]
   pub msd_client: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TokenOptions {
+  /// Authentication token key
+  #[arg(short = 'a', long = "auth-token", env = "MSD_AUTH_TOKEN")]
+  pub auth_token: String,
+
+  /// Role: read/write/admin
+  #[arg(short = 'r', long = "role", default_value = "read")]
+  pub role: String,
+
+  /// Expiration in days
+  #[arg(short = 'e', long = "exp", default_value_t = 365)]
+  pub exp: usize,
 }

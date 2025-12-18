@@ -1,5 +1,5 @@
 mod import;
-mod permission;
+pub mod permission;
 mod query;
 
 pub use import::handle_table;

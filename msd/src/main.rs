@@ -2,6 +2,7 @@ mod app_config;
 mod logging;
 mod server;
 mod shell;
+mod token;
 
 use anyhow::Result;
 use msd_table::set_default_timezone;
@@ -23,6 +24,9 @@ async fn main() -> Result<()> {
     }
     MsdCommands::Shell(options) => {
       shell::run(options).await?;
+    }
+    MsdCommands::Token(options) => {
+      token::run(options.clone())?;
     }
   }
 

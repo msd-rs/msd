@@ -1,4 +1,4 @@
-mod handlers;
+pub mod handlers;
 
 use std::sync::Arc;
 

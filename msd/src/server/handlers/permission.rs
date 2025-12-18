@@ -2,16 +2,16 @@ use msd_request::SqlRequest;
 use msd_table::now;
 use serde::{Deserialize, Serialize};
 
-const READ_ROLE: i64 = 1;
-const WRITE_ROLE: i64 = 2;
-const ADMIN_ROLE: i64 = 4;
+pub const READ_ROLE: i64 = 1;
+pub const WRITE_ROLE: i64 = 2;
+pub const ADMIN_ROLE: i64 = 4;
 
 #[derive(Serialize, Deserialize)]
 pub struct Permission {
   /// expiration time in seconds
-  exp: i64,
+  pub exp: i64,
   /// bit mask of roles
-  role: i64,
+  pub role: i64,
 }
 
 impl Permission {
@@ -39,6 +39,12 @@ impl Permission {
     let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
     let token_data = jsonwebtoken::decode::<Permission>(token, &key, &validation)?;
     Ok(token_data.claims)
+  }
+
+  pub fn to_jwt(&self, secret: &str) -> anyhow::Result<String> {
+    let key = jsonwebtoken::EncodingKey::from_secret(secret.as_bytes());
+    let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), self, &key)?;
+    Ok(token)
   }
 
   pub fn check(
