@@ -583,15 +583,15 @@ fn sql_datatype_to_table(dt: &sqlparser::ast::DataType) -> Result<TableDataType,
     return Ok(TableDataType::DateTime);
   }
 
-  if dtype.contains("DECIMAL128") {
+  if dtype.contains("DECIMAL128") || dtype.contains("D128") {
     return Ok(TableDataType::Decimal128);
   }
 
-  if dtype.contains("DECIMAL64") {
+  if dtype.contains("DECIMAL64") || dtype.contains("D64") {
     return Ok(TableDataType::Decimal64);
   }
 
-  if dtype.starts_with('U') {
+  if dtype.starts_with("UINT") || dtype.starts_with("U64") {
     return Ok(TableDataType::UInt64);
   }
 
@@ -599,16 +599,23 @@ fn sql_datatype_to_table(dt: &sqlparser::ast::DataType) -> Result<TableDataType,
     return Ok(TableDataType::Bool);
   }
 
-  if dtype.starts_with("F32") || dtype.starts_with("FLOAT32") {
+  if dtype.starts_with("F32") || dtype.starts_with("FLOAT32") || dtype.starts_with("SINGLE") {
     return Ok(TableDataType::Float32);
   }
 
-  if dtype.starts_with('F') || dtype.starts_with("DOUBLE") {
+  if dtype.starts_with("F64") || dtype.starts_with("DOUBLE") || dtype.starts_with("FLOAT64") {
     return Ok(TableDataType::Float64);
   }
 
-  if dtype.starts_with('I') || dtype.contains("INT") {
+  if dtype.starts_with("I64") || dtype.contains("INT") {
     return Ok(TableDataType::Int64);
+  }
+
+  if dtype.starts_with("I32") || dtype.starts_with("INT32") {
+    return Ok(TableDataType::Int32);
+  }
+  if dtype.starts_with("U32") || dtype.starts_with("UINT32") {
+    return Ok(TableDataType::UInt32);
   }
 
   if dtype.contains("CHAR") || dtype.contains("STRING") || dtype.contains("TEXT") {
@@ -627,6 +634,8 @@ fn agg_keyword_to_state(kw: &str) -> Option<AggStateId> {
     "AGG_COUNT" => Some(AggStateId::Count),
     "AGG_AVG" => Some(AggStateId::Avg),
     "AGG_UNIQ_COUNT" => Some(AggStateId::UniqCount),
+    "AGG_DIFF_FIRST" => Some(AggStateId::DiffFirst),
+    "AGG_DIFF_PREV" => Some(AggStateId::DiffPrev),
     _ => None,
   }
 }
