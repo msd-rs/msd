@@ -56,12 +56,16 @@ impl TableResponse {
   }
 }
 
+use crate::server::handlers::permission::Permission;
+
 pub async fn handle_table(
   State(db): State<DBState>,
   Path(table_name): Path<String>,
   headers: HeaderMap,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
+  Permission::check_write(&headers)?;
+
   if is_msd_table_format(&headers) {
     handle_table_binary(db, table_name, body).await
   } else {

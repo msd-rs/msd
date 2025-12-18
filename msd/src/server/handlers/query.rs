@@ -28,6 +28,8 @@ pub struct DataRequest {
   pub only_schema: Option<bool>,
 }
 
+use crate::server::handlers::permission::Permission;
+
 pub async fn handle_data(
   State(db): State<DBState>,
   headers: HeaderMap,
@@ -39,6 +41,10 @@ pub async fn handle_data(
       format!("SQL parse error: {}", e),
     )
   })?;
+
+  for req in &requests {
+    Permission::check(&headers, req)?;
+  }
 
   let requests = flatten_requests_by_object(db.clone(), requests);
 
