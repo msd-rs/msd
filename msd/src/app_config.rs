@@ -1,7 +1,20 @@
 use std::sync::OnceLock;
 
+use anyhow::Result;
 use clap::{Args, Parser};
 use time::{UtcOffset, macros::format_description};
+
+use crate::server::parse_roles;
+
+/// Get the global app config
+pub fn app_config() -> &'static MsdOptions {
+  static APP_CONFIG: OnceLock<MsdOptions> = OnceLock::new();
+  APP_CONFIG.get_or_init(|| {
+    let options = MsdOptions::parse();
+
+    options
+  })
+}
 
 /// Msd is a high performance time-series database.
 #[derive(Debug, Parser)]
@@ -15,36 +28,11 @@ pub struct MsdOptions {
   #[arg(long = "log-dir", env = "MSD_LOG_PATH")]
   pub log_dir: Option<String>,
 
-  #[arg(long = "tz", default_value = "", env = "MSD_TZ")]
-  pub tz: String,
-
-  #[arg(skip)]
-  pub tz_offset: Option<time::UtcOffset>,
+  #[arg(long = "tz", default_value = "", env = "MSD_TZ", value_parser = parse_tz)]
+  pub tz_offset: Option<UtcOffset>,
 
   #[command(subcommand)]
   pub command: MsdCommands,
-}
-
-pub fn app_config() -> &'static MsdOptions {
-  static APP_CONFIG: OnceLock<MsdOptions> = OnceLock::new();
-  APP_CONFIG.get_or_init(|| {
-    let mut options = MsdOptions::parse();
-
-    if options.tz.is_empty() {
-      options.tz_offset = Some(UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC));
-    } else {
-      let format = format_description!("[offset_hour]");
-      match UtcOffset::parse(&options.tz, &format) {
-        Ok(offset) => {
-          options.tz_offset = Some(offset);
-        }
-        Err(e) => {
-          panic!("Failed to parse timezone offset '{}': {}", options.tz, e);
-        }
-      }
-    }
-    options
-  })
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -82,6 +70,10 @@ pub struct ServerOptions {
   If not set, no authentication is required."
   )]
   pub auth_token: Option<String>,
+
+  /// Default public permission for no local request
+  #[arg(short = 'P', long = "public-permission", default_value = "read", value_parser = parse_roles)]
+  pub default_permission: i64,
 
   /// worker threads
   #[arg(
@@ -133,4 +125,21 @@ pub struct TokenOptions {
   /// Expiration in days
   #[arg(short = 'e', long = "exp", default_value_t = 365)]
   pub exp: usize,
+}
+
+fn parse_tz(s: &str) -> Result<UtcOffset> {
+  if s.is_empty() {
+    return UtcOffset::current_local_offset()
+      .map_err(|e| anyhow::anyhow!("Failed to get current local offset: {}", e));
+  }
+
+  let format = format_description!("[offset_hour]");
+  match UtcOffset::parse(s, &format) {
+    Ok(offset) => Ok(offset),
+    Err(e) => Err(anyhow::anyhow!(
+      "Failed to parse timezone offset '{}': {}",
+      s,
+      e
+    )),
+  }
 }

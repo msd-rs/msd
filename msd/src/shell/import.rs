@@ -1,4 +1,4 @@
-use crate::app_config::ShellOptions;
+use crate::{app_config::ShellOptions, server::TABLE_PUT_PATH};
 use anyhow::{Context, Result};
 use reqwest::Body;
 use tokio::fs::File;
@@ -12,7 +12,7 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Resul
   let body = Body::wrap_stream(stream);
 
   let client = reqwest::Client::new();
-  let url = format!("{}/table/{}", opts.server_url, table);
+  let url = format!("{}{}{}", opts.server_url, TABLE_PUT_PATH, table);
 
   let resp = client
     .put(&url)

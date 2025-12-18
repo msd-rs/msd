@@ -1,9 +1,12 @@
-use std::hash::{Hash, Hasher};
+use std::{
+  hash::{Hash, Hasher},
+  net::SocketAddr,
+};
 
 use axum::{
   Json,
   body::Body,
-  extract::{Path, State},
+  extract::{ConnectInfo, Path, State},
   http::HeaderMap,
 };
 use futures::StreamExt;
@@ -60,11 +63,12 @@ use crate::server::handlers::permission::Permission;
 
 pub async fn handle_table(
   State(db): State<DBState>,
+  ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
   Path(table_name): Path<String>,
   headers: HeaderMap,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
-  Permission::check_write(&headers)?;
+  Permission::check_write(&headers, &remote_addr)?;
 
   if is_msd_table_format(&headers) {
     handle_table_binary(db, table_name, body).await

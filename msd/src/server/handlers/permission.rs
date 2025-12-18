@@ -1,10 +1,14 @@
+use std::net::SocketAddr;
+
+use anyhow::Result;
 use msd_request::SqlRequest;
-use msd_table::now;
 use serde::{Deserialize, Serialize};
 
-pub const READ_ROLE: i64 = 1;
-pub const WRITE_ROLE: i64 = 2;
-pub const ADMIN_ROLE: i64 = 4;
+use crate::app_config;
+
+const READ_ROLE: i64 = 1;
+const WRITE_ROLE: i64 = 2;
+const ADMIN_ROLE: i64 = 4;
 
 #[derive(Serialize, Deserialize)]
 pub struct Permission {
@@ -27,10 +31,7 @@ impl Permission {
   }
 
   fn check_permission(&self, want: i64) -> bool {
-    let today = now() / 1_000_000;
-    if today > self.exp {
-      return false;
-    }
+    // exp had checked by jsonwebtoken's default validation
     self.role & want > 0
   }
 
@@ -49,14 +50,20 @@ impl Permission {
 
   pub fn check(
     headers: &axum::http::HeaderMap,
+    remote_addr: &SocketAddr,
     request: &SqlRequest,
   ) -> Result<(), (axum::http::StatusCode, String)> {
-    let auth_token = match &crate::app_config::app_config().command {
-      crate::app_config::MsdCommands::Server(opts) => &opts.auth_token,
-      _ => &None,
+    let server_options = match &app_config().command {
+      app_config::MsdCommands::Server(opts) => opts,
+      _ => {
+        return Err((
+          axum::http::StatusCode::FORBIDDEN,
+          "Not a server command".to_string(),
+        ));
+      }
     };
 
-    if let Some(auth_token) = auth_token {
+    if let Some(auth_token) = server_options.auth_token.as_ref() {
       let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -79,18 +86,50 @@ impl Permission {
           "Permission denied".to_string(),
         ));
       }
+      return Ok(());
     }
-    Ok(())
+    if remote_addr.ip().is_loopback() {
+      return Ok(());
+    } else {
+      let permission = Permission {
+        exp: i64::MAX,
+        role: server_options.default_permission,
+      };
+      if !permission.have_permission(request) {
+        return Err((
+          axum::http::StatusCode::FORBIDDEN,
+          "Permission denied".to_string(),
+        ));
+      }
+      return Ok(());
+    }
   }
 
   pub fn check_write(
     headers: &axum::http::HeaderMap,
+    remote_addr: &SocketAddr,
   ) -> Result<(), (axum::http::StatusCode, String)> {
     // Construct a dummy Insert request to check write permission
     let req = SqlRequest::Insert(msd_request::InsertRequest {
       key: msd_request::RequestKey::new("", ""),
       data: msd_request::InsertData::Table(msd_table::Table::default()),
     });
-    Self::check(headers, &req)
+    Self::check(headers, remote_addr, &req)
   }
+}
+
+pub fn parse_roles(role_str: &str) -> Result<i64> {
+  let mut role_mask = 0;
+  for r in role_str.split(',') {
+    match r.trim() {
+      "read" => role_mask |= READ_ROLE,
+      "write" => role_mask |= WRITE_ROLE,
+      "admin" => role_mask |= ADMIN_ROLE,
+      _ => anyhow::bail!("Invalid role: {}", r),
+    }
+  }
+  if role_mask == 0 {
+    anyhow::bail!("No valid roles provided");
+  }
+  Ok(role_mask)
 }

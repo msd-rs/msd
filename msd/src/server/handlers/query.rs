@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 
 use super::is_msd_client;
 use crate::server::DBState;
 use axum::{
   Json,
   body::{Body, HttpBody},
-  extract::State,
+  extract::{ConnectInfo, State},
   http::{HeaderMap, Response},
   response::IntoResponse,
 };
@@ -32,6 +32,7 @@ use crate::server::handlers::permission::Permission;
 
 pub async fn handle_data(
   State(db): State<DBState>,
+  ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Json(body): Json<DataRequest>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
@@ -43,7 +44,7 @@ pub async fn handle_data(
   })?;
 
   for req in &requests {
-    Permission::check(&headers, req)?;
+    Permission::check(&headers, &remote_addr, req)?;
   }
 
   let requests = flatten_requests_by_object(db.clone(), requests);

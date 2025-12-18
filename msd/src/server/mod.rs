@@ -1,6 +1,6 @@
 pub mod handlers;
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::app_config::ServerOptions;
 use anyhow::Result;
@@ -15,9 +15,15 @@ use tower_http::{
 };
 use tracing::info;
 
+pub use handlers::permission::{Permission, parse_roles};
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 type DBState = Arc<MsdDb<RocksDbStore>>;
+
+pub const QUERY_PATH: &str = "/query";
+pub const TABLE_PUT_PATH: &str = "/table/";
+const TABLE_PUT_PARAM_PATH: &str = "/table/{table_name}";
 
 pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let app_options = super::app_config::app_config();
@@ -38,6 +44,8 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   } else {
     info!("Process id:        {}", pid);
   }
+  info!("Query Path:        {}", QUERY_PATH);
+  info!("Table Put Path:    {}", TABLE_PUT_PARAM_PATH);
 
   let db_path = app_options.db_path.clone();
   let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
@@ -48,15 +56,18 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let db = Arc::new(db);
   let app = Router::new()
     .layer(DecompressionLayer::new())
-    .route("/data", post(handlers::handle_data))
-    .route("/table/{table_name}", put(handlers::handle_table))
+    .route(QUERY_PATH, post(handlers::handle_data))
+    .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
     .with_state(db.clone())
     .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
   info!("msd server start");
-  axum::serve(listener, app)
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
+  axum::serve(
+    listener,
+    app.into_make_service_with_connect_info::<SocketAddr>(),
+  )
+  .with_graceful_shutdown(shutdown_signal())
+  .await?;
   db.shutdown().await;
   info!("msd server stopped");
   Ok(())

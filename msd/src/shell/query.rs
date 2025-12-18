@@ -1,6 +1,7 @@
 use super::get_client;
 use crate::{
   app_config::ShellOptions,
+  server::QUERY_PATH,
   shell::table_handler::{TableHandler, build_table_handler},
 };
 use anyhow::{Context, Result};
@@ -13,7 +14,7 @@ use tracing::error;
 
 pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   let client = get_client(opts);
-  let url = format!("{}/data", opts.server_url);
+  let url = format!("{}{}", opts.server_url, QUERY_PATH);
   let timer = std::time::Instant::now();
 
   let resp = client
