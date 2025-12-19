@@ -1,3 +1,5 @@
+use std::{cell::RefCell, io::Write};
+
 use anyhow::Result;
 use msd_table::Table;
 
@@ -45,6 +47,33 @@ impl TableHandler for PrintHandler {
       }
       print!("\n");
     }
+    Ok(())
+  }
+}
+
+pub struct CsvHandler {
+  writer: RefCell<csv::Writer<Box<dyn Write>>>,
+}
+
+impl CsvHandler {
+  pub fn new(writer: Box<dyn Write>) -> Self {
+    let writer = csv::WriterBuilder::new()
+      .has_headers(false)
+      .from_writer(writer);
+    Self {
+      writer: RefCell::new(writer),
+    }
+  }
+}
+
+impl TableHandler for CsvHandler {
+  fn handle(&self, table: &Table) -> Result<()> {
+    let mut wtr = self.writer.borrow_mut();
+    for row in table.rows(false) {
+      let record: Vec<String> = row.iter().map(|v| v.to_string()).collect();
+      wtr.write_record(&record)?;
+    }
+    wtr.flush()?;
     Ok(())
   }
 }

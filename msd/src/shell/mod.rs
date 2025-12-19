@@ -20,6 +20,7 @@ const SET_SERVER_COMMAND: &str = ".server";
 const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
 const SCHEMA_COMMAND: &str = ".schema";
 const DUMP_COMMAND: &str = ".dump";
+const OUTPUT_COMMAND: &str = ".output";
 
 fn shell_history_file() -> PathBuf {
   match env::home_dir() {
@@ -144,6 +145,18 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
             continue;
           }
 
+          if line.starts_with(OUTPUT_COMMAND) {
+            let arg = line.trim_start_matches(OUTPUT_COMMAND).trim();
+            if arg.is_empty() {
+              shell_options.output_file = None;
+              println!("Output redirected to stdout");
+            } else {
+              shell_options.output_file = Some(arg.to_string());
+              println!("Output redirected to: {}", arg);
+            }
+            continue;
+          }
+
           if let Err(e) = run_command(&shell_options, line).await {
             eprintln!("Error: {}", e);
           }
@@ -224,6 +237,7 @@ fn print_help() {
   println!("  .rows <num>      Set reactive rows");
   println!("  .import <file_path> <table> Import csv file to table");
   println!("  .dump <table> [file_path]    Dump table to csv file (or stdout)");
+  println!("  .output [file_path]          Redirect output to file (append mode)");
   println!("  .help            Print this help message");
   println!("  .exit | .quit | .q  Exit shell");
 }

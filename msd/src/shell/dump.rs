@@ -5,9 +5,10 @@ use futures::StreamExt;
 use msd_request::{check_table_frame, unpack_table_frame};
 use msd_table::Table;
 use reqwest::header;
-use std::{cell::RefCell, io::Write};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tracing::error;
+
+use crate::shell::table_handler::{CsvHandler, TableHandler};
 
 pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&str>) -> Result<()> {
   let client = get_client(opts);
@@ -28,17 +29,13 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
     anyhow::bail!("Query failed: {} - {}", status, txt);
   }
 
-  // Setup CSV writer
-  let output: Box<dyn Write> = match file_path {
-    Some(path) => Box::new(std::fs::File::create(path).context("Failed to create output file")?),
-    None => Box::new(std::io::stdout()),
+  // Setup CSV writer using CsvHandler
+  let handler = if let Some(path) = file_path {
+    let file = std::fs::File::create(path).context("Failed to create output file")?;
+    CsvHandler::new(Box::new(file))
+  } else {
+    CsvHandler::new(Box::new(std::io::stdout()))
   };
-
-  let writer = csv::WriterBuilder::new()
-    .has_headers(false) // User requested no headers
-    .from_writer(output);
-
-  let writer = RefCell::new(writer);
 
   let is_table_frame = resp.headers().get(header::CONTENT_TYPE).is_some_and(|ct| {
     ct.to_str()
@@ -52,15 +49,6 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
   let stream_reader = tokio_util::io::StreamReader::new(
     stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
   );
-
-  let handle_table = |table: &Table| -> Result<()> {
-    let mut wtr = writer.borrow_mut();
-    for row in table.rows(false) {
-      let record: Vec<String> = row.iter().map(|v| v.to_string()).collect();
-      wtr.write_record(&record)?;
-    }
-    Ok(())
-  };
 
   if is_table_frame {
     let mut rd = tokio::io::BufReader::new(stream_reader);
@@ -83,7 +71,7 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
 
       fetched_rows += table.row_count();
       objects += 1;
-      handle_table(&table)?;
+      handler.handle(&table)?;
 
       buf.clear();
       buf.resize(header_size, 0);
@@ -100,12 +88,9 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
         serde_json::from_str(&line).context("Failed to parse table from response")?;
       fetched_rows += table.row_count();
       objects += 1;
-      handle_table(&table)?;
+      handler.handle(&table)?;
     }
   }
-
-  // Flush writer
-  writer.borrow_mut().flush()?;
 
   if opts.verbose {
     let s = timer.elapsed().as_secs_f64();

@@ -2,7 +2,7 @@ use super::get_client;
 use crate::{
   app_config::ShellOptions,
   server::QUERY_PATH,
-  shell::table_handler::{TableHandler, build_table_handler},
+  shell::table_handler::{CsvHandler, TableHandler, build_table_handler},
 };
 use anyhow::{Context, Result};
 use futures::StreamExt;
@@ -30,7 +30,16 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     anyhow::bail!("Query failed: {} - {}", status, txt);
   }
 
-  let handler = build_table_handler(opts);
+  let handler: Box<dyn TableHandler> = if let Some(path) = &opts.output_file {
+    let file = std::fs::OpenOptions::new()
+      .append(true)
+      .create(true)
+      .open(path)
+      .context("Failed to open output file")?;
+    Box::new(CsvHandler::new(Box::new(file)))
+  } else {
+    Box::new(build_table_handler(opts))
+  };
 
   let is_table_frame = resp.headers().get(header::CONTENT_TYPE).is_some_and(|ct| {
     ct.to_str()

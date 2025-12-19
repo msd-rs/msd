@@ -110,6 +110,10 @@ pub struct ShellOptions {
   /// Whether to use binary protocol
   #[arg(short = 'm', long = "msd-client", default_value_t = true)]
   pub msd_client: bool,
+
+  /// Output file for query results
+  #[arg(short = 'o', long = "output")]
+  pub output_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
