@@ -6,6 +6,9 @@ use time::{UtcOffset, macros::format_description};
 
 use crate::server::parse_roles;
 
+pub const MSD_USER_AGENT: &str = "msd-client";
+pub const MSD_TABLE_FORMAT: &str = "application/x-msd-table-frame";
+
 /// Get the global app config
 pub fn app_config() -> &'static MsdOptions {
   static APP_CONFIG: OnceLock<MsdOptions> = OnceLock::new();
@@ -108,8 +111,8 @@ pub struct ShellOptions {
   pub verbose: bool,
 
   /// Whether to use binary protocol
-  #[arg(short = 'm', long = "msd-client", default_value_t = true)]
-  pub msd_client: bool,
+  #[arg(short = 'b', long = "msd-binary", default_value_t = true)]
+  pub msd_binary_protocol: bool,
 
   /// Output file for query results
   #[arg(short = 'o', long = "output")]

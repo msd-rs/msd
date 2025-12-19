@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr};
 
 use super::is_msd_client;
-use crate::server::DBState;
+use crate::{app_config::MSD_TABLE_FORMAT, server::DBState};
 use axum::{
   Json,
   body::{Body, HttpBody},
@@ -260,7 +260,7 @@ impl IntoResponse for TableFrameBody {
     let mut resp = Response::new(Body::new(self));
     resp.headers_mut().insert(
       axum::http::header::CONTENT_TYPE,
-      axum::http::header::HeaderValue::from_static("application/x-msd-table-frame"),
+      axum::http::header::HeaderValue::from_static(MSD_TABLE_FORMAT),
     );
     resp
   }

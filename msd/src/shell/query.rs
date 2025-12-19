@@ -1,6 +1,6 @@
 use super::get_client;
 use crate::{
-  app_config::ShellOptions,
+  app_config::{MSD_TABLE_FORMAT, ShellOptions},
   server::QUERY_PATH,
   shell::table_handler::{CsvHandler, TableHandler, build_table_handler},
 };
@@ -41,10 +41,10 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     Box::new(build_table_handler(opts))
   };
 
-  let is_table_frame = resp.headers().get(header::CONTENT_TYPE).is_some_and(|ct| {
-    ct.to_str()
-      .is_ok_and(|ct| ct.contains("application/x-msd-table-frame"))
-  });
+  let is_table_frame = resp
+    .headers()
+    .get(header::CONTENT_TYPE)
+    .is_some_and(|ct| ct.to_str().is_ok_and(|ct| ct.contains(MSD_TABLE_FORMAT)));
 
   let mut fetched_rows = 0;
   let mut objects = 0;

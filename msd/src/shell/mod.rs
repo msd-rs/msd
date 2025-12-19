@@ -5,7 +5,7 @@ mod table_handler;
 
 use std::{env, path::PathBuf, sync::OnceLock};
 
-use crate::app_config::ShellOptions;
+use crate::app_config::{MSD_USER_AGENT, ShellOptions};
 use anyhow::Result;
 use rustyline::{
   Completer, Editor, Helper, Highlighter, Hinter,
@@ -183,8 +183,8 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
 
   CLIENT.get_or_init(|| {
     let mut client = reqwest::ClientBuilder::new();
-    if opts.msd_client {
-      client = client.user_agent("msd-client").zstd(true)
+    if opts.msd_binary_protocol {
+      client = client.user_agent(MSD_USER_AGENT).zstd(true)
     }
     client.build().unwrap()
   })

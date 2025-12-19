@@ -1,5 +1,8 @@
 use super::get_client;
-use crate::{app_config::ShellOptions, server::QUERY_PATH};
+use crate::{
+  app_config::{MSD_TABLE_FORMAT, ShellOptions},
+  server::QUERY_PATH,
+};
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use msd_request::{check_table_frame, unpack_table_frame};
@@ -37,10 +40,10 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
     CsvHandler::new(Box::new(std::io::stdout()))
   };
 
-  let is_table_frame = resp.headers().get(header::CONTENT_TYPE).is_some_and(|ct| {
-    ct.to_str()
-      .is_ok_and(|ct| ct.contains("application/x-msd-table-frame"))
-  });
+  let is_table_frame = resp
+    .headers()
+    .get(header::CONTENT_TYPE)
+    .is_some_and(|ct| ct.to_str().is_ok_and(|ct| ct.contains(MSD_TABLE_FORMAT)));
 
   let mut fetched_rows = 0;
   let mut objects = 0;
