@@ -14,7 +14,8 @@ use futures::{StreamExt, stream::BoxStream};
 use http_body::Frame;
 use msd_db::{errors::DbError, request::MsdRequest};
 use msd_request::{
-  ListObjectsRequest, QueryRequest, RequestKey, SqlRequest, pack_table_frame, sql_to_request,
+  DeleteRequest, InsertRequest, ListObjectsRequest, QueryRequest, RequestKey, SqlRequest,
+  pack_table_frame, sql_to_request,
 };
 use msd_table::{Table, Variant, table};
 use serde::{Deserialize, Serialize};
@@ -69,7 +70,9 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
     SqlRequest::Query(query_req) => handle_query(db, query_req).await,
     SqlRequest::CreateTable(name, table) => handle_create_table(db, name, table).await,
     SqlRequest::Schema(name) => handle_schema(db, name).await,
-    _ => Err(DbError::UnsupportedRequestType),
+    SqlRequest::DropTable(name) => handle_drop_table(db, name).await,
+    SqlRequest::Insert(insert_request) => handle_insert(db, insert_request).await,
+    SqlRequest::Delete(delete_request) => handle_delete(db, delete_request).await,
   };
   match res {
     Ok(table) => Ok(table),
@@ -184,9 +187,27 @@ async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> 
   })
 }
 
+async fn handle_insert(db: DBState, req: InsertRequest) -> Result<Table, DbError> {
+  let (msd_req, _resp_rx) = MsdRequest::insert(req);
+  db.request(msd_req).await.map_err(|e| e)?;
+  Ok(Table::default())
+}
+
+async fn handle_delete(db: DBState, req: DeleteRequest) -> Result<Table, DbError> {
+  let (msd_req, _resp_rx) = MsdRequest::delete(req);
+  db.request(msd_req).await.map_err(|e| e)?;
+  Ok(Table::default())
+}
+
 async fn handle_create_table(db: DBState, name: String, table: Table) -> Result<Table, DbError> {
-  info!(name, ?table, "Creating table");
   let msd_req = MsdRequest::create_table(name, table);
+  db.request(msd_req).await.map_err(|e| e)?;
+  Ok(Table::default())
+}
+
+async fn handle_drop_table(db: DBState, name: String) -> Result<Table, DbError> {
+  info!(name, "Dropping table");
+  let msd_req = MsdRequest::drop_table(name);
   db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }

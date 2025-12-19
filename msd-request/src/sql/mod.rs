@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 pub enum SqlRequest {
   Query(QueryRequest),
   CreateTable(String, Table),
+  DropTable(String),
   Insert(InsertRequest),
   Delete(DeleteRequest),
   Schema(String),
@@ -30,6 +31,7 @@ pub enum SqlRequestType {
   Unknown,
   Query,
   CreateTable,
+  DropTable,
   Insert,
   Delete,
   Schema,
@@ -53,6 +55,8 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
       return SqlRequestType::Delete;
     } else if command.eq_ignore_ascii_case("DESC") || command.eq_ignore_ascii_case("DESCRIBE") {
       return SqlRequestType::Schema;
+    } else if command.eq_ignore_ascii_case("DROP TABLE") {
+      return SqlRequestType::DropTable;
     }
   }
   return SqlRequestType::Unknown;
@@ -96,6 +100,7 @@ fn parse_stmt(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
     Statement::Query(_) => parse_query(stmt),
     Statement::CreateTable(_) => parse_create_table(stmt),
     Statement::Delete(_) => parse_delete(stmt),
+    Statement::Drop { .. } => parse_drop(stmt),
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
@@ -114,6 +119,21 @@ fn parse_schema(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
         "table name is missing for DESC command".to_string(),
       )));
     }
+  }
+}
+
+fn parse_drop(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
+  match stmt {
+    Statement::Drop { names, .. } => {
+      if names.len() == 1 {
+        Ok(vec![SqlRequest::DropTable(names[0].to_string())])
+      } else {
+        Err(RequestError::SqlParseError(ParserError::ParserError(
+          "table name is missing or multiple tables are not supported for DROP command".to_string(),
+        )))
+      }
+    }
+    _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
 
@@ -357,7 +377,7 @@ fn parse_create_table(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> 
           if let Some((k, v_raw)) = kv.split_once('=') {
             let key = k.trim();
             let v_clean = v_raw.trim().trim_matches('"').trim_matches('\'');
-            let value = if key.eq_ignore_ascii_case("chunksize") {
+            let value = if key.eq_ignore_ascii_case("chunkSize") {
               Variant::UInt32(v_clean.parse::<u32>().unwrap_or_default())
             } else if let Ok(n) = v_clean.parse::<f64>() {
               Variant::Float64(n)

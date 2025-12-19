@@ -23,6 +23,7 @@ impl Permission {
     let role = match req {
       SqlRequest::Query(_) => READ_ROLE,
       SqlRequest::CreateTable(_, _) => ADMIN_ROLE,
+      SqlRequest::DropTable(_) => ADMIN_ROLE,
       SqlRequest::Insert(_) => WRITE_ROLE,
       SqlRequest::Delete(_) => ADMIN_ROLE,
       SqlRequest::Schema(_) => READ_ROLE,
