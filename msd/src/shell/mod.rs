@@ -1,3 +1,4 @@
+mod dump;
 mod import;
 mod query;
 mod table_handler;
@@ -18,6 +19,7 @@ const EXIT_COMMANDS: [&str; 3] = [".exit", ".quit", ".q"];
 const SET_SERVER_COMMAND: &str = ".server";
 const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
 const SCHEMA_COMMAND: &str = ".schema";
+const DUMP_COMMAND: &str = ".dump";
 
 fn shell_history_file() -> PathBuf {
   match env::home_dir() {
@@ -198,6 +200,19 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
     return query::execute(opts, &format!("DESCRIBE {}", table)).await;
   }
 
+  if cmd.starts_with(DUMP_COMMAND) {
+    let arg = cmd.trim_start_matches(DUMP_COMMAND).trim();
+    if arg.is_empty() {
+      eprintln!("Usage: .dump <table> [file_path]");
+      return Ok(());
+    }
+    let (table, file_path) = match arg.split_once(' ') {
+      Some((t, f)) => (t, Some(f.trim())),
+      None => (arg, None),
+    };
+    return dump::execute(opts, table, file_path).await;
+  }
+
   // default query
   query::execute(opts, cmd).await
 }
@@ -208,6 +223,7 @@ fn print_help() {
   println!("  .server <url>    Set server url");
   println!("  .rows <num>      Set reactive rows");
   println!("  .import <file_path> <table> Import csv file to table");
+  println!("  .dump <table> [file_path]    Dump table to csv file (or stdout)");
   println!("  .help            Print this help message");
   println!("  .exit | .quit | .q  Exit shell");
 }
