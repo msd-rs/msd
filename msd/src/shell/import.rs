@@ -4,7 +4,7 @@ use reqwest::Body;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
-pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Result<()> {
+pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str, skip: usize) -> Result<()> {
   let file = File::open(file_path)
     .await
     .context(format!("Failed to open file: {}", file_path))?;
@@ -16,6 +16,7 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str) -> Resul
 
   let resp = client
     .put(&url)
+    .query(&[("skip", skip.to_string())])
     .header(reqwest::header::CONTENT_TYPE, "text/csv")
     .body(body)
     .send()

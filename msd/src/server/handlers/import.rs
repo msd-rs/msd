@@ -6,7 +6,7 @@ use std::{
 use axum::{
   Json,
   body::Body,
-  extract::{ConnectInfo, Path, State},
+  extract::{ConnectInfo, Path, Query, State},
   http::HeaderMap,
 };
 use futures::StreamExt;
@@ -18,13 +18,15 @@ use msd_request::{
 };
 use msd_table::{Table, Variant};
 use rustc_hash::FxHasher;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
+use tokio_util::bytes::buf;
 use tracing::{error, info};
 
 use crate::server::{DBState, handlers::is_msd_table_format};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TableResponse {
   pub total_rows: usize,
   pub time_used_ms: u64,
@@ -59,12 +61,18 @@ impl TableResponse {
   }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportQuery {
+  pub skip: Option<usize>,
+}
+
 use crate::server::handlers::permission::Permission;
 
 pub async fn handle_table(
   State(db): State<DBState>,
   ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
   Path(table_name): Path<String>,
+  Query(q): Query<ImportQuery>,
   headers: HeaderMap,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
@@ -73,7 +81,7 @@ pub async fn handle_table(
   if is_msd_table_format(&headers) {
     handle_table_binary(db, table_name, body).await
   } else {
-    handle_table_csv(db, table_name, body).await
+    handle_table_csv(db, table_name, body, q.skip.unwrap_or_default()).await
   }
 }
 
@@ -81,6 +89,7 @@ async fn handle_table_csv(
   db: DBState,
   table_name: String,
   body: Body,
+  skip: usize,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
 
@@ -135,6 +144,7 @@ async fn handle_table_csv(
   // 4. parse the csv lines and dispatch to workers
   let mut stream = BodyStream::new(body);
   let mut buffer = Vec::new();
+  let mut skipped = 0;
 
   info!("start parsing csv lines");
   while let Some(frame_res) = stream.next().await {
@@ -154,6 +164,11 @@ async fn handle_table_csv(
       let mut line_start = 0;
 
       while let Some(pos) = memchr(b'\n', &buffer[line_start..=last_line_end]) {
+        if skipped < skip {
+          skipped += 1;
+          line_start += pos + 1;
+          continue;
+        }
         let line = &buffer[line_start..line_start + pos + 1];
 
         let first_col_pos = match memchr(b',', line) {
