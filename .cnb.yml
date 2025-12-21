@@ -11,6 +11,10 @@ main:
         tags: cnb:arch:amd64
         cpus: 16
       stages:
+        - name: extract version
+          script: grep -o '^version = "[0-9.]*"' Cargo.toml | sed 's/version = "//' | sed 's/"$//'
+          exports:
+            info: MSD_VERSION
         - name: build msd
           script: cargo build --release
         - name: set docker tag
@@ -28,4 +32,4 @@ main:
             - export TWINE_USERNAME="cnb"
             - export TWINE_PASSWORD=$CNB_TOKEN
             - export TWINE_REPOSITORY_URL="https://pypi.cnb.cool/elsejj/msd/-/packages/simple"
-            - twine upload target/wheels/*
+            - twine upload target/wheels/msd-${MSD_VERSION}-*.whl
