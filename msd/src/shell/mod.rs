@@ -184,9 +184,13 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
   CLIENT.get_or_init(|| {
     let mut client = reqwest::ClientBuilder::new();
     if opts.msd_binary_protocol {
-      client = client.user_agent(MSD_USER_AGENT);
+      client = client
+        .user_agent(MSD_USER_AGENT)
+        .no_brotli()
+        .no_deflate()
+        .no_gzip()
+        .no_zstd();
       match opts.compression.as_str() {
-        "identity" => {}
         "zstd" => client = client.zstd(true),
         "br" => client = client.brotli(true),
         "gzip" => client = client.gzip(true),

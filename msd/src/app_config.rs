@@ -34,6 +34,9 @@ pub struct MsdOptions {
   #[arg(long = "tz", default_value = "", env = "MSD_TZ", value_parser = parse_tz)]
   pub tz_offset: Option<UtcOffset>,
 
+  #[arg(long = "pprof", default_value = "")]
+  pub pprof: Option<String>,
+
   #[command(subcommand)]
   pub command: MsdCommands,
 }
@@ -115,7 +118,7 @@ pub struct ShellOptions {
   pub msd_binary_protocol: bool,
 
   /// Which compression to use
-  #[arg(short = 'c', long = "compression", default_value = "zstd", value_parser = parse_compression)]
+  #[arg(short = 'c', long = "compression", default_value = "", value_parser = parse_compression)]
   pub compression: String,
 
   /// Output file for query results
@@ -157,7 +160,7 @@ fn parse_tz(s: &str) -> Result<UtcOffset> {
 
 fn parse_compression(s: &str) -> Result<String> {
   match s {
-    "identity" => Ok("identity".to_string()),
+    "identity" | "none" | "" => Ok("identity".to_string()),
     "zstd" => Ok("zstd".to_string()),
     "gzip" => Ok("gzip".to_string()),
     "br" => Ok("br".to_string()),

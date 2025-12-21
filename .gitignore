@@ -39,6 +39,7 @@ Desktop.ini
 *.gcno
 *.gcov
 .denv
+*.pprof.svg
 
 /logs/
 /dev/

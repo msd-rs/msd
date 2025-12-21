@@ -16,6 +16,14 @@ async fn main() -> Result<()> {
   let main_options = app_config();
   let _logging_guards = logging::setup_logging();
 
+  let pprof_guard = main_options.pprof.as_ref().and_then(|_| {
+    pprof::ProfilerGuardBuilder::default()
+      .frequency(1000)
+      .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+      .build()
+      .ok()
+  });
+
   set_default_timezone(main_options.tz_offset.unwrap().whole_hours());
 
   match &main_options.command {
@@ -29,6 +37,15 @@ async fn main() -> Result<()> {
       token::run(options.clone())?;
     }
   }
+
+  pprof_guard
+    .and_then(|guard| guard.report().build().ok())
+    .zip(main_options.pprof.as_ref())
+    .map(|(report, file_name)| {
+      let file_name = format!("{}.pprof.svg", file_name);
+      let file = std::fs::File::create(file_name).unwrap();
+      report.flamegraph(file).unwrap();
+    });
 
   Ok(())
 }
