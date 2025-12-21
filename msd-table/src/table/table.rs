@@ -52,6 +52,25 @@ impl Table {
     self
   }
 
+  /// replace metadata
+  pub fn replace_metadata<K, V, const N: usize>(mut self, metadata: [(K, V); N]) -> Self
+  where
+    K: Into<String>,
+    V: Into<Variant>,
+  {
+    if metadata.is_empty() {
+      self.metadata = None;
+    } else {
+      self.metadata = Some(
+        metadata
+          .into_iter()
+          .map(|(k, v)| (k.into(), v.into()))
+          .collect(),
+      );
+    }
+    self
+  }
+
   pub fn same_shape(&self, other: &Table) -> bool {
     if self.column_count() != other.column_count() {
       return false;

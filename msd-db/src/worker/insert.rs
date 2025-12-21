@@ -2,7 +2,7 @@ use std::vec;
 
 use msd_request::{InsertResponse, RequestError, RequestKey};
 use msd_table::{DataType, Table, Variant, parse_unit, round_ts};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use super::{MsdStore, Worker};
 use crate::errors::DbError;
@@ -126,7 +126,7 @@ impl<S: MsdStore> Worker<S> {
       } else {
         0
       };
-      debug!(
+      trace!(
         key = %req.key,
         raw_pk,
         pk,

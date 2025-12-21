@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 
 use super::is_msd_client;
 use crate::{app_config::MSD_TABLE_FORMAT, server::DBState};
@@ -17,7 +17,7 @@ use msd_request::{
   DeleteRequest, InsertRequest, ListObjectsRequest, QueryRequest, RequestKey, SqlRequest,
   pack_table_frame, sql_to_request,
 };
-use msd_table::{Table, Variant, table};
+use msd_table::{Table, table};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 use tokio_stream::{self as stream};
@@ -179,12 +179,10 @@ async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> 
   let table = req.key.table.clone();
   let (msd_req, resp_rx) = MsdRequest::query(req);
   db.request(msd_req).await.map_err(|e| e)?;
-  resp_rx.await.map_err(|e| e)?.map(|t| {
-    t.with_metadata(HashMap::from([
-      ("obj".into(), Variant::String(obj)),
-      ("table".into(), Variant::String(table)),
-    ]))
-  })
+  resp_rx
+    .await
+    .map_err(|e| e)?
+    .map(|t| t.replace_metadata([("obj", obj), ("table", table)]))
 }
 
 async fn handle_insert(db: DBState, req: InsertRequest) -> Result<Table, DbError> {

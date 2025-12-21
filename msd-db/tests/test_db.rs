@@ -7,7 +7,7 @@ use msd_db::{
 };
 use msd_request::AggStateId;
 use msd_store::RocksDbStore;
-use msd_table::{Series, Table, Variant, parse_datetime, table};
+use msd_table::{Series, Table, Variant, parse_datetime, table, v};
 use tempfile::Builder as TempDirBuilder;
 use tracing::info;
 
@@ -41,12 +41,9 @@ fn create_table() -> Table {
     {name: "open", kind: f64},
   );
 
-  let metadata: HashMap<String, Variant> = HashMap::from([
-    ("chunkSize".into(), 10u32.into()),
-    ("round".into(), "1d".into()),
-  ]);
+  let metadata = [("chunkSize", v!(10u32)), ("round", v!("1d"))];
 
-  table.with_metadata(metadata)
+  table.replace_metadata(metadata)
 }
 
 async fn init_db<P: AsRef<Path>>(path: P, clear: bool, table: &str, schema: Table) -> Result<Db> {
@@ -232,12 +229,7 @@ async fn test_create_db_kline() -> Result<()> {
     {name: "amount", kind: f64},
   );
 
-  let metadata: HashMap<String, Variant> = HashMap::from([
-    ("chunkSize".into(), 250u32.into()),
-    ("round".into(), "1d".into()),
-  ]);
-
-  let table = table.with_metadata(metadata);
+  let table = table.replace_metadata([("chunkSize", v!(250u32)), ("round", v!("1d"))]);
 
   info!(?table, "Creating table");
 
@@ -333,10 +325,7 @@ async fn test_insert_agg() -> Result<()> {
     {name: "volume", kind: f64},
   );
 
-  let mut table = table.with_metadata(HashMap::from([
-    ("chunkSize".into(), 250u32.into()),
-    ("round".into(), "1m".into()),
-  ]));
+  let mut table = table.replace_metadata([("chunkSize", v!(250u32)), ("round", v!("1m"))]);
 
   let fields_agg = [
     ("open", AggStateId::First),
@@ -456,18 +445,14 @@ async fn test_chan() -> Result<()> {
     {name: "volume", kind: f64},
   );
 
-  let mut kline1m_table = snapshot_table.clone().with_metadata(HashMap::from([
-    ("chunkSize".into(), 250u32.into()),
-    ("round".into(), "1m".into()),
-  ]));
+  let mut kline1m_table = snapshot_table
+    .clone()
+    .replace_metadata([("chunkSize", v!(250u32)), ("round", v!("1m"))]);
 
-  let snapshot_table = snapshot_table.with_metadata(HashMap::from([
-    ("chunkSize".into(), 250u32.into()),
-    (
-      "chan".into(),
-      "kline1m: ts, open, high, low, close, volume".into(),
-    ),
-  ]));
+  let snapshot_table = snapshot_table.replace_metadata([
+    ("chunkSize", v!(250u32)),
+    ("chan", v!("kline1m: ts, open, high, low, close, volume")),
+  ]);
 
   let fields_agg = [
     ("open", AggStateId::First),

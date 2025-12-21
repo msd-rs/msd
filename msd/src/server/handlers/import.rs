@@ -21,7 +21,6 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use tokio_util::bytes::buf;
 use tracing::{error, info};
 
 use crate::server::{DBState, handlers::is_msd_table_format};
