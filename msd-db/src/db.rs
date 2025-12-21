@@ -112,19 +112,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           MsdRequest::Broadcast(Broadcast::CreateTable(name, table)) => {
             self.create_table(name, table)?;
           }
-          MsdRequest::Broadcast(Broadcast::DropTable(name)) => {
-            let delete_req = DeleteRequest {
-              key: RequestKey {
-                table: name.clone(),
-                obj: "".into(),
-              },
-              ..Default::default()
-            };
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let _ = self.delete_objects(delete_req, tx);
-            let _ = rx.await;
-            self.drop_table(name)?
-          }
+          MsdRequest::Broadcast(Broadcast::DropTable(name)) => self.drop_table(name)?,
           _ => {}
         }
         for worker in &self.workers {
@@ -485,6 +473,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       let mut objects = self.objects.write().unwrap();
       objects.remove(name);
     }
+    self.store.drop_table(name)?;
     Ok(())
   }
 

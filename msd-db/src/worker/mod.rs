@@ -90,6 +90,18 @@ impl<S: MsdStore> Worker<S> {
       }
       Broadcast::DropTable(table) => {
         self.schema.remove(&table);
+        let store_exists = self
+          .store
+          .list_tables()
+          .map(|cfs| cfs.contains(&table))
+          .unwrap_or(true);
+        self.cache.retain(|key, item| {
+          let should_drop = key.table == table;
+          if should_drop && store_exists {
+            let _ = Self::delete_cache_item(&self.store, key, item);
+          }
+          !should_drop
+        });
       }
       _ => { /* ignore other broadcast messages */ }
     }

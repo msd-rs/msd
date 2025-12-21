@@ -181,7 +181,8 @@ impl MsdStore for RocksDbStore {
   }
 
   fn drop_table(&self, name: &str) -> Result<(), StoreError> {
-    self.db.drop_cf(name).map_err(StoreError::from)
+    let _ = self.db.drop_cf(name);
+    Ok(())
   }
 
   fn list_tables(&self) -> Result<Vec<String>, StoreError> {

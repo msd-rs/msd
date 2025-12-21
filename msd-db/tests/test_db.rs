@@ -573,3 +573,54 @@ async fn test_chan() -> Result<()> {
 
   Ok(())
 }
+
+#[tokio::test]
+async fn test_drop_table() -> Result<()> {
+  setup();
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+
+  let schema = create_table();
+
+  let db = init_db(path, true, "kline1d", schema.clone()).await?;
+
+  let data = sample_data(10, "2023-01-01", ONE_DAY);
+  let insert_req = InsertRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(data),
+  };
+  let mut req = insert_req.clone().to_table(&schema)?;
+  assert!(req.len() == 1);
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let table = do_query(&db, "kline1d", "SH600000").await?;
+  assert_eq!(table.row_count(), 10);
+
+  db.request(MsdRequest::drop_table("kline1d")).await?;
+
+  let res = do_query(&db, "kline1d", "SH600000").await;
+  assert!(res.is_err(), "table should be dropped");
+
+  // create table again
+  let req = MsdRequest::create_table("kline1d", schema.clone());
+  db.request(req).await?;
+
+  let res = do_query(&db, "kline1d", "SH600000").await;
+  assert!(
+    res.is_err(),
+    "table should not exist after table is dropped"
+  );
+
+  // insert data again
+  let mut req = insert_req.clone().to_table(&schema)?;
+  assert!(req.len() == 1);
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let table = do_query(&db, "kline1d", "SH600000").await?;
+  assert_eq!(table.row_count(), 10);
+
+  Ok(())
+}

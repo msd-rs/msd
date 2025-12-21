@@ -33,19 +33,23 @@ impl<S: MsdStore> Worker<S> {
         }
         !should_remove
       });
-    };
-
-    match self.cache.remove(&req.key) {
-      Some(item) => {
-        Self::delete_cache_item(&self.store, &req.key, &item)?;
+    } else {
+      match self.cache.remove(&req.key) {
+        Some(item) => {
+          Self::delete_cache_item(&self.store, &req.key, &item)?;
+        }
+        None => {}
       }
-      None => {}
     }
 
     Ok(DeleteResponse::default())
   }
 
-  fn delete_cache_item(store: &S, key: &RequestKey, item: &CacheValue) -> Result<(), DbError> {
+  pub(crate) fn delete_cache_item(
+    store: &S,
+    key: &RequestKey,
+    item: &CacheValue,
+  ) -> Result<(), DbError> {
     let data_keys = (0..item.index.len()).map(|i| Key::new_data(&key.obj, i as u32));
     let index_key = Key::new_index(&key.obj);
 
