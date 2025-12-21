@@ -11,4 +11,4 @@ create table kline (
   round='1d'
 );
 
-.import kline dev/demo.csv;
+.import dev/demo.csv kline;
