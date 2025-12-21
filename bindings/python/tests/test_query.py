@@ -7,7 +7,7 @@ import polars as pl
 # Change the following variables to test different environment
 BASE_URL = "http://localhost:50510"
 RESULT_OBJECTS = 1789
-RESULT_ROWS = 6390587
+RESULT_ROWS = 6245835
 SQL_TO_TEST = "select * from kline where obj='SH60*'"
 
 def test_query_ok():

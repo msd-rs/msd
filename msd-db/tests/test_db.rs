@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Once, vec};
+use std::{path::Path, sync::Once, vec};
 
 use anyhow::Result;
 use msd_db::{
@@ -18,7 +18,7 @@ static INIT: Once = Once::new();
 fn setup() {
   INIT.call_once(|| {
     tracing_subscriber::fmt()
-      .with_env_filter("msd_db=debug")
+      .with_env_filter("msd_db=trace")
       .try_init()
       .ok();
   });
@@ -163,11 +163,14 @@ async fn test_insert_existing() -> Result<()> {
   let db = init_db(path, true, "kline1d", create_table()).await?;
   let n = 25;
   insert_data(&db, "kline1d", "SH600000", n, "2023-01-01", ONE_DAY).await?;
+  let table = do_query(&db, "kline1d", "SH600000").await?;
+  assert_eq!(table.column_count(), 2);
+  assert_eq!(table.row_count(), n);
 
   insert_data(&db, "kline1d", "SH600000", n, "2023-01-26", ONE_DAY).await?;
 
   let table = do_query(&db, "kline1d", "SH600000").await?;
-  assert_eq!(table.column_count(), 2 + 1);
+  assert_eq!(table.column_count(), 2);
   assert_eq!(table.row_count(), n * 2);
 
   Ok(())

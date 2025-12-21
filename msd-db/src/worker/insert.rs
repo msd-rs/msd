@@ -70,16 +70,7 @@ impl<S: MsdStore> Worker<S> {
     });
 
     // Get the min pk from cached table (first row's pk)
-    let cached_min_pk = if cache.cached.row_count() > 0 {
-      cache
-        .cached
-        .cell(0, pk_col)
-        .get_datetime()
-        .copied()
-        .unwrap_or(0)
-    } else {
-      0
-    };
+    let cached_min_pk = cache.last_pk();
 
     debug!(
       key = ?req.key,
@@ -102,6 +93,7 @@ impl<S: MsdStore> Worker<S> {
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
       let pk = round_ts(raw_pk, &round_unit).unwrap_or(raw_pk);
+      let cached_min_pk = cache.last_pk();
 
       // Skip rows with pk less than cached min pk
       if pk < cached_min_pk as i64 {
@@ -116,25 +108,15 @@ impl<S: MsdStore> Worker<S> {
 
       // Get the last pk in cached table
       let cached_row_count = cache.cached.row_count();
-      let last_cached_pk = if cached_row_count > 0 {
-        cache
-          .cached
-          .cell(cached_row_count - 1, pk_col)
-          .get_datetime()
-          .copied()
-          .unwrap_or(0)
-      } else {
-        0
-      };
       trace!(
         key = %req.key,
         raw_pk,
         pk,
-        last_cached_pk,
+        cached_min_pk,
         "Processing incoming row"
       );
 
-      if pk == last_cached_pk && cached_row_count > 0 {
+      if pk == cached_min_pk && cached_row_count > 0 {
         // Update existing row using agg states
         let last_row_idx = cached_row_count - 1;
         for (col_idx, cell_value) in row.iter().enumerate() {
@@ -174,6 +156,8 @@ impl<S: MsdStore> Worker<S> {
           );
           let seq = (cache.index.len() - 1) as u32;
           let old_chunk = std::mem::replace(&mut cache.cached, schema.to_empty());
+          // Add new index item
+          cache.index.push(IndexItem::default());
 
           // Queue chunk for flushing
           new_chunks.push((seq, old_chunk));
@@ -184,9 +168,6 @@ impl<S: MsdStore> Worker<S> {
             s.reset();
           }
         }
-        // Add new index item
-        cache.index.push(IndexItem::default());
-
         // Build the row with rounded pk
         let mut new_row: Vec<Variant> = row.iter().map(|r| r.clone().into()).collect();
         new_row[pk_col] = Variant::DateTime(pk);
