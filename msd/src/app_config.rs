@@ -114,6 +114,10 @@ pub struct ShellOptions {
   #[arg(short = 'b', long = "msd-binary", default_value_t = true)]
   pub msd_binary_protocol: bool,
 
+  /// Which compression to use
+  #[arg(short = 'c', long = "compression", default_value = "zstd", value_parser = parse_compression)]
+  pub compression: String,
+
   /// Output file for query results
   #[arg(short = 'o', long = "output")]
   pub output_file: Option<String>,
@@ -148,5 +152,16 @@ fn parse_tz(s: &str) -> Result<UtcOffset> {
       s,
       e
     )),
+  }
+}
+
+fn parse_compression(s: &str) -> Result<String> {
+  match s {
+    "identity" => Ok("identity".to_string()),
+    "zstd" => Ok("zstd".to_string()),
+    "gzip" => Ok("gzip".to_string()),
+    "br" => Ok("br".to_string()),
+    "deflate" => Ok("deflate".to_string()),
+    _ => Err(anyhow::anyhow!("Invalid compression: {}", s)),
   }
 }

@@ -207,14 +207,19 @@ async fn handle_drop_table(db: DBState, name: String) -> Result<Table, DbError> 
 
 #[derive(Debug)]
 struct TableFrameBody {
-  set: JoinSet<Result<Table, DbError>>,
+  set: JoinSet<Result<Vec<u8>, DbError>>,
 }
 
 impl TableFrameBody {
   fn new(db: DBState, requests: Vec<SqlRequest>) -> Self {
     let mut set = JoinSet::new();
     for req in requests {
-      set.spawn(handle_sql_request(db.clone(), req));
+      let db = db.clone();
+      set.spawn(async move {
+        handle_sql_request(db, req)
+          .await
+          .map(|t| pack_table_frame(&t))
+      });
     }
     Self { set }
   }
@@ -240,7 +245,7 @@ impl HttpBody for TableFrameBody {
         }
       }
       Some(Ok(Ok(table))) => {
-        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame(&table)));
+        let frame = Frame::data(axum::body::Bytes::from(table));
         std::task::Poll::Ready(Some(Ok(frame)))
       }
       Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),

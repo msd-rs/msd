@@ -32,7 +32,7 @@ def msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[s
   response = requests.post(endpoint, json={"query": sql}, stream=True, headers={
     # msd server will use this to identify the client, and return binary format if it's set.
     "User-Agent": MSD_USER_AGENT,
-    "Accept-Encoding": "zstd",
+    "Accept-Encoding": "identity",
   })
   if response.status_code != 200:
     raise Exception(f"Query failed: {response.text}")
@@ -64,7 +64,7 @@ async def async_msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Gener
     async with session.post(endpoint, json={"query": sql}, headers={
       # msd server will use this to identify the client, and return binary format if it's set.
       "User-Agent": MSD_USER_AGENT,
-      "Accept-Encoding": "zstd",
+      "Accept-Encoding": "identity",
     }) as response :
       if response.status != 200:
         raise Exception(f"Query failed: {response.text}")

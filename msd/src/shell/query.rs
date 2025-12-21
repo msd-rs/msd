@@ -54,9 +54,9 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
   );
   if is_table_frame {
-    let mut rd = tokio::io::BufReader::new(stream_reader);
+    let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
 
-    let mut buf = Vec::with_capacity(1024);
+    let mut buf = Vec::with_capacity(8 * 1024);
 
     buf.resize(8, 0);
     while rd.read_exact(&mut buf).await.is_ok() {

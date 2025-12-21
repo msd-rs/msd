@@ -20,7 +20,7 @@ msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd"] }
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"] }
 rustc-hash.workspace = true
 rustyline = {version="17", features=["derive"]}
 serde.workspace = true
