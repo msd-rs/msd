@@ -28,7 +28,7 @@ def parse_duration(d: str) -> int:
   raise ValueError(f"Invalid duration: {d}")
 
 def datetime_str(ts: int) -> str:
-  return datetime.datetime.fromtimestamp(ts / 1_000_000.0).strftime('%Y-%m-%d %H:%M:%S')
+  return datetime.datetime.fromtimestamp(ts / 1_000_000.0).strftime('%Y-%m-%dT%H:%M:%S.%f')
     
 
 def generate_kline(obj: str, start_ts: int, rows: int, ts_interval: int, mode: str):
@@ -45,7 +45,7 @@ def generate_kline(obj: str, start_ts: int, rows: int, ts_interval: int, mode: s
     amount = (volume * avg) / 1_0000.0
     price = avg
     if mode == "csv":
-      print(f"{obj},{ts},{open:.2f},{high:.2f},{low:.2f},{close:.2f},{volume},{amount:.2f}")
+      print(f"{obj},{datetime_str(ts)},{open:.2f},{high:.2f},{low:.2f},{close:.2f},{volume},{amount:.2f}")
     elif mode == "tdsql":
       print(f'("{obj}", "{datetime_str(ts)}", {open:.2f}, {high:.2f}, {low:.2f}, {close:.2f}, {volume}, {amount:.2f})', end=' ')
 
@@ -79,7 +79,7 @@ if __name__ == '__main__':
   start_ts = parse_datetime(args.start_ts)
   ts_interval = parse_duration(args.ts_interval)
 
-  print(header, end=' ')
+  print(header, end='')
   for code in codes:
     generate_kline(code, start_ts, args.rows_count, ts_interval, args.mode)
   if args.mode == "tdsql":

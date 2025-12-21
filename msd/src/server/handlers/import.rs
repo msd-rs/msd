@@ -21,7 +21,7 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::server::{DBState, handlers::is_msd_table_format};
 
@@ -130,7 +130,7 @@ async fn handle_table_csv(
             let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {
-            error!(%e, id = worker_idx, "process line failed");
+            error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
           }
         }
       }
@@ -166,6 +166,8 @@ async fn handle_table_csv(
         if skipped < skip {
           skipped += 1;
           line_start += pos + 1;
+          block_start = line_start;
+          block_end = line_start;
           continue;
         }
         let line = &buffer[line_start..line_start + pos + 1];
@@ -428,5 +430,6 @@ fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Tabl
       }
     }
   }
+  debug!(obj, rows = table.row_count(), "process_csv_block");
   Ok((obj, table))
 }
