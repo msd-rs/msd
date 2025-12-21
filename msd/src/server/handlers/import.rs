@@ -289,8 +289,13 @@ async fn handle_table_binary(
         }
 
         match unpack_table_frame(&block, false) {
-          Ok((obj, table)) => {
+          Ok(table) => {
             rows += table.row_count();
+            let obj = table
+              .get_table_meta("obj")
+              .and_then(|v| v.get_str())
+              .map(|s| s.to_string())
+              .unwrap_or_default();
             let _ = flush_table(&db, &table_name, &obj, table).await;
           }
           Err(e) => {

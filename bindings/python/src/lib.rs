@@ -5,7 +5,7 @@ mod py_table;
 #[pymodule]
 mod msd {
   use msd_request::unpack_table_frame;
-  use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+  use pyo3::{exceptions::PyValueError, prelude::*, types::PyTuple};
 
   use crate::py_table::table_to_py_dict;
 
@@ -37,13 +37,18 @@ mod msd {
 
   /// Parses a table frame.
   ///
-  /// Returns the table as a dict, keys are field names, values are numpy arrays.
+  /// Returns the a tuple of (object name, table), where table is a dict of (column name, numpy array).
   #[pyfunction]
   #[pyo3(signature = (buffer, /))]
-  fn parse_table_frame<'py>(py: Python<'py>, buffer: &[u8]) -> PyResult<Bound<'py, PyDict>> {
-    let (_, table) =
+  fn parse_table_frame<'py>(py: Python<'py>, buffer: &[u8]) -> PyResult<Bound<'py, PyTuple>> {
+    let table =
       unpack_table_frame(buffer, true).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let obj = table
+      .get_table_meta("obj")
+      .and_then(|v| v.get_str())
+      .map(|v| v.to_string())
+      .unwrap_or_default();
 
-    Ok(table_to_py_dict(py, table))
+    (obj, table_to_py_dict(py, table)).into_pyobject(py)
   }
 }

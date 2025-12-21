@@ -175,14 +175,9 @@ async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> 
     return Ok(table!({name : "obj", kind : string, data : objs}));
   }
 
-  let obj = req.key.obj.clone();
-  let table = req.key.table.clone();
   let (msd_req, resp_rx) = MsdRequest::query(req);
   db.request(msd_req).await.map_err(|e| e)?;
-  resp_rx
-    .await
-    .map_err(|e| e)?
-    .map(|t| t.replace_metadata([("obj", obj), ("table", table)]))
+  resp_rx.await.map_err(|e| e)?
 }
 
 async fn handle_insert(db: DBState, req: InsertRequest) -> Result<Table, DbError> {
@@ -245,7 +240,7 @@ impl HttpBody for TableFrameBody {
         }
       }
       Some(Ok(Ok(table))) => {
-        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame("", &table)));
+        let frame = Frame::data(axum::body::Bytes::from(pack_table_frame(&table)));
         std::task::Poll::Ready(Some(Ok(frame)))
       }
       Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),

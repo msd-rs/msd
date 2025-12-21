@@ -7,7 +7,7 @@ import asyncio
 
 type Table = dict[str, numpy.ndarray]
 
-def parse_reader(r: io.BytesIO) -> Generator[Table, None, None]:   
+def parse_reader(r: io.BytesIO) -> Generator[Tuple[str, Table], None, None]:   
   """
   Parse a table frame from a bytes stream.
 
@@ -28,7 +28,7 @@ def parse_reader(r: io.BytesIO) -> Generator[Table, None, None]:
     yield parse_table_frame(data)
 
 
-async def parse_reader_async(r: asyncio.StreamReader) -> Generator[Table, None, None]:
+async def parse_reader_async(r: asyncio.StreamReader) -> Generator[Tuple[str, Table], None, None]:
   """
   Parse a table frame from a bytes stream.
 

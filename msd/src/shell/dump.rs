@@ -70,7 +70,7 @@ pub async fn execute(opts: &ShellOptions, table_name: &str, file_path: Option<&s
 
       buf.resize(header_size + data_size, 0);
       rd.read_exact(&mut buf[header_size..]).await?;
-      let (_, table) = unpack_table_frame(&buf, false)?;
+      let table = unpack_table_frame(&buf, false)?;
 
       fetched_rows += table.row_count();
       objects += 1;

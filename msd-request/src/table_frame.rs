@@ -6,9 +6,7 @@
 //! MAGIC := 0x4d7c as u16
 //! VERSION := 0x0001 as u16
 //! FRAME_SIZE := sizeof(TABLE_DATA + TABLE_FOOTER) as u32
-//! TABLE_DATA := OBJECT + binary of Table
-//! OBJECT := STRING
-//! STRING := sizeof(len) as u32 + len as u8
+//! TABLE_DATA := binary of Table
 //! TABLE_FOOTER := CRC32 of TABLE_DATA
 
 use crate::errors::TableFrameError;
@@ -29,14 +27,8 @@ const VERSION: u16 = 0x0001;
 ///
 /// * `Vec<u8>` - The packed table frame
 ///
-pub fn pack_table_frame(obj: &str, table: &Table) -> Vec<u8> {
+pub fn pack_table_frame(table: &Table) -> Vec<u8> {
   let mut table_data = Vec::new();
-
-  // OBJECT := STRING
-  // STRING := sizeof(len) as u32 + len as u8
-  let obj_bytes = obj.as_bytes();
-  table_data.extend_from_slice(&(obj_bytes.len() as u32).to_le_bytes());
-  table_data.extend_from_slice(obj_bytes);
 
   // binary of Table
   let table_bytes = bincode::serde::encode_to_vec(table, bincode::config::standard())
@@ -97,12 +89,9 @@ pub fn check_table_frame(buf: &[u8]) -> Result<(usize, usize), TableFrameError> 
 ///
 /// # Returns
 ///
-/// * `Result<(String, Table), TableFrameError>` - The unpacked table frame
+/// * `Result<Table, TableFrameError>` - The unpacked table frame
 ///
-pub fn unpack_table_frame(
-  buf: &[u8],
-  skip_header: bool,
-) -> Result<(String, Table), TableFrameError> {
+pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableFrameError> {
   let content_and_footer = if skip_header {
     buf
   } else {
@@ -140,25 +129,13 @@ pub fn unpack_table_frame(
     return Err(TableFrameError::InvalidCrc);
   }
 
-  // Parse OBJECT
-  if table_data.len() < 4 {
-    return Err(TableFrameError::InvalidTableFrame);
-  }
-  let str_len = u32::from_le_bytes(table_data[0..4].try_into().unwrap()) as usize;
-  if table_data.len() < 4 + str_len {
-    return Err(TableFrameError::InvalidTableFrame);
-  }
-  let str_bytes = &table_data[4..4 + str_len];
-  let obj_str =
-    String::from_utf8(str_bytes.to_vec()).map_err(|_| TableFrameError::InvalidTableFrame)?;
-
   // Parse Table
-  let table_bytes = &table_data[4 + str_len..];
+  let table_bytes = &table_data;
   let (table, _): (Table, usize) =
     bincode::serde::decode_from_slice(table_bytes, bincode::config::standard())
       .map_err(|_| TableFrameError::InvalidTableFrame)?;
 
-  Ok((obj_str, table))
+  Ok(table)
 }
 
 fn crc32(buf: &[u8]) -> u32 {
@@ -172,7 +149,6 @@ mod tests {
 
   #[test]
   fn test_pack_unpack_roundtrip() {
-    let obj_name = "test_object";
     let columns = vec![
       Field::new("id", DataType::Int64, 0),
       Field::new("name", DataType::String, 0),
@@ -180,17 +156,16 @@ mod tests {
     let table = Table::from_columns(columns);
     // Note: Empty table for now, or populate it if needed for deeper test
 
-    let packed = pack_table_frame(obj_name, &table);
-    let (unpacked_obj, unpacked_table) = unpack_table_frame(&packed, false).unwrap();
+    let packed = pack_table_frame(&table);
+    let unpacked_table = unpack_table_frame(&packed, false).unwrap();
 
-    assert_eq!(unpacked_obj, obj_name);
     assert_eq!(unpacked_table.column_count(), table.column_count());
     // Add more assertions as needed
   }
 
   #[test]
   fn test_invalid_magic() {
-    let mut packed = pack_table_frame("obj", &Table::default());
+    let mut packed = pack_table_frame(&Table::default());
     packed[0] = 0x00; // Corrupt magic
     let err = unpack_table_frame(&packed, false).unwrap_err();
     match err {
@@ -201,7 +176,7 @@ mod tests {
 
   #[test]
   fn test_crc_failure() {
-    let mut packed = pack_table_frame("obj", &Table::default());
+    let mut packed = pack_table_frame(&Table::default());
     // corrupt a byte in the data section (which is after header)
     // HEADER is 8 bytes.
     let len = packed.len();

@@ -33,6 +33,7 @@ impl TableHandler for PrintHandler {
     let rows = table_to_text(table, self.print_rows);
     let col_count = if rows.is_empty() { 0 } else { rows[0].len() };
     let mut col_widths = vec![0; col_count];
+
     for row in &rows {
       for (i, col) in row.iter().enumerate() {
         if i < col_widths.len() {
@@ -69,8 +70,20 @@ impl CsvHandler {
 impl TableHandler for CsvHandler {
   fn handle(&self, table: &Table) -> Result<()> {
     let mut wtr = self.writer.borrow_mut();
+    let obj = table
+      .get_table_meta("obj")
+      .and_then(|v| v.get_str())
+      .map(|s| s.to_string())
+      .unwrap_or_default();
     for row in table.rows(false) {
-      let record: Vec<String> = row.iter().map(|v| v.to_string()).collect();
+      let record = row
+        .iter()
+        .map(|v| v.to_string())
+        .fold(vec![obj.clone()], |mut acc, value| {
+          acc.push(value);
+          acc
+        });
+
       wtr.write_record(&record)?;
     }
     wtr.flush()?;
@@ -85,20 +98,28 @@ impl TableHandler for CsvHandler {
 fn table_to_text(table: &Table, max_row: usize) -> Vec<Vec<String>> {
   let mut rows = vec![];
 
-  let mut row = table
-    .columns()
-    .iter()
-    .map(|c| c.name.clone())
-    .collect::<Vec<String>>();
-  row.insert(0, "".into());
+  let obj = table
+    .get_table_meta("obj")
+    .and_then(|v| v.get_str())
+    .map(|s| s.to_string())
+    .unwrap_or_default();
+
+  let row = table.columns().iter().map(|c| c.name.clone()).fold(
+    vec!["no".into(), "obj".into()],
+    |mut acc, name| {
+      acc.push(name);
+      acc
+    },
+  );
   rows.push(row);
 
-  let mut row = table
-    .columns()
-    .iter()
-    .map(|c| c.kind.to_string())
-    .collect::<Vec<String>>();
-  row.insert(0, "".into());
+  let row = table.columns().iter().map(|c| c.kind.to_string()).fold(
+    vec!["int".into(), "string".into()],
+    |mut acc, kind| {
+      acc.push(kind);
+      acc
+    },
+  );
   rows.push(row);
 
   let top_rows = max_row / 2;
@@ -106,9 +127,13 @@ fn table_to_text(table: &Table, max_row: usize) -> Vec<Vec<String>> {
 
   for (i, row) in table.rows(false).enumerate() {
     if i < top_rows || i >= bottom_rows {
-      let mut row = row.iter().map(|v| v.to_string()).collect::<Vec<String>>();
-      row.insert(0, (i + 1).to_string());
-      rows.push(row);
+      rows.push(row.iter().map(|v| v.to_string()).fold(
+        vec![format!("{}", i + 1), obj.clone()],
+        |mut acc, value| {
+          acc.push(value);
+          acc
+        },
+      ));
     }
   }
   rows

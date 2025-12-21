@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use msd_table::{DataType, Field, Series, Table};
+use msd_table::Table;
 use tracing::{debug, span, trace};
 
 use crate::{errors::DbError, request::QueryRequest, serde::DbBinary};
@@ -144,14 +144,15 @@ impl<S: MsdStore> Worker<S> {
     if let Some(e) = inner_err {
       return Err(e);
     }
-    result.insert_column(
-      0,
-      Field::new_with_data(
-        "obj",
-        DataType::String,
-        Series::from(vec![req.obj.as_str(); result.row_count()]),
-      ),
-    );
+    // result.insert_column(
+    //   0,
+    //   Field::new_with_data(
+    //     "obj",
+    //     DataType::String,
+    //     Series::from(vec![req.obj.as_str(); result.row_count()]),
+    //   ),
+    // );
+    result = result.replace_metadata([("obj", &req.key.obj), ("table", &req.key.table)]);
     debug!(id = self.id, rows = result.row_count(), "Query completed");
     Ok(result)
   }
