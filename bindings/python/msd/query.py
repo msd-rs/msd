@@ -1,5 +1,5 @@
 from _io import BytesIO
-from typing import TypeVar, Callable, Generator
+from typing import TypeVar, Callable, Generator, Tuple
 import numpy as np
 from .reader import parse_reader, parse_reader_async
 from .const import *

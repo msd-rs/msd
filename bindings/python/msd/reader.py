@@ -1,7 +1,7 @@
 
 from .msd import check_table_frame, parse_table_frame
 import io
-from typing import Generator
+from typing import Generator, Tuple
 import numpy
 import asyncio
 
