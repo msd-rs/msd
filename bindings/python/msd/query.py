@@ -2,16 +2,16 @@ from _io import BytesIO
 from typing import TypeVar, Callable, Generator
 import numpy as np
 from .reader import parse_reader, parse_reader_async
-
+from .const import *
+import logging
 type Table = dict[str, np.ndarray]
 R = TypeVar("R", default=Table)
 
 type Handler[R] = Callable[[Table], R] 
 
 
-MSD_USER_AGENT = "msd-client"
 
-def msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
+def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
   """
   Query data from msd.
 
@@ -25,10 +25,11 @@ def msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[s
 
   try:
     import requests
+    import requests.exceptions
   except ImportError:
     raise ImportError("requests is required for msd_query")
 
-  endpoint = f"{baseURL}/query"
+  endpoint = f"{baseURL}{MSD_QUERY_PATH}"
   response = requests.post(endpoint, json={"query": sql}, stream=True, headers={
     # msd server will use this to identify the client, and return binary format if it's set.
     "User-Agent": MSD_USER_AGENT,
@@ -36,14 +37,18 @@ def msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[s
   })
   if response.status_code != 200:
     raise Exception(f"Query failed: {response.text}")
-  for obj, table in parse_reader(BytesIO(response.content)) :
-    if h is not None :
-      yield (obj, h(table))
-    else :
-      yield (obj, table)
+  try:
+    for obj, table in parse_reader(BytesIO(response.content)) :
+      if h is not None :
+        yield (obj, h(table))
+      else :
+        yield (obj, table)
+  except requests.exceptions.ChunkedEncodingError as e:
+    logging.getLogger("msd").warning("no data received")
 
 
-async def async_msd_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
+
+async def async_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
   """
   The async version of msd_query.
 

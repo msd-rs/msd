@@ -9,7 +9,7 @@ BASE_URL = "http://localhost:50510"
 async def async_query_ok():
   sql = "select * from kline where obj='SH600000' limit 10"
   n = 0
-  async for obj, table in msd.async_msd_query(BASE_URL, sql, lambda t: pd.DataFrame(t)) :
+  async for obj, table in msd.async_query(BASE_URL, sql, lambda t: pd.DataFrame(t)) :
     assert table.shape[0] == 10
     assert n == 0
     n += 1
