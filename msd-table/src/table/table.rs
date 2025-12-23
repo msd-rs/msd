@@ -10,11 +10,21 @@ const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 /// A table is a columnar data structure, where each column has the same data type.
 /// It's efficient for columnar data processing.
 /// It also provide some row orientation APIs for data processing.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Table {
   version: u32,
   columns: Vec<Field>,
   metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
+}
+
+impl Default for Table {
+  fn default() -> Self {
+    Self {
+      version: TABLE_VERSION_1,
+      columns: Vec::new(),
+      metadata: None,
+    }
+  }
 }
 
 /// # Table creation and schema management

@@ -34,7 +34,7 @@ impl RocksDbStore {
       opts.create_if_missing(true);
       opts.create_missing_column_families(true);
       opts.set_enable_blob_files(true);
-      opts.set_compression_type(DBCompressionType::Zstd);
+      opts.set_compression_type(DBCompressionType::None);
 
       (
         opts,
