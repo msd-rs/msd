@@ -32,9 +32,9 @@ The primary goal of MSD-RS is to provide a robust storage and query engine for h
   - **Universality:** Uses standard HTTP for communication, making it accessible from **any** programming language or tool (curl, Postman, browser) without needing custom drivers.
   - **Simplicity & Debugging:** Requests and responses are easy to inspect and debug.
   - **Shell:** Integrated interactive shell for querying and managing the database.
-- **🐍 Python Bindings:** Seamless integration with Python ecosystem for data science and analysis workflows.
+- **🐍 Python Bindings:** Python is the first citizen language for MSD bindings. Both performance and ease of use are prioritized.
   - **Zero-Copy NumPy Transformation:** Leveraging Rust's memory safety and PyO3, the bindings allow for near instant transformation of `msd` tables into NumPy arrays (using `from_vec` / `from_slice`), enabling ultra-fast data analysis without serialization overhead.
-- **Binary & CSV Support:** Efficient binary serialization for internal storage and optimized CSV support for bulk data ingestion.
+  - **Easy integration with pandas/polars:** The bindings provide easy integration with popular data analysis libraries, such as pandas and polars, with about 1% overhead to convert query results to pandas/polars dataframes.
 - **🛠️ Single Binary Deployment:**
   - **Zero Dependencies:** compiled as a single, self-contained executable with all dependencies (including RocksDB) statically linked.
   - **Simplified Ops:** No complex installation scripts, library conflicts, or container orchestrations required—just copy the binary and run.
