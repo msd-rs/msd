@@ -33,12 +33,13 @@ def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, 
   response = requests.post(endpoint, json={"query": sql}, stream=True, headers={
     # msd server will use this to identify the client, and return binary format if it's set.
     "User-Agent": MSD_USER_AGENT,
+    # don't compress the response, compress is too slow, when internal network is used, bandwidth is not the bottleneck.
     "Accept-Encoding": "identity",
   })
   if response.status_code != 200:
     raise Exception(f"Query failed: {response.text}")
   try:
-    for obj, table in parse_reader(BytesIO(response.content)) :
+    for obj, table in parse_reader(response.raw) :
       if h is not None :
         yield (obj, h(table))
       else :

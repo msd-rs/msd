@@ -119,7 +119,7 @@ async fn handle_table_csv(
         if line.starts_with(b"#exit") {
           break;
         }
-        match process_csv_block(&line, &parse_schema) {
+        match process_csv_block_simd(&line, &parse_schema) {
           Ok((obj, table)) => {
             if obj.is_empty() || table.row_count() == 0 {
               continue;
@@ -421,6 +421,49 @@ fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Tabl
     for (i, field) in parse_schema.columns().iter().enumerate() {
       let val_str = &record[i + 1];
       let variant = Variant::from_str(val_str, field.kind).map_err(|e| e.to_string())?;
+      row.push(variant);
+    }
+    match table.push_row(row) {
+      Ok(_) => {} // Ignore Ok result
+      Err(e) => {
+        error!(%e, "push row failed");
+      }
+    }
+  }
+  debug!(obj, rows = table.row_count(), "process_csv_block");
+  Ok((obj, table))
+}
+
+fn process_csv_block_simd(lines: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
+  let mut rdr = simd_csv::ZeroCopyReaderBuilder::new()
+    .has_headers(false)
+    .from_reader(lines);
+
+  let mut table = parse_schema.clone();
+  let mut obj = String::default();
+  while let Some(record) = rdr.read_byte_record().map_err(|e| e.to_string())? {
+    if record.len() != parse_schema.column_count() + 1 {
+      return Err(format!(
+        "Column count mismatch: expected {}, got {}",
+        parse_schema.column_count() + 1,
+        record.len()
+      ));
+    }
+
+    if obj.is_empty() {
+      obj = record
+        .get(0)
+        .map(|s| String::from_utf8_lossy(s).to_string())
+        .unwrap_or_default();
+    }
+
+    let mut row = Vec::with_capacity(parse_schema.column_count());
+    for (i, field) in parse_schema.columns().iter().enumerate() {
+      let val_str = record
+        .get(i + 1)
+        .map(|s| String::from_utf8_lossy(s))
+        .unwrap_or_default();
+      let variant = Variant::from_str(&val_str, field.kind).map_err(|e| e.to_string())?;
       row.push(variant);
     }
     match table.push_row(row) {
