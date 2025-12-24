@@ -508,41 +508,51 @@ impl Into<Vec<Field>> for Table {
   }
 }
 
-pub struct RowIter<'a> {
-  table: &'a Table,
+pub struct RowIter<'t> {
+  table: &'t Table,
   index: usize,
   rev: bool,
+  max_index: usize,
+  template: Vec<VariantRef<'t>>,
 }
 
-impl<'a> RowIter<'a> {
-  fn new(table: &'a Table, rev: bool) -> Self {
+impl<'t> RowIter<'t> {
+  fn new(table: &'t Table, rev: bool) -> Self {
     Self {
       table,
       index: 0,
       rev,
+      max_index: table.row_count(),
+      template: Vec::with_capacity(table.column_count()),
     }
   }
 }
 
-impl<'a> Iterator for RowIter<'a> {
-  type Item = Vec<VariantRef<'a>>;
+impl<'t> Iterator for RowIter<'t> {
+  type Item = Vec<VariantRef<'t>>;
   fn next(&mut self) -> Option<Self::Item> {
-    if self.index >= self.table.row_count() {
+    if self.index >= self.max_index {
       return None;
     }
     let i = if self.rev {
-      self.table.row_count() - 1 - self.index
+      self.max_index - 1 - self.index
     } else {
       self.index
     };
 
-    let row = self
-      .table
-      .columns
-      .iter()
-      .map(|col| col.data.get(i).unwrap_or(VariantRef::Null))
-      .collect();
+    if self.template.is_empty() {
+      for col in &self.table.columns {
+        self
+          .template
+          .push(col.data.get(i).unwrap_or(VariantRef::Null));
+      }
+    } else {
+      for col in &self.table.columns {
+        self.template[i] = col.data.get(i).unwrap_or(VariantRef::Null);
+      }
+    }
+
     self.index += 1;
-    Some(row)
+    Some(self.template.clone())
   }
 }

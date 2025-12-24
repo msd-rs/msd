@@ -396,6 +396,7 @@ async fn flush_table(
   Ok(())
 }
 
+#[allow(dead_code)]
 fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
   let mut rdr = csv::ReaderBuilder::new()
     .has_headers(false)

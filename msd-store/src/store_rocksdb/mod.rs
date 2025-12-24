@@ -7,7 +7,7 @@ use rocksdb::{
   IteratorMode, Options, WriteBatch,
 };
 use time::OffsetDateTime;
-use tracing::{info, warn};
+use tracing::warn;
 
 const TTL_CF: &'static str = "__TTL__";
 
