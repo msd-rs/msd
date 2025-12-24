@@ -34,19 +34,136 @@ fn parse_i64(s: &[u8]) -> i64 {
   n
 }
 
-fn parse_i32(s: &[u8]) -> i32 {
-  parse_i64(s) as i32
+#[derive(Debug, Clone)]
+struct DateTimePart {
+  pub n: i64,
+  pub len: u32,
+  pub sep: Option<u8>,
 }
 
-fn parse_u32(s: &[u8]) -> u32 {
-  parse_i64(s) as u32
-}
-fn parse_u8(s: &[u8]) -> u8 {
-  parse_i64(s) as u8
+impl DateTimePart {
+  fn into_tz_hour(&self) -> i64 {
+    match self.sep {
+      Some(b'+') => self.n,
+      Some(b'-') => -self.n,
+      _ => self.n,
+    }
+  }
+
+  fn new(s: &[u8], sep: Option<u8>) -> Self {
+    DateTimePart {
+      n: parse_i64(s),
+      len: s.len() as u32,
+      sep,
+    }
+  }
 }
 
-fn parse_month(s: &[u8]) -> Month {
-  parse_u8(s).try_into().unwrap_or(Month::January)
+impl Into<i64> for &DateTimePart {
+  fn into(self) -> i64 {
+    self.n
+  }
+}
+
+impl Into<u32> for &DateTimePart {
+  fn into(self) -> u32 {
+    self.n as u32
+  }
+}
+
+impl Into<i32> for &DateTimePart {
+  fn into(self) -> i32 {
+    self.n as i32
+  }
+}
+
+impl Into<u8> for &DateTimePart {
+  fn into(self) -> u8 {
+    if self.n < 0 {
+      (-self.n) as u8
+    } else {
+      self.n as u8
+    }
+  }
+}
+
+impl Into<Month> for &DateTimePart {
+  fn into(self) -> Month {
+    let m = if self.n < 0 {
+      (-self.n) as u8
+    } else {
+      self.n as u8
+    };
+    m.try_into().unwrap_or(Month::January)
+  }
+}
+
+#[derive(Debug, Clone)]
+struct SplitWithSep<'a, T: 'a, P>
+where
+  P: FnMut(&T) -> bool,
+{
+  v: &'a [T],
+  pred: P,
+  finished: bool,
+}
+
+impl<'a, T: 'a, P: FnMut(&T) -> bool> SplitWithSep<'a, T, P> {
+  #[inline]
+  pub(super) fn new(slice: &'a [T], pred: P) -> Self {
+    Self {
+      v: slice,
+      pred,
+      finished: false,
+    }
+  }
+  #[inline]
+  fn finish(&mut self) -> Option<(&'a [T], Option<&'a T>)> {
+    if self.finished {
+      None
+    } else {
+      self.finished = true;
+      Some((self.v, None))
+    }
+  }
+}
+
+impl<'a, T, P> Iterator for SplitWithSep<'a, T, P>
+where
+  P: FnMut(&T) -> bool,
+{
+  type Item = (&'a [T], Option<&'a T>);
+
+  #[inline]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.finished {
+      return None;
+    }
+
+    match self.v.iter().position(|x| (self.pred)(x)) {
+      None => self.finish(),
+      Some(idx) => {
+        let (left, right) =
+                    // SAFETY: if v.iter().position returns Some(idx), that
+                    // idx is definitely a valid index for v
+                    unsafe { (self.v.get_unchecked(..idx), self.v.get_unchecked(idx + 1..)) };
+        let ret = Some((left, Some(&self.v[idx])));
+        self.v = right;
+        ret
+      }
+    }
+  }
+
+  #[inline]
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    if self.finished {
+      (0, Some(0))
+    } else {
+      // If the predicate doesn't match anything, we yield one slice.
+      // If it matches every element, we yield `len() + 1` empty slices.
+      (1, Some(self.v.len() + 1))
+    }
+  }
 }
 
 /// 解析时间到微秒的时间戳, 基于本地时间
@@ -64,20 +181,35 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
     return Err(TableError::BadDatetimeFormat(s.into()));
   }
 
-  let a: Vec<&[u8]> = s
-    .trim()
-    .as_bytes()
-    .split(|&c| !(c >= b'0' && c <= b'9'))
-    .collect();
+  let mut a = vec![
+    DateTimePart {
+      n: -1,
+      len: 0,
+      sep: None
+    };
+    8
+  ];
+  let mut n = 0;
+  let mut sep = None;
 
-  let n = a.len();
+  let split = SplitWithSep::new(s.as_bytes().trim_ascii(), |c| !(*c >= b'0' && *c <= b'9'));
+
+  split
+    .filter(|(s, _)| !s.trim_ascii().is_empty())
+    .take(9)
+    .zip(a.iter_mut())
+    .for_each(|(s, p)| {
+      *p = DateTimePart::new(s.0, sep);
+      sep = s.1.copied();
+      n += 1;
+    });
 
   let local_offset: UtcOffset =
     UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
 
   match n {
     1 => {
-      let ts = parse_i64(a[0]);
+      let ts = (&a[0]).into();
       if ts < 10_000_000_000 {
         // 2286-11-20
         // second -> microsecond
@@ -94,48 +226,79 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
     }
     2 => {
       // floating point timestamp like 1639447901.25218743
-      let int_part = parse_i64(a[0]);
-      let frac_part = if a[0].len() > 6 {
-        parse_i64(&a[1][0..6])
-      } else {
-        parse_i64(a[1])
-      };
+      let int_part: i64 = (&a[0]).into();
+      let frac_part: i64 = (&a[1]).into();
       Ok(int_part * 1_000_000 + frac_part)
     }
     // 2021-01-02
     3 =>
     //Ok(Local.ymd(parse_i32(a[0]), parse_u32(a[1]), parse_u32(a[2])).and_hms(0, 0, 0).timestamp_nanos()),
     {
-      time::Date::from_calendar_date(parse_i32(a[0]), parse_month(a[1]), parse_u8(a[2]))
+      time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
         .and_then(|d| d.with_hms(0, 0, 0))
         .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
         .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
     }
     // 2021-01-02 03:04:05
-    6 => time::Date::from_calendar_date(parse_i32(a[0]), parse_month(a[1]), parse_u8(a[2]))
-      .and_then(|d| d.with_hms(parse_u8(a[3]), parse_u8(a[4]), parse_u8(a[5])))
+    6 => time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
+      .and_then(|d| d.with_hms((&a[3]).into(), (&a[4]).into(), (&a[5]).into()))
       .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
       .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into()),
-    // 2021-01-02 03:04:05.999999 or 2021-01-02 03:04+08
+    // 2021-01-02 03:04:05.999999 or 2021-01-02 03:04:05+08
     7 => {
-      if a[6].len() == 2 {
-        // FIXME 对时区的处理
-        let _zone = parse_u8(a[6]);
-        time::Date::from_calendar_date(parse_i32(a[0]), parse_month(a[1]), parse_u8(a[2]))
-          .and_then(|d| d.with_hms(parse_u8(a[3]), parse_u8(a[4]), parse_u8(a[5])))
-          .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
-          .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
-      } else if a[6].len() < 10 {
-        let ns = parse_u32(a[6]) * 10_u32.pow(9 - a[6].len() as u32);
-        //Ok(Local.ymd(parse_i32(a[0]), parse_u32(a[1]), parse_u32(a[2])).and_hms_nano(parse_u32(a[3]), parse_u32(a[4]), parse_u32(a[5]), ns).timestamp_nanos())
-        time::Date::from_calendar_date(parse_i32(a[0]), parse_month(a[1]), parse_u8(a[2]))
-          .and_then(|d| d.with_hms_nano(parse_u8(a[3]), parse_u8(a[4]), parse_u8(a[5]), ns))
-          .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
-          .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
-      } else {
-        Err(TableError::BadDatetimeFormat(s.to_string()).into())
-      }
+      let (microsecond, hour_fix) = match (&a[6]).len {
+        1..=2 => (
+          0,
+          (TZ_LOCAL.load(Ordering::Relaxed) as i64 - (&a[6]).into_tz_hour()) * 3600_000_000,
+        ),
+        3 => ((&a[6]).n * 1_000, 0),
+        4 => ((&a[6]).n * 1_000_0, 0),
+        5 => ((&a[6]).n * 1_000_00, 0),
+        6 => ((&a[6]).n, 0),
+        7 => ((&a[6]).n / 10, 0),
+        8 => ((&a[6]).n / 100, 0),
+        9 => ((&a[6]).n / 1000, 0),
+        _ => return Err(TableError::BadDatetimeFormat(s.to_string()).into()),
+      };
+      time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
+        .and_then(|d| {
+          d.with_hms_micro(
+            (&a[3]).into(),
+            (&a[4]).into(),
+            (&a[5]).into(),
+            microsecond as u32,
+          )
+        })
+        .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
+        .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
     }
+    // 2021-01-02 03:04:05.999999+08
+    8 => {
+      let hour_fix =
+        (TZ_LOCAL.load(Ordering::Relaxed) as i64 - (&a[7]).into_tz_hour()) * 3600_000_000;
+      let microsecond = match (&a[6]).len {
+        3 => (&a[6]).n * 1_000,
+        4 => (&a[6]).n * 1_000_0,
+        5 => (&a[6]).n * 1_000_00,
+        6 => (&a[6]).n,
+        7 => (&a[6]).n / 10,
+        8 => (&a[6]).n / 100,
+        9 => (&a[6]).n / 1000,
+        _ => return Err(TableError::BadDatetimeFormat(s.to_string()).into()),
+      };
+      time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
+        .and_then(|d| {
+          d.with_hms_micro(
+            (&a[3]).into(),
+            (&a[4]).into(),
+            (&a[5]).into(),
+            microsecond as u32,
+          )
+        })
+        .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
+        .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
+    }
+
     _ => Err(TableError::BadDatetimeFormat(s.to_string()).into()),
   }
 }
@@ -355,68 +518,61 @@ mod tests {
 
     assert_eq!(
       to_datetime(parse_datetime("1639447901252187").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_micro(10, 11, 41, 252187)
       datetime!(2021-12-14 10:11:41.252187 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("1639447901252187000").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_nano(10, 11, 41, 252187000)
       datetime!(2021-12-14 10:11:41.252187000 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("1639447901").unwrap()),
-      //.Local.ymd(2021, 12, 14).and_hms(10, 11, 41)
       datetime!(2021-12-14 10:11:41 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms(0, 0, 0)
       datetime!(2021-12-14 0:00:00 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms(10, 11, 41)
       datetime!(2021-12-14 10:11:41 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021/12/14 10:11:41").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms(10, 11, 41)
       datetime!(2021-12-14 10:11:41 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41.252").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_milli(10, 11, 41, 252)
       datetime!(2021-12-14 10:11:41.252 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41.252187").unwrap()),
-      // Local.ymd(2021, 12, 14).and_hms_micro(10, 11, 41, 252_187)
       datetime!(2021-12-14 10:11:41.252187 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41.252187").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_nano(10, 11, 41, 252_187_000)
       datetime!(2021-12-14 10:11:41.252187000 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41.25218743").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_nano(10, 11, 41, 252_187_430)
       datetime!(2021-12-14 10:11:41.252187 +8)
     );
 
     assert_eq!(
       to_datetime(parse_datetime("2021-12-14T10:11:41+05").unwrap()),
-      //Local.ymd(2021, 12, 14).and_hms_nano(10, 11, 41, 252_187_430)
-      datetime!(2021-12-14 10:11:41 +8)
+      datetime!(2021-12-14 13:11:41 +8)
+    );
+    assert_eq!(
+      to_datetime(parse_datetime("2021-12-14T10:11:41-05").unwrap()),
+      datetime!(2021-12-14 23:11:41 +8)
     );
   }
 
