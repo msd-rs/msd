@@ -211,7 +211,7 @@ async fn test_query() -> Result<()> {
 
   db.request(req).await?;
   let table = rx.await??;
-  assert_eq!(table.column_count(), 2 + 1);
+  assert_eq!(table.column_count(), 2);
   assert_eq!(table.row_count(), n * 2);
   Ok(())
 }
@@ -369,7 +369,7 @@ async fn test_insert_agg() -> Result<()> {
   let _res = rx.await??;
 
   let table = do_query(&db, "kline1m", "SH600000").await?;
-  assert_eq!(table.column_count(), 6 + 1);
+  assert_eq!(table.column_count(), 6);
   assert_eq!(table.row_count(), n * 3 / 60);
 
   assert_eq!(
@@ -498,7 +498,7 @@ async fn test_chan() -> Result<()> {
   let _res = rx.await??;
 
   let table = do_query(&db, "kline1m", "SH600000").await?;
-  assert_eq!(table.column_count(), 6 + 1);
+  assert_eq!(table.column_count(), 6);
   assert_eq!(table.row_count(), n * 3 / 60);
 
   assert_eq!(

@@ -512,7 +512,7 @@ pub struct RowIter<'t> {
   table: &'t Table,
   index: usize,
   rev: bool,
-  max_index: usize,
+  rows: usize,
   template: Vec<VariantRef<'t>>,
 }
 
@@ -522,8 +522,8 @@ impl<'t> RowIter<'t> {
       table,
       index: 0,
       rev,
-      max_index: table.row_count(),
-      template: Vec::with_capacity(table.column_count()),
+      rows: table.row_count(),
+      template: vec![VariantRef::Null; table.column_count()],
     }
   }
 }
@@ -531,26 +531,22 @@ impl<'t> RowIter<'t> {
 impl<'t> Iterator for RowIter<'t> {
   type Item = Vec<VariantRef<'t>>;
   fn next(&mut self) -> Option<Self::Item> {
-    if self.index >= self.max_index {
+    if self.index >= self.rows {
       return None;
     }
     let i = if self.rev {
-      self.max_index - 1 - self.index
+      self.rows - 1 - self.index
     } else {
       self.index
     };
 
-    if self.template.is_empty() {
-      for col in &self.table.columns {
-        self
-          .template
-          .push(col.data.get(i).unwrap_or(VariantRef::Null));
-      }
-    } else {
-      for col in &self.table.columns {
-        self.template[i] = col.data.get(i).unwrap_or(VariantRef::Null);
-      }
-    }
+    self
+      .template
+      .iter_mut()
+      .zip(&self.table.columns)
+      .for_each(|(cell, col)| {
+        *cell = unsafe { col.data.get_unchecked(i) };
+      });
 
     self.index += 1;
     Some(self.template.clone())
