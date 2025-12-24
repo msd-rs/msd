@@ -7,7 +7,7 @@ use rocksdb::{
   IteratorMode, Options, WriteBatch,
 };
 use time::OffsetDateTime;
-use tracing::warn;
+use tracing::{info, warn};
 
 const TTL_CF: &'static str = "__TTL__";
 
@@ -34,7 +34,17 @@ impl RocksDbStore {
       opts.create_if_missing(true);
       opts.create_missing_column_families(true);
       opts.set_enable_blob_files(true);
-      opts.set_compression_type(DBCompressionType::None);
+      opts.set_compression_type(DBCompressionType::Lz4);
+      opts.set_compression_per_level(&[
+        DBCompressionType::None,
+        DBCompressionType::None,
+        DBCompressionType::None,
+        DBCompressionType::None,
+        DBCompressionType::None,
+        DBCompressionType::Lz4,
+        DBCompressionType::Zstd,
+      ]);
+      opts.set_max_background_jobs(4);
 
       (
         opts,
