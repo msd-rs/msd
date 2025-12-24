@@ -44,8 +44,8 @@ def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, 
         yield (obj, h(table))
       else :
         yield (obj, table)
-  except requests.exceptions.ChunkedEncodingError as e:
-    logging.getLogger("msd").warning("no data received")
+  except Exception as e:
+    logging.getLogger("MSD").warning("no data received. error: %s", e)
 
 
 
