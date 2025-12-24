@@ -10,8 +10,11 @@ authors.workspace = true
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
-rocksdb = { version = "0.24", optional = true, features = [
+rocksdb = { version = "0.24", optional = true, default-features = false, features = [
   "multi-threaded-cf",
+  "zstd",
+  "lz4",
+  "bindgen-runtime",
 ] }
 thiserror.workspace = true
 serde.workspace = true
