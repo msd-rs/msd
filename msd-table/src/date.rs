@@ -34,7 +34,7 @@ fn parse_i64(s: &[u8]) -> i64 {
   n
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct DateTimePart {
   pub n: i64,
   pub len: u32,
@@ -181,14 +181,13 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
     return Err(TableError::BadDatetimeFormat(s.into()));
   }
 
-  let mut a = vec![
-    DateTimePart {
-      n: -1,
-      len: 0,
-      sep: None
-    };
-    8
-  ];
+  const MAX_PARTS: usize = 9;
+
+  let mut a = [DateTimePart {
+    n: -1,
+    len: 0,
+    sep: None,
+  }; MAX_PARTS];
   let mut n = 0;
   let mut sep = None;
 
@@ -196,7 +195,7 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
 
   split
     .filter(|(s, _)| !s.trim_ascii().is_empty())
-    .take(9)
+    .take(MAX_PARTS)
     .zip(a.iter_mut())
     .for_each(|(s, p)| {
       *p = DateTimePart::new(s.0, sep);
