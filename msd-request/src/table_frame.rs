@@ -10,7 +10,7 @@
 //! TABLE_FOOTER := CRC32 of TABLE_DATA
 
 use crate::errors::TableFrameError;
-use msd_table::Table;
+use msd_table::{Table, TableRef};
 use std::convert::TryInto;
 
 const MAGIC: u16 = 0x4d7c;
@@ -20,7 +20,6 @@ const VERSION: u16 = 0x0001;
 ///
 /// # Arguments
 ///
-/// * `obj` - The object name
 /// * `table` - The table to pack
 ///
 /// # Returns
@@ -28,6 +27,30 @@ const VERSION: u16 = 0x0001;
 /// * `Vec<u8>` - The packed table frame
 ///
 pub fn pack_table_frame(table: &Table) -> Vec<u8> {
+  let mut table_data = Vec::new();
+
+  // binary of Table
+  let table_bytes = bincode::serde::encode_to_vec(table, bincode::config::standard())
+    .expect("Failed to serialize table");
+  table_data.extend_from_slice(&table_bytes);
+
+  let crc = crc32(&table_data);
+
+  // FRAME_SIZE := sizeof(TABLE_DATA + TABLE_FOOTER) as u32
+  // TABLE_FOOTER is CRC32 (4 bytes)
+  let frame_size = (table_data.len() + 4) as u32;
+
+  let mut frame = Vec::new();
+  frame.extend_from_slice(&MAGIC.to_le_bytes());
+  frame.extend_from_slice(&VERSION.to_le_bytes());
+  frame.extend_from_slice(&frame_size.to_le_bytes());
+  frame.extend_from_slice(&table_data);
+  frame.extend_from_slice(&crc.to_le_bytes());
+
+  frame
+}
+
+pub fn pack_table_ref_frame(table: &TableRef) -> Vec<u8> {
   let mut table_data = Vec::new();
 
   // binary of Table

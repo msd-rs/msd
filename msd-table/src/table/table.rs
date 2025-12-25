@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Field, Series, TableError, Variant, VariantMutRef, VariantRef};
 
-const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
+pub const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 
 /// # Table
 /// A table is a columnar data structure, where each column has the same data type.

@@ -5,7 +5,12 @@ mod py_table;
 #[pymodule]
 mod msd {
   use msd_request::unpack_table_frame;
-  use pyo3::{exceptions::PyValueError, prelude::*, types::PyTuple};
+  use numpy::{PyArray, PyUntypedArray};
+  use pyo3::{
+    exceptions::PyValueError,
+    prelude::*,
+    types::{PyList, PyTuple},
+  };
 
   use crate::py_table::table_to_py_dict;
 
@@ -50,5 +55,15 @@ mod msd {
       .unwrap_or_default();
 
     (obj, table_to_py_dict(py, table)).into_pyobject(py)
+  }
+
+  /// Create a table from a numpy array.
+  ///
+  /// columns: a list of tuple (column name, numpy array)
+  #[pyfunction]
+  #[pyo3(signature = (columns, /))]
+  fn pack_table_frame<'py>(py: Python<'py>, columns: Bound<'py, PyList>) -> PyResult<Vec<u8>> {
+    //TODO: extract parameters from columns and build a TableRef from it, then call msd_table::pack_table_ref_frame to pack it
+    Ok(Vec::new())
   }
 }
