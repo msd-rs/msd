@@ -7,19 +7,19 @@ use crate::{D64, D128, DataType, Variant};
 
 #[derive(Debug, Clone, Serialize)]
 pub enum SeriesRef<'a> {
-  Null,                      // 0
-  DateTime(&'a Vec<i64>),    // 1
-  Int64(&'a Vec<i64>),       // 2
-  Float64(&'a Vec<f64>),     // 3
-  Decimal64(&'a Vec<D64>),   // 4
-  String(&'a Vec<String>),   // 5
-  Bool(&'a Vec<bool>),       // 6
-  Int32(&'a Vec<i32>),       // 7
-  UInt32(&'a Vec<u32>),      // 8
-  UInt64(&'a Vec<u64>),      // 9
-  Float32(&'a Vec<f32>),     // 10
-  Bytes(&'a Vec<Vec<u8>>),   // 11
-  Decimal128(&'a Vec<D128>), // 12
+  Null,                   // 0
+  DateTime(&'a [i64]),    // 1
+  Int64(&'a [i64]),       // 2
+  Float64(&'a [f64]),     // 3
+  Decimal64(&'a [D64]),   // 4
+  String(&'a [String]),   // 5
+  Bool(&'a [bool]),       // 6
+  Int32(&'a [i32]),       // 7
+  UInt32(&'a [u32]),      // 8
+  UInt64(&'a [u64]),      // 9
+  Float32(&'a [f32]),     // 10
+  Bytes(&'a [Vec<u8>]),   // 11
+  Decimal128(&'a [D128]), // 12
 }
 
 #[derive(Debug, Clone, Serialize)]

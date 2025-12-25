@@ -34,7 +34,7 @@ pub struct MsdOptions {
   #[arg(long = "tz", default_value = "", env = "MSD_TZ", value_parser = parse_tz)]
   pub tz_offset: Option<UtcOffset>,
 
-  #[arg(long = "pprof", default_value = "")]
+  #[arg(long = "pprof")]
   pub pprof: Option<String>,
 
   #[command(subcommand)]

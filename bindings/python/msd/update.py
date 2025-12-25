@@ -1,7 +1,8 @@
 
 
-from typing import BinaryIO
+from typing import BinaryIO, Generator
 from .const import *
+from .pack import DataFrame, pack_dataframe
 
 def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = True) -> dict:
   """
@@ -31,3 +32,33 @@ def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = Tr
     raise Exception(f"Import failed: {response.text}")
 
   return response.json()
+
+  
+
+def import_dataframes(baseURL: str, table_name: str, data: Generator[(str, DataFrame), None, None]) -> dict:
+  """
+  Import data from a generator of (object name, data) to msd.
+
+  Args:
+    baseURL (str): The base URL of the msd server.
+    table_name (str): The name of the table to import data to.
+    data (Generator[(str, DataFrame), None, None]): The data to import.
+
+  Returns:
+    dict: The result of the import operation.
+  """
+  try:
+    import requests
+  except ImportError:
+    raise ImportError("requests is required for msd_import_csv")
+
+  endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}"
+  response = requests.put(endpoint, data=map(lambda x: pack_dataframe(x[0], x[1]), data), headers={
+    "User-Agent": MSD_USER_AGENT,
+    "Content-Type": "application/x-msd-table-frame",
+  })
+  if response.status_code != 200:
+    raise Exception(f"Import failed: {response.text}")
+
+  return response.json()
+

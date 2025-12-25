@@ -77,6 +77,9 @@ pub async fn handle_table(
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   Permission::check_write(&headers, &remote_addr)?;
 
+  db.get_schema(&table_name)
+    .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
+
   if is_msd_table_format(&headers) {
     handle_table_binary(db, table_name, body).await
   } else {
@@ -284,6 +287,7 @@ async fn handle_table_binary(
     worker_tasks.spawn(async move {
       info!(id = worker_idx, "updater started");
       let mut rows = 0;
+      let schema = db.get_schema(&table_name).map_err(|e| e.to_string())?;
 
       while let Some(block) = rx.recv().await {
         if block.starts_with(b"#exit") {
@@ -298,7 +302,18 @@ async fn handle_table_binary(
               .and_then(|v| v.get_str())
               .map(|s| s.to_string())
               .unwrap_or_default();
-            let _ = flush_table(&db, &table_name, &obj, table).await;
+            if !schema.same_shape(&table) {
+              return Err(format!(
+                "schema mismatch for table '{}' obj '{}'",
+                table_name, obj
+              ));
+            }
+            match flush_table(&db, &table_name, &obj, table).await {
+              Ok(_) => {}
+              Err(e) => {
+                error!(%e, id = worker_idx, "process block failed");
+              }
+            }
           }
           Err(e) => {
             error!(%e, id = worker_idx, "process block failed");
@@ -327,7 +342,7 @@ async fn handle_table_binary(
         let frame_size = match check_table_frame(&buffer) {
           Ok((header, data)) => header + data,
           Err(TableFrameError::BufferTooSmall(_, _)) => {
-            continue;
+            break;
           }
           Err(err) => {
             error!(%err, "invalid table frame");
@@ -335,7 +350,7 @@ async fn handle_table_binary(
           }
         };
         if buffer.len() < frame_size {
-          continue;
+          break;
         }
         let data = buffer.drain(0..frame_size).collect::<Vec<u8>>();
 

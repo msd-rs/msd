@@ -4,15 +4,17 @@ mod py_table;
 /// A Python module implemented in Rust.
 #[pymodule]
 mod msd {
-  use msd_request::unpack_table_frame;
-  use numpy::{PyArray, PyUntypedArray};
+  use std::collections::HashMap;
+
+  use msd_request::{pack_table_ref_frame, unpack_table_frame};
+  use msd_table::{FieldRef, TableRef};
   use pyo3::{
     exceptions::PyValueError,
     prelude::*,
     types::{PyList, PyTuple},
   };
 
-  use crate::py_table::table_to_py_dict;
+  use crate::py_table::{PyArrayTyped, table_to_py_dict};
 
   #[pyfunction]
   fn set_local_zone(tz: i8) {
@@ -57,13 +59,37 @@ mod msd {
     (obj, table_to_py_dict(py, table)).into_pyobject(py)
   }
 
-  /// Create a table from a numpy array.
+  /// Pack columns into a table frame.
   ///
-  /// columns: a list of tuple (column name, numpy array)
+  /// obj: the object name, must not be empty
+  /// columns: a list of (column name, numpy array)
+  /// Returns the packed table frame
   #[pyfunction]
-  #[pyo3(signature = (columns, /))]
-  fn pack_table_frame<'py>(py: Python<'py>, columns: Bound<'py, PyList>) -> PyResult<Vec<u8>> {
-    //TODO: extract parameters from columns and build a TableRef from it, then call msd_table::pack_table_ref_frame to pack it
-    Ok(Vec::new())
+  #[pyo3(signature = (obj, columns, /))]
+  fn pack_table_frame<'py>(
+    py: Python<'py>,
+    obj: String,
+    columns: Bound<'py, PyList>,
+  ) -> PyResult<Vec<u8>> {
+    let mut cols = Vec::new();
+    for col in columns.iter() {
+      let tuple = col.cast::<PyTuple>()?;
+      let name = tuple.get_item(0)?.extract::<String>()?;
+      let array = tuple.get_item(1)?;
+      cols.push((name, PyArrayTyped::try_from((py, array))?));
+    }
+    let meta = HashMap::from([("obj".into(), obj.into())]);
+    let fields = cols
+      .iter()
+      .map(|(name, series)| FieldRef {
+        name: &name,
+        data: series.into(),
+        metadata: None,
+        kind: series.kind(),
+      })
+      .collect();
+    let table = TableRef::new(fields, Some(meta));
+    let frame = pack_table_ref_frame(&table);
+    Ok(frame)
   }
 }

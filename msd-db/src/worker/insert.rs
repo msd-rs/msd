@@ -90,6 +90,7 @@ impl<S: MsdStore> Worker<S> {
 
     // Process each incoming row
     for row in incoming.rows(false) {
+      debug!(?row, "Processing incoming row");
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
       let pk = round_ts(raw_pk, &round_unit).unwrap_or(raw_pk);
