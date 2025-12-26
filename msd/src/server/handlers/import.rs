@@ -361,7 +361,6 @@ async fn handle_table_binary(
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         worker_idx_rr = (worker_idx_rr + 1) % worker_count;
-        response.add_row(); // Count blocks
       }
     }
   }
