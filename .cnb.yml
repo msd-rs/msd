@@ -11,7 +11,7 @@ main:
         tags: cnb:arch:amd64
         cpus: 16
       env:
-        - CARGO_CFG_TARGET_FEATURE="sse4.2,avx2"
+        - CARGO_CFG_TARGET_FEATURE: sse4.2,avx2
       stages:
         - name: extract version
           script: grep -o '^version = "[0-9.]*"' Cargo.toml | sed 's/version = "//' | sed 's/"$//'
