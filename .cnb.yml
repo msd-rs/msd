@@ -9,7 +9,7 @@ main:
         tags: cnb:arch:amd64
         cpus: 16
       env:
-        RUSTFLAGS: "-C target-feature=+sse4.2 -C target-feature=+avx2"
+        RUSTFLAGS: "-C target-feature=+sse4.2 -C target-feature=+avx2 -C target-feature=+pclmulqdq"
       stages:
         - name: extract version
           script: grep -o '^version = "[0-9.]*"' Cargo.toml | sed 's/version = "//' | sed 's/"$//'
