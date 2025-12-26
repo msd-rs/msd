@@ -1,6 +1,6 @@
 
 
-from typing import BinaryIO, Generator
+from typing import BinaryIO, Iterator, Tuple
 from .const import *
 from .pack import DataFrame, pack_dataframe
 
@@ -35,14 +35,14 @@ def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = Tr
 
   
 
-def import_dataframes(baseURL: str, table_name: str, data: Generator[(str, DataFrame), None, None]) -> dict:
+def import_dataframes(baseURL: str, table_name: str, data: Iterator[Tuple[str, DataFrame]]) -> dict:
   """
   Import data from a generator of (object name, data) to msd.
 
   Args:
     baseURL (str): The base URL of the msd server.
     table_name (str): The name of the table to import data to.
-    data (Generator[(str, DataFrame), None, None]): The data to import.
+    data (Iterator[Tuple[str, DataFrame]]): The data to import.
 
   Returns:
     dict: The result of the import operation.

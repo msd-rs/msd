@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 type DataFrameGenerator = Generator[(str, DataFrame), None, None]
 
-def pack_dataframe(obj: str, df: DataFrame):
+def pack_dataframe(obj: str, df: DataFrame) -> bytes:
   """
   Pack a DataFrame into a binary format.
 
@@ -41,12 +41,20 @@ def pack_dataframe(obj: str, df: DataFrame):
     obj (str): The object name.
     df (DataFrame): The DataFrame to pack. It can be a list of (name, ndarray), a pandas DataFrame, or a polars DataFrame.
 
+  Note:
+    If df is a pandas DataFrame, the index will be packed as a column when it has a name, e.g. df.index.name = "ts".
+    When a pandas DataFrame created without explicit index name, the default index doesn't have a name, so the index will be ignored.
+
   Returns:
     bytes: The packed DataFrame.
   """
 
   if type(df).__name__ == "DataFrame":
-    df = [(k, df[k].to_numpy()) for k in df.columns]
+    cols = []
+    if hasattr(df, "index") and df.index.name is not None:
+      cols.append((df.index.name, df.index.to_numpy()))
+    cols.extend([(k, df[k].to_numpy()) for k in df.columns])
+    df = cols
   elif isinstance(df, list):
     for col in df:
       if not isinstance(col, tuple) or len(col) != 2:
