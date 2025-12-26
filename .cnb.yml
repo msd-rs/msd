@@ -17,7 +17,7 @@ main:
           exports:
             info: MSD_VERSION
         - name: build msd
-          script: cargo build --release
+          script: cargo build --release -vv
         - name: set docker tag
           script: echo -n "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest"
           exports:
