@@ -1,18 +1,3 @@
-/*
- * Copyright (C) 2022 MSD-RS Project, <lijia.c@gmail.com>
- *
- * This program is free software: you can use, redistribute, and/or modify
- * it under the terms of the GNU Affero General Public License, version 3
- * or later ("AGPL"), as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- */
-
 //! 定义64位的 Decimal 类型
 //!
 //! Decimal 即的精确小数位数的浮点数, 主要用于表达金额,价格等数据, D64 是一个宽度位 64bit 的 Decimal,
