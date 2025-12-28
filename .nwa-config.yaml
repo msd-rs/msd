@@ -1,0 +1,23 @@
+nwa:
+  # basic
+  cmd: "add"                        # Default: "add"; Can be overwritten by --command (-c) flag; Optional: "add", "check", "remove", "update"
+  holder: "MSD-RS Project LiJia"    # Default: "<COPYRIGHT HOLDER>"
+  year: "2026"                      # Default: Current Year
+  license: "agpl-3.0-only"          # Default: "apache"
+  spdxids: "agpl-3.0-only"          # Default: ""
+  skip:                             # Default: []
+    - "bindings/python/.venv/**"
+    - "bindings/typescript/node_modules/**"
+  path:                             # Default: []
+    - "msd*/**/*.rs"
+    - "bindings/python/msd/*.py"
+    - "bindings/python/src/*.rs"
+    - "bindings/typescript/src/*.ts"
+  # advanced
+  mute: false                       # Default: false (unspecified)
+  verbose: false                    # Default: false (unspecified)
+  fuzzy: false                      # Default: false (unspecified); Used for "check" and "remove" commands
+  tmpltype: ""                      # Default: ""; Optional: "live", "static", "raw"
+  tmpl: ""                          # Default: ""                                                       
+  keyword: []                       # Default: []; Used for "add" and "update" commands
+  style: []   

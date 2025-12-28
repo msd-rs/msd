@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 //! Index item definition.
 //!
 //! An `IndexItem` represents a range of timestamps and the count of items within that range.

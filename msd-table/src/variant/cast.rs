@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 use super::Variant;
 use crate::{D64, D128, DataType, TableError, parse_datetime};
 

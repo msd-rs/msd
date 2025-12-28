@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 /// Macros for creating `Variant` instances.
 /// This macro allows you to create a `Variant` from a single value or a list of values.
 ////// Usage:

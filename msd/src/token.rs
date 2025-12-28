@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 use crate::app_config::TokenOptions;
 use crate::server::{Permission, parse_roles};
 use anyhow::Result;

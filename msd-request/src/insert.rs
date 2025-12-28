@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 use msd_table::{DataType, Field, RowsTable, Series, Table, table_from_csv};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;

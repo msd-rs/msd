@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 //! Key definition to store/retrieve data from MsdStore.
 //!
 //! Each object's data is stored in chunks, with each chunk identified by a unique key.

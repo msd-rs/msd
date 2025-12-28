@@ -1,3 +1,6 @@
+# Copyright 2026 MSD-RS Project LiJia
+# SPDX-License-Identifier: agpl-3.0-only
+
 
 from .reader import parse_reader, parse_reader_async
 from .query import query, async_query

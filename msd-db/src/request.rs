@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 //! Request module containing different types of requests that can be sent to the database workers.
 //!
 

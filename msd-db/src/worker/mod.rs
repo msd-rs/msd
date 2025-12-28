@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 //! Worker module handling database requests.
 //!
 //! Worker is responsible for processing database requests such as insertions and queries.

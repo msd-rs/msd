@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 use std::ops::Sub;
 
 use crate::{TableError, Variant, VariantMutRef, updater::Updater};

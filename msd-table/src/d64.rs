@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 //! 定义64位的 Decimal 类型
 //!
 //! Decimal 即的精确小数位数的浮点数, 主要用于表达金额,价格等数据, D64 是一个宽度位 64bit 的 Decimal,

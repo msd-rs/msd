@@ -1,4 +1,9 @@
 /**
+ * Copyright 2026 MSD-RS Project LiJia
+ * SPDX-License-Identifier: agpl-3.0-only
+ */
+
+/**
  * 将D64格式的BigInt转换为JavaScript浮点数
  * @param {bigint | number | string} d64 - 64位整数，遵循D64格式规范
  * @returns {number} 转换后的浮点数

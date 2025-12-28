@@ -1,3 +1,6 @@
+# Copyright 2026 MSD-RS Project LiJia
+# SPDX-License-Identifier: agpl-3.0-only
+
 from _io import BytesIO
 from typing import TypeVar, Callable, Generator, Tuple
 import numpy as np

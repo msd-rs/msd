@@ -1,3 +1,6 @@
+// Copyright 2026 MSD-RS Project LiJia
+// SPDX-License-Identifier: agpl-3.0-only
+
 use super::Worker;
 use crate::{errors::DbError, request::DeleteResponse, worker::cache::CacheValue};
 use msd_request::{DeleteRequest, Key, RequestKey};
