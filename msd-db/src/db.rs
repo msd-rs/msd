@@ -275,6 +275,14 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     result
   }
 
+  pub fn list_tables(&self) -> Result<HashMap<String, Table>, DbError> {
+    let guard = self
+      .schemas
+      .read()
+      .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+    Ok(guard.clone())
+  }
+
   /// get the underlying store
   pub fn store(&self) -> &Arc<S> {
     &self.store

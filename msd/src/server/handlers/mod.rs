@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 mod import;
+mod mcp;
 pub mod permission;
 mod query;
 
 pub use import::handle_table;
+pub use mcp::mcp_service;
 pub use query::handle_data;
 
 use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT};

@@ -26,6 +26,7 @@ type DBState = Arc<MsdDb<RocksDbStore>>;
 
 pub const QUERY_PATH: &str = "/query";
 pub const TABLE_PUT_PATH: &str = "/table/";
+pub const MCP_PATH: &str = "/mcp";
 const TABLE_PUT_PARAM_PATH: &str = "/table/{table_name}";
 
 pub async fn run(server_options: &ServerOptions) -> Result<()> {
@@ -61,6 +62,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
     .layer(DecompressionLayer::new())
     .route(QUERY_PATH, post(handlers::handle_data))
     .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
+    .nest_service(MCP_PATH, handlers::mcp_service(db.clone()))
     .with_state(db.clone())
     .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
