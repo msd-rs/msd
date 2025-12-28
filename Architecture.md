@@ -1,165 +1,167 @@
-# 软件架构描述 (Software Architecture Description)
+# Software Architecture Description
 
-## 1. 简介 (Introduction)
+## 1. Introduction
 
-**MSD (Micro Strategy Daemon)** 是一款专为金融量化分析优化的时序数据库。它放弃了传统数据库“重查询、轻传输”的架构，转而将 “数据检索带宽” 与 “分析工具集成度” 作为核心设计指标。
+**MSD (Micro Strategy Daemon)** is a time-series database optimized for financial quantitative analysis. It abandons the traditional "heavy query, light transport" architecture, prioritizing "data retrieval bandwidth" and "integration with analysis tools" as core design metrics.
 
-### 核心哲学：解决从“数据”到“分析”的最后一公里
+### Core Philosophy: Solving the "Last Mile" from "Data" to "Analysis"
 
-在金融量化研究中，研究员的时间往往浪费在等待数据从数据库加载到 Python 内存的过程中。
+In financial quantitative research, researchers' time is often wasted waiting for data to load from the database into Python memory.
 
-传统痛点：通用数据库（如 MySQL, InfluxDB）在 Python 侧的瓶颈在于 Binary -> Objects -> DataFrame 的转换。即使底层 C++ 引擎再快，逐行解析字节流并封装为 Python 对象的过程也会消耗大量 CPU 并产生频繁的内存分配。
+**Traditional Pain Points**: General-purpose databases (like MySQL, InfluxDB) bottleneck on the Python side during the Binary -> Objects -> DataFrame conversion. Even if the underlying C++ engine is fast, parsing byte streams row-by-row and encapsulating them as Python objects consumes significant CPU and causes frequent memory allocations.
 
-MSD 的解法：“计算就绪”的整装配送。MSD 将数据以与 NumPy 内存布局完全一致的二进制格式存储与传输。查询结果直接映射为 numpy.ndarray，实现从磁盘到 DataFrame 的**零解析（Zero-Parsing）**加载。
+**MSD's Solution**: "Compute-Ready" Delivery. MSD stores and transmits data in a binary format completely consistent with NumPy's memory layout. Query results map directly to numpy.ndarray, achieving **Zero-Parsing** loading from disk to DataFrame.
 
 
-### 全局设计
-MSD 采用 **分层架构**：
-1.  **接口层 (Interface Layer)**:通过 HTTP API 暴露服务，并提供交互式 Shell 工具。
-2.  **核心逻辑层 (Core Logic Layer)**: `msd-db` 负责数据的组织、索引维护和读写流程控制。
-3.  **数据结构层 (Data Structure Layer)**: `msd-table` 定义了列式存储的内存结构（类似 Apache Arrow），优化了分析计算性能。
-4.  **存储层 (Storage Layer)**: `msd-store` 抽象了底层存储引擎，目前默认使用 **RocksDB** 作为持久化 Key-Value 存储。
+### Global Design
+MSD adopts a **Layered Architecture**:
+1.  **Interface Layer**: Exposes services via HTTP API and provides interactive Shell tools.
+2.  **Core Logic Layer**: `msd-db` is responsible for data organization, index maintenance, and read/write flow control.
+3.  **Data Structure Layer**: `msd-table` defines the columnar storage memory structure (similar to Apache Arrow), optimizing analysis calculation performance.
+4.  **Storage Layer**: `msd-store` abstracts the underlying storage engine, currently defaulting to **RocksDB** as the persistent Key-Value storage.
 
-数据模型核心概念包括：
--   **TableName**: 表名（如 `sensors`）。
--   **ObjectName**: 数据归属对象（如 `device_001`）。
--   **Timestamp**: 时间戳。
--   **Value Columns**: 实际数据列。
+Core data model concepts include:
+-   **TableName**: Table name (e.g., `kline`).
+-   **ObjectName**: Data ownership object (e.g., `SH600519`).
+-   **Timestamp**: Timestamp.
+-   **Value Columns**: Actual data columns.
 
-数据存储策略是基于 `ObjectName` 和 `Timestamp` 的双重分区，底层 Key 设计保证了数据的物理聚集和顺序访问。
+The data storage strategy is deeply partitioned based on `ObjectName` and `Timestamp`; the underlying Key design ensures physical aggregation and sequential access of data.
 
-Python Binding 是 MSD 的一等公民，它提供了高性能的与 MSD 的交互接口，以及与 NumPy, Pandas, Polars 等分析工具的无缝集成。
+Python Binding is a first-class citizen of MSD, providing a high-performance interface for interacting with MSD, and seamless integration with analysis tools like NumPy, Pandas, Polars.
 
-### 非设计目标
+### Non-Goals
 
-- 复杂SQL查询: 包括 Join, Window, Aggregate , Group By 等高级操作. 这些功能可通过更加高效, 专业的 Python 相关库实现。
-- 高可用服务: Msd 旨在为量化独立工作提供一个高性能, 易用, 免运维的时序数据库, 使其可以轻易的运行于工作站或个人电脑, 服务主机用户或局域网用户 并不追求高可用性。但由于其用 Rust 编写，在单机层面已经具备了很高的可用性。
-- 用户账号: Msd 不支持用户账户, 但支持访问鉴权.
+- Complex SQL Queries: Including advanced operations like Join, Window, Aggregate, Group By. These functions can be implemented via more efficient, specialized Python libraries.
+- High Availability Service: MSD aims to provide a high-performance, easy-to-use, maintenance-free time-series database for independent quantitative work, making it easy to run on workstations or personal computers to serve localhost or LAN users, without pursuing high availability. However, being written in Rust, it already possesses high availability at the single-machine level.
+- User Accounts: MSD does not support user accounts but does support access authentication.
 
 ---
 
-## 2. 主项目 (The Main Project): `msd`
+## 2. The Main Project: `msd`
 
-`msd` crate 是整个项目的入口，编译后生成可执行文件 `msd`。它主要包含三个子命令功能：
+The `msd` crate is the entry point for the entire project, compiling to generate the executable file `msd`. It mainly contains three subcommand functions:
 
 ### 2.1 MSD Server (`msd server`)
-这是数据库的服务端进程，负责处理外部请求。
-*   **功能**:
-    *   启动 HTTP 服务器（基于 `axum`）。
-    *   维护数据库实例的生命周期（启动/关闭 RocksDB）。
-    *   处理并发读写请求。
-*   **对外 API**:
-    *   `POST /query`: 执行查询语句，支持的 SQL 操作包括：
-        *   **SQL 操作**:
-            *   **Query Data**: `SELECT ...` (支持 `WHERE`, `ORDER BY`, `LIMIT`)
-            *   **Create Table**: `CREATE TABLE ...` (支持定义列类型和元数据)
-            *   **Insert Data**: `INSERT INTO ...` (支持 `VALUES` 和 `COPY` 模式)
-            *   **Delete Data**: `DELETE FROM ...` (按对象或时间范围删除)
+This is the server-side process of the database, responsible for handling external requests.
+*   **Functions**:
+    *   Start HTTP server (based on `axum`).
+    *   Maintain database instance lifecycle (start/stop RocksDB).
+    *   Handle concurrent read/write requests.
+*   **API**:
+    *   `POST /query`: Execute query statements. Supported SQL operations include:
+        *   **SQL Operations**:
+            *   **Query Data**: `SELECT ...` (supports `WHERE`, `ORDER BY`, `LIMIT`)
+            *   **Create Table**: `CREATE TABLE ...` (supports defining column types and metadata)
+            *   **Insert Data**: `INSERT INTO ...` (supports `VALUES` and `COPY` modes)
+            *   **Delete Data**: `DELETE FROM ...` (delete by object or time range)
             *   **Drop Table**: `DROP TABLE ...`
             *   **Get Schema**: `DESCRIBE <table>`
-            *   **List Object**: `SELECT obj FROM <table>` (优化查询)
-        *   **推荐查询方式**:
-            *   **Python SDK**: 使用 `pymsd.query` (同步) 或 `pymsd.async_query` (异步)。
-            *   **CLI 工具**: 使用 `msd shell` 交互执行。
-        *   **响应格式**:
-            *   **Binary 格式** (当 User-Agent 包含 `msd-client` 时):
-                *   返回 `application/x-msd-table-frame` 二进制流。
-                *   Python SDK 会自动处理并解析为 Generator，每项为 `(object_name, date_table)` 元组。
-            *   **NDJSON 格式** (默认):
-                *   返回 `application/x-ndjson` (Newline Delimited JSON)。
-                *   每一行是一个完整的 JSON 对象，代表一个表数据块。
-    *   `PUT /table/{table_name}`: 数据写入接口。
-        *   **推荐写入方式**:
-            *   **Python SDK**: 使用 `pymsd.import_csv` 或 `pymsd.import_dataframes` (位于 `msd.update` 模块) 进行高效写入。
-            *   **CLI 工具**: 使用 `msd shell` 的 `.import` 命令导入 CSV 文件。
-        *   **底层协议**:
-            *   **CSV 格式** (默认):
-                *   可以直接发送 CSV 文本数据。
-                *   **首列**必须是 `obj` (对象名)，后续列对应表结构。
-                *   支持 `?skip=N` 参数跳过前 N 行 (如 Header)。
-            *   **Binary 格式**:
-                *   需设置 Header `Content-Type: application/x-msd-table-frame`。
-                *   发送 MSD 自定义的 `TableFrame` 二进制帧流，性能更高。
-                *   **构建方式**: 推荐使用 Python 绑定库 `pymsd` 生成。
+            *   **List Object**: `SELECT obj FROM <table>` 
+        *   **Recommended Query Methods**:
+            *   **Python SDK**: Use `pymsd.query` (synchronous) or `pymsd.async_query` (asynchronous).
+            *   **CLI Tool**: Use `msd shell` for interactive execution.
+        *   **Response Formats**:
+            *   **Binary Format** (when User-Agent contains `msd-client`):
+                *   Returns `application/x-msd-table-frame` binary stream.
+                *   Python SDK automatically handles and parses it into a Generator, where each item is an `(object_name, date_table)` tuple.
+            *   **NDJSON Format** (Default):
+                *   Returns `application/x-ndjson` (Newline Delimited JSON).
+                *   Each line is a complete JSON object, representing a table data block.
+    *   `PUT /table/{table_name}`: Data write interface.
+        *   **Recommended Write Methods**:
+            *   **Python SDK**: Use `pymsd.import_csv` or `pymsd.import_dataframes` (located in `msd.update` module) for high-performance writing.
+            *   **CLI Tool**: Use `.import` command in `msd shell` to import CSV files.
+        *   **Underlying Protocols**:
+            *   **CSV Format** (Default):
+                *   Can directly send CSV text data.
+                *   **First column** must be `obj` (object name), subsequent columns correspond to table structure.
+                *   Supports `?skip=N` parameter to skip the first N lines (e.g., Header).
+            *   **Binary Format**:
+                *   Requires setting Header `Content-Type: application/x-msd-table-frame`.
+                *   Sends MSD's custom `TableFrame` binary frame stream, which has higher performance.
+                *   **Construction Method**: Recommended to use Python binding library `pymsd` to generate.
                     ```python
                     import msd
                     # df can be pandas.DataFrame, polars.DataFrame or list of (name, array)
-                    binary_data = msd.pack_dataframe("object_name", df)
-                    requests.put(url, data=binary_data, headers={"Content-Type": "application/x-msd-table-frame"})
+                    df_list : Iterator[Tuple[str, DataFrame]] = [(name, df)]
+                    msd.import_dataframes(baseURL, table_name, df_list)
                     ```
-*   **特性**:
-    *   **鉴权**: 支持 JWT Token 认证 (`auth-token`) 和基于角色的权限控制 (`read`, `write`, `admin`)。
-    *   **压缩**: 支持多种压缩算法 (gzip, zstd, brotli, deflate) 以减少网络传输开销。
-    *   **可观测性**: 集成了 `pprof` 用于性能分析。
+*   **Features**:
+    *   **Authentication**: Supports JWT Token authentication (`auth-token`) and role-based permission control (`read`, `write`, `admin`).
+    *   **Pre Aggregation**: Do aggregation when data updating, for example, a `kline` can be updated through `snapshot` or `tick` datafeed, the OLHCVA data is aggregated automatically. 
+    *   **Chain Updates**: When a table is updated, it can trigger updates in dependent tables, for example, a `snapshot` can trigger updates in `kline` tables by configuration. With this feature and pre-aggregation, it is very easy to connect a exchange datafeed.
+    *   **Single Binary Deployment**: The server and client are compiled into a single binary file without other dependencies, making it easy to deploy and manage.
+    *   **High Performance**: In can handle high write/read throughput, For a typical hardware 8C 16G NVMe SSD, it can handle about 8M rows/second insert and 10M rows/second query. see [bench-of-msd](https://cnb.cool/elsejj/bench-of-msd) for more details.
+    *   **AI Friendly**: It's built-in MCP tool, help AI to understand the data catalog and schema, then write correct analysis programs for your research.
 
 ### 2.2 MSD Shell (`msd shell`)
-这是自带的交互式命令行客户端，用于管理和查询数据库。
-*   **功能**: 提供一个 SQL 交互环境 (REPL)。
-*   **支持的命令**:
-    *   SQL 语句: 直接输入 SQL 进行查询，以分号 `;` 结尾。
-    *   `.server <url>`: 设置连接的服务器地址。
-    *   `.import <file> <table> [skip]`: 将 CSV 文件导入到指定表。
-    *   `.dump <table> [file]`: 将表数据导出为 CSV 格式。
-    *   `.schema <table>`: 查看表结构。
-    *   `.rows <num>`: 设置显示的行数限制。
-    *   `.output [file]`: 将输出重定向到文件。
-    *   `.help`, `.exit`: 帮助和退出。
+This is the built-in interactive command-line client for managing and querying the database.
+*   **Function**: Provides a SQL interactive environment (REPL).
+*   **Supported Commands**:
+    *   SQL Statements: Input SQL directly for queries, ending with a semicolon `;`.
+    *   `.server <url>`: Set the server address to connect to.
+    *   `.import <file> <table> [skip]`: Import CSV file into the specified table.
+    *   `.dump <table> [file]`: Export table data to CSV format.
+    *   `.schema <table>`: View table structure.
+    *   `.rows <num>`: Set the limit for displayed rows.
+    *   `.output [file]`: Redirect output to a file.
+    *   `.help`, `.exit`: Help and exit.
 
 ### 2.3 MSD Token (`msd token`)
-用于生成访问服务器所需的 JWT 认证 Token。
-*   **用法**: 指定密钥 (`-a`)、角色 (`-r`) 和过期时间 (`-e`) 生成 Token 字符串。
+Used to generate JWT authentication Tokens required for accessing the server.
+*   **Usage**: Specify key (`-a`), role (`-r`), and expiration time (`-e`) to generate a Token string.
 
----
 
-## 3. 子项目 (SubProjects)
+## 3. SubProjects
 
-项目采用 Cargo Workspace 组织，包含多个核心库 (crates)，职责划分如下：
+The project is organized using Cargo Workspace, containing multiple core crates with divided responsibilities as follows:
 
-### 3.1 `msd-db` (核心数据库引擎)
-*   **目的**: 实现时序数据库的核心逻辑。
-*   **设计**:
-    *   **数据模型**: 定义了 `DbTable`，管理模式 (Schema) 和元数据。
-    *   **存储布局**:
-        *   **DataKey**: `ObjectName` + `SequenceNumber` (基于时间分块)，用于存储实际的时序数据块。
-        *   **IndexKey**: `ObjectName` + 固定后缀，用于存储对象的元数据（索引）。
-    *   **写入流程**: `In-Memory Buffer` -> `Serialize` -> `RocksDB`。
-    *   **更新策略**: 支持 Append（追加）、Update（聚合更新）、Insert（插入）和 Ignore（忽略旧数据）。
+### 3.1 `msd-db` (Core Database Engine)
+*   **Purpose**: Implements the core logic of the time-series database.
+*   **Design**:
+    *   **Data Model**: Defines `DbTable`, managing Schema and metadata.
+    *   **Storage Layout**:
+        *   **DataKey**: `ObjectName` + `SequenceNumber` (time-based chunking), used to store actual time-series data blocks.
+        *   **IndexKey**: `ObjectName` + fixed suffix, used to store object metadata (indexes).
+    *   **Write Flow**: `In-Memory Buffer` -> `Serialize` -> `RocksDB`.
+    *   **Update Strategy**: Supports Append, Update (aggregate update), Insert, and Ignore (ignore old data).
 
-### 3.2 `msd-table` (内存数据表结构)
-*   **目的**: 提供高效的列式数据结构，用于内存中的计算和序列化。
-*   **设计**:
-    *   尽管描述提到 "based on apache arrow"，实际上实现了一套轻量级的列式存储结构。
-    *   包含 `Table`, `Series` (列), `Field` (字段) 等结构。
-    *   支持多种数据类型 (`D64` (double), `D128` (decimal), `Timestamp`, `String` 等)。
-    *   负责数据的二进制序列化和 CSV 解析。
+### 3.2 `msd-table` (In-Memory Data Table Structure)
+*   **Purpose**: Provides efficient columnar data structures for in-memory calculation and serialization.
+*   **Design**:
+    *   Although the description mentions "based on apache arrow", it actually implements a lightweight columnar storage structure.
+    *   Contains structures like `Table`, `Series` (column), `Field` (field).
+    *   Supports multiple data types (`D64` (double), `D128` (decimal), `Timestamp`, `String`, etc.).
+    *   Responsible for binary serialization and CSV parsing.
 
-### 3.3 `msd-store` (存储抽象层)
-*   **目的**: 解耦数据库逻辑与底层物理存储。
-*   **设计**:
-    *   定义了 `MsdStore` trait，包含 `get`, `put`, `delete`, `scan` (prefix_with) 等标准 KV 操作接口。
-    *   **`RocksDbStore`**: 基于 RocksDB 的具体实现，提供了高性能的本地 SSD/HDD 存储能力。
+### 3.3 `msd-store` (Storage Abstraction Layer)
+*   **Purpose**: Decouples database logic from underlying physical storage.
+*   **Design**:
+    *   Defines `MsdStore` trait, containing standard KV operation interfaces like `get`, `put`, `delete`, `scan` (prefix_with).
+    *   **`RocksDbStore`**: Concrete implementation based on RocksDB, providing high-performance local SSD/HDD storage capabilities.
 
-### 3.4 `msd-request` (协议与模型)
-*   **目的**: 定义客户端与服务端通信的数据模型。
-*   **设计**:
-    *   包含查询请求 (`Query`)、聚合操作 (`Agg`)、过滤条件 (`Filter`) 等结构体定义。
-    *   定义了 `TableFrame` 二进制协议，用于高效传输表数据。
-    *   作为 `msd` (client/server) 和 `msd-db` 之间的契约。
+### 3.4 `msd-request` (Protocol and Models)
+*   **Purpose**: Defines data models for communication between client and server.
+*   **Design**:
+    *   Contains struct definitions for query requests (`Query`), aggregation operations (`Agg`), filter conditions (`Filter`), etc.
+    *   Defines `TableFrame` binary protocol for efficient table data transmission.
+    *   Acts as the contract between `msd` (client/server) and `msd-db`.
 
-### 3.5 `msd-db-viewer` (调试工具)
-*   **目的**: 开发者工具，用于直接查看底层 RocksDB 数据，无需启动服务器。
-*   **功能**:
-    *   可以直接读取 RocksDB 文件 (`CURRENT`, SSTable 等)。
-    *   按表名 (`table`) 和键 (`key`) 浏览原始的 Schema、Index 和 Data 数据块。
-    *   输出为 JSON 格式，方便调试存储层问题。
+### 3.5 `msd-db-viewer` (Debugging Tool)
+*   **Purpose**: Developer tool used to directly view underlying RocksDB data without starting the server.
+*   **Functions**:
+    *   Can directly read RocksDB files (`CURRENT`, SSTable, etc.).
+    *   Browse raw Schema, Index, and Data blocks by table name (`table`) and key (`key`).
+    *   Output in JSON format for easy debugging of storage layer issues.
 
-### 3.6 `bindings` (多语言绑定)
-*   **目的**: 让其他编程语言能够方便地调用 MSD 的功能或与 MSD 服务器交互。
-*   **Python 绑定 (`bindings/python`)**:
-    *   ** crate 名**: `pymsd`.
-    *   **技术**: 基于 `pyo3` 和 `numpy` 构建。
-    *   **功能**: 允许 Python 程序直接操作 MSD 的数据结构，适用于数据分析和科学计算场景。
-    *   **特性**: Python 绑定的主要功能是支持将 MSD 数据表直接转换为 `pandas.DataFrame`, `polars.DataFrame`, `numpy.ndarray`。
-*   **TypeScript 绑定 (`bindings/typescript`)**:
-    *   **技术**: 使用 `bun` 构建，支持生成浏览器和 Node.js 环境的 ESM 模块。
-    *   **功能**: 提供类型安全的 JS/TS 客户端库，方便 Web 前端或 Node.js 后端应用与 MSD 交互。
+### 3.6 `bindings` (Multi-language Bindings)
+*   **Purpose**: Enables other programming languages to conveniently call MSD functions or interact with the MSD server.
+*   **Python Binding (`bindings/python`)**:
+    *   **Crate Name**: `pymsd`.
+    *   **Technology**: Built based on `pyo3` and `numpy`.
+    *   **Function**: Allows Python programs to directly manipulate MSD data structures, suitable for data analysis and scientific computing scenarios.
+    *   **Features**: The main function of the Python binding is to support directly converting MSD data tables into `pandas.DataFrame`, `polars.DataFrame`, `numpy.ndarray`.
+*   **TypeScript Binding (`bindings/typescript`)**:
+    *   **Technology**: Built using `bun`, supporting the generation of ESM modules for Browser and Node.js environments.
+    *   **Function**: Provides a type-safe JS/TS client library, facilitating interaction between Web frontend or Node.js backend applications and MSD.
