@@ -50,6 +50,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   }
   info!("Query Path:        {}", QUERY_PATH);
   info!("Table Put Path:    {}", TABLE_PUT_PARAM_PATH);
+  info!("MCP Path:          {}", MCP_PATH);
 
   let db_path = app_options.db_path.clone();
   let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
