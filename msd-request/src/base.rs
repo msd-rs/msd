@@ -19,6 +19,14 @@ pub fn broadcast_key() -> &'static RequestKey {
   })
 }
 
+pub fn once_key() -> &'static RequestKey {
+  static ONCE_KEY: OnceLock<RequestKey> = OnceLock::new();
+  ONCE_KEY.get_or_init(|| RequestKey {
+    table: "__once__".into(),
+    obj: "__once__".into(),
+  })
+}
+
 impl RequestKey {
   pub fn new<S: Into<String>>(table: S, obj: S) -> Self {
     Self {

@@ -31,6 +31,7 @@ impl Permission {
       SqlRequest::Delete(_) => ADMIN_ROLE,
       SqlRequest::Schema(_) => READ_ROLE,
       SqlRequest::Comment(_, _, _) => ADMIN_ROLE,
+      SqlRequest::ListTables(_) => READ_ROLE,
     };
     self.check_permission(role)
   }

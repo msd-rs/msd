@@ -77,6 +77,7 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
     SqlRequest::Insert(insert_request) => handle_insert(db, insert_request).await,
     SqlRequest::Delete(delete_request) => handle_delete(db, delete_request).await,
     SqlRequest::Comment(table, field, desc) => handle_comment(db, table, field, desc).await,
+    SqlRequest::ListTables(pattern) => handle_list_tables(db, pattern).await,
   };
   match res {
     Ok(table) => Ok(table),
@@ -211,6 +212,24 @@ async fn handle_comment(
   let msd_req = MsdRequest::comment(table, field, desc);
   db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
+}
+
+async fn handle_list_tables(db: DBState, _pattern: Option<String>) -> Result<Table, DbError> {
+  let all = db.list_tables()?;
+  let mut items = all.into_iter().collect::<Vec<_>>();
+  items.sort_by(|a, b| a.0.cmp(&b.0));
+
+  let mut names = Vec::with_capacity(items.len());
+  let mut schemas = Vec::with_capacity(items.len());
+
+  for (name, schema) in items {
+    names.push(name);
+    schemas.push(serde_json::to_string(&schema).unwrap());
+  }
+
+  Ok(
+    table!({name : "name", kind : string, data : names}, {name : "schema", kind : string, data : schemas}),
+  )
 }
 
 async fn handle_drop_table(db: DBState, name: String) -> Result<Table, DbError> {

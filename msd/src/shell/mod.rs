@@ -22,6 +22,7 @@ const EXIT_COMMANDS: [&str; 3] = [".exit", ".quit", ".q"];
 const SET_SERVER_COMMAND: &str = ".server";
 const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
 const SCHEMA_COMMAND: &str = ".schema";
+const LIST_TABLES_COMMAND: &str = ".tables";
 const DUMP_COMMAND: &str = ".dump";
 const OUTPUT_COMMAND: &str = ".output";
 

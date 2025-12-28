@@ -29,6 +29,7 @@ pub enum SqlRequest {
   Delete(DeleteRequest),
   Schema(String),
   Comment(String, String, String),
+  ListTables(Option<String>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +42,7 @@ pub enum SqlRequestType {
   Delete,
   Schema,
   Comment,
+  ListTables,
 }
 
 /// Determine the type of SQL request, based on the first command word.
@@ -61,10 +63,12 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
       return SqlRequestType::Delete;
     } else if command.eq_ignore_ascii_case("DESC") || command.eq_ignore_ascii_case("DESCRIBE") {
       return SqlRequestType::Schema;
-    } else if command.eq_ignore_ascii_case("DROP TABLE") {
+    } else if command.eq_ignore_ascii_case("DROP") {
       return SqlRequestType::DropTable;
     } else if command.eq_ignore_ascii_case("COMMENT") {
       return SqlRequestType::Comment;
+    } else if command.eq_ignore_ascii_case(".tables") || command.eq_ignore_ascii_case("\\dt") {
+      return SqlRequestType::ListTables;
     }
   }
   return SqlRequestType::Unknown;
@@ -76,6 +80,10 @@ pub fn sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
 
   if sql_request_type(sql) == SqlRequestType::Schema {
     return parse_schema(sql);
+  }
+
+  if sql_request_type(sql) == SqlRequestType::ListTables {
+    return parse_list_tables(sql);
   }
 
   if let Some((first_line, rest)) = sql.split_once('\n') {
@@ -122,11 +130,22 @@ fn parse_comment(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
       comment,
       if_exists: _,
     } => match object_type {
-      CommentObject::Table => Ok(vec![SqlRequest::Comment(
-        object_name.to_string(),
-        String::default(),
-        comment.unwrap_or_default(),
-      )]),
+      CommentObject::Table => {
+        let object_name = object_name.to_string();
+        if let Some((table, column)) = object_name.rsplit_once('.') {
+          return Ok(vec![SqlRequest::Comment(
+            table.to_string(),
+            column.to_string(),
+            comment.unwrap_or_default(),
+          )]);
+        } else {
+          Ok(vec![SqlRequest::Comment(
+            object_name,
+            String::default(),
+            comment.unwrap_or_default(),
+          )])
+        }
+      }
       CommentObject::Column => {
         if object_name.0.len() != 2 {
           return Err(RequestError::SqlParseError(ParserError::ParserError(
@@ -162,6 +181,13 @@ fn parse_schema(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
       )));
     }
   }
+}
+
+fn parse_list_tables(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
+  let pattern = sql
+    .split_once(char::is_whitespace)
+    .map(|(_, s)| s.trim().to_string());
+  Ok(vec![SqlRequest::ListTables(pattern)])
 }
 
 fn parse_drop(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {

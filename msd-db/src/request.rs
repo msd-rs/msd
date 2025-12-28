@@ -46,6 +46,11 @@ impl Clone for MsdRequest {
   fn clone(&self) -> Self {
     match self {
       MsdRequest::Broadcast(msg) => MsdRequest::Broadcast(msg.clone()),
+      MsdRequest::Comment { table, field, desc } => MsdRequest::Comment {
+        table: table.clone(),
+        field: field.clone(),
+        desc: desc.clone(),
+      },
       _ => panic!("Only Broadcast requests can be cloned"),
     }
   }
@@ -95,7 +100,7 @@ impl Deref for MsdRequest {
       MsdRequest::Query { req, .. } => &req.key,
       MsdRequest::ListObjects { req, .. } => &req.key,
       MsdRequest::Delete { req, .. } => &req.key,
-      MsdRequest::Comment { .. } => broadcast_key(),
+      MsdRequest::Comment { .. } => once_key(),
       MsdRequest::Broadcast(_) => broadcast_key(),
     }
   }

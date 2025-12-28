@@ -283,6 +283,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       .schemas
       .read()
       .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+
     Ok(guard.clone())
   }
 

@@ -305,5 +305,17 @@ fn test_sql_parse_comment() -> Result<()> {
     _ => panic!("Expected Comment request"),
   }
 
+  let sql = "COMMENT ON TABLE kline1d.open IS 'open price'";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Comment(table, field, comment) => {
+      assert_eq!(table, "kline1d");
+      assert_eq!(field, "open");
+      assert_eq!(comment, "open price");
+    }
+    _ => panic!("Expected Comment request"),
+  }
+
   Ok(())
 }
