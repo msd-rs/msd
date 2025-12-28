@@ -67,6 +67,12 @@ impl<S: MsdStore> Worker<S> {
           let res = self.handle_delete(req);
           let _ = resp_tx.send(res);
         }
+        MsdRequest::Comment { table, field, desc } => {
+          warn!(
+            table,
+            field, desc, "Comment should not be handled by Worker"
+          );
+        }
         MsdRequest::Broadcast(Broadcast::Shutdown) => {
           self.handle_shutdown();
           rx.close();

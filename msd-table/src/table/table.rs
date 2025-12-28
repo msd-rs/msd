@@ -477,6 +477,18 @@ impl Table {
       .and_then(|meta| meta.get(key.as_ref()))
   }
 
+  pub fn set_table_meta<S: AsRef<str>>(
+    &mut self,
+    key: S,
+    value: Variant,
+  ) -> Result<(), TableError> {
+    self
+      .metadata
+      .get_or_insert_with(HashMap::new)
+      .insert(key.as_ref().into(), value);
+    Ok(())
+  }
+
   /// get a field meta value
   pub fn get_field_meta<S1: AsRef<str>, S2: AsRef<str>>(
     &self,
@@ -489,6 +501,24 @@ impl Table {
       .find(|col| col.name == field_name.as_ref())
       .and_then(|col| col.metadata.as_ref())
       .and_then(|meta| meta.get(key.as_ref()))
+  }
+
+  pub fn set_field_meta<S1: AsRef<str>, S2: AsRef<str>>(
+    &mut self,
+    field_name: S1,
+    key: S2,
+    value: Variant,
+  ) -> Result<(), TableError> {
+    let col = self
+      .columns
+      .iter_mut()
+      .find(|col| col.name == field_name.as_ref())
+      .ok_or(TableError::FieldNotFound(field_name.as_ref().into()))?;
+    col
+      .metadata
+      .get_or_insert_with(HashMap::new)
+      .insert(key.as_ref().into(), value);
+    Ok(())
   }
 
   /// get field meta value by column index

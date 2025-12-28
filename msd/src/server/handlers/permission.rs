@@ -30,6 +30,7 @@ impl Permission {
       SqlRequest::Insert(_) => WRITE_ROLE,
       SqlRequest::Delete(_) => ADMIN_ROLE,
       SqlRequest::Schema(_) => READ_ROLE,
+      SqlRequest::Comment(_, _, _) => ADMIN_ROLE,
     };
     self.check_permission(role)
   }

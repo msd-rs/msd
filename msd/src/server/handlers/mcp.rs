@@ -1,6 +1,6 @@
 use rmcp::{
   ServerHandler,
-  handler::server::{router::prompt::PromptRouter, tool::ToolRouter, wrapper::Parameters},
+  handler::server::{tool::ToolRouter, wrapper::Parameters},
   model::{ServerCapabilities, ServerInfo},
   tool, tool_handler,
   transport::streamable_http_server::{
@@ -13,9 +13,9 @@ use anyhow::Result;
 
 #[derive(Clone)]
 pub struct MsdMcp {
+  #[allow(dead_code)]
   db: DBState,
   tool_router: ToolRouter<MsdMcp>,
-  prompt_router: PromptRouter<MsdMcp>,
 }
 
 impl MsdMcp {
@@ -23,7 +23,6 @@ impl MsdMcp {
     Self {
       db,
       tool_router: ToolRouter::new(),
-      prompt_router: PromptRouter::new(),
     }
   }
 

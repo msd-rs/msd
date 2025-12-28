@@ -42,4 +42,7 @@ pub enum TableError {
 
   #[error("{0} can't be parsed as {1}")]
   VariantParseError(String, String),
+
+  #[error("field {0} not found")]
+  FieldNotFound(String),
 }

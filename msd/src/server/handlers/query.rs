@@ -76,6 +76,7 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
     SqlRequest::DropTable(name) => handle_drop_table(db, name).await,
     SqlRequest::Insert(insert_request) => handle_insert(db, insert_request).await,
     SqlRequest::Delete(delete_request) => handle_delete(db, delete_request).await,
+    SqlRequest::Comment(table, field, desc) => handle_comment(db, table, field, desc).await,
   };
   match res {
     Ok(table) => Ok(table),
@@ -197,6 +198,17 @@ async fn handle_delete(db: DBState, req: DeleteRequest) -> Result<Table, DbError
 
 async fn handle_create_table(db: DBState, name: String, table: Table) -> Result<Table, DbError> {
   let msd_req = MsdRequest::create_table(name, table);
+  db.request(msd_req).await.map_err(|e| e)?;
+  Ok(Table::default())
+}
+
+async fn handle_comment(
+  db: DBState,
+  table: String,
+  field: String,
+  desc: String,
+) -> Result<Table, DbError> {
+  let msd_req = MsdRequest::comment(table, field, desc);
   db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }

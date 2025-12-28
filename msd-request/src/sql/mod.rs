@@ -9,8 +9,9 @@ use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 
 use msd_table::{DataType as TableDataType, Field, RowsTable, Table, Variant};
 use sqlparser::ast::{
-  BinaryOperator, ColumnOption, CreateTableOptions, Expr, FromTable, Ident, LimitClause,
-  ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value, ValueWithSpan,
+  BinaryOperator, ColumnOption, CommentObject, CreateTableOptions, Expr, FromTable, Ident,
+  LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value,
+  ValueWithSpan,
 };
 use sqlparser::parser::{Parser, ParserError};
 
@@ -27,6 +28,7 @@ pub enum SqlRequest {
   Insert(InsertRequest),
   Delete(DeleteRequest),
   Schema(String),
+  Comment(String, String, String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -38,6 +40,7 @@ pub enum SqlRequestType {
   Insert,
   Delete,
   Schema,
+  Comment,
 }
 
 /// Determine the type of SQL request, based on the first command word.
@@ -60,6 +63,8 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
       return SqlRequestType::Schema;
     } else if command.eq_ignore_ascii_case("DROP TABLE") {
       return SqlRequestType::DropTable;
+    } else if command.eq_ignore_ascii_case("COMMENT") {
+      return SqlRequestType::Comment;
     }
   }
   return SqlRequestType::Unknown;
@@ -104,6 +109,40 @@ fn parse_stmt(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
     Statement::CreateTable(_) => parse_create_table(stmt),
     Statement::Delete(_) => parse_delete(stmt),
     Statement::Drop { .. } => parse_drop(stmt),
+    Statement::Comment { .. } => parse_comment(stmt),
+    _ => Err(RequestError::UnsupportedSqlStatement),
+  }
+}
+
+fn parse_comment(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
+  match stmt {
+    Statement::Comment {
+      object_type,
+      object_name,
+      comment,
+      if_exists: _,
+    } => match object_type {
+      CommentObject::Table => Ok(vec![SqlRequest::Comment(
+        object_name.to_string(),
+        String::default(),
+        comment.unwrap_or_default(),
+      )]),
+      CommentObject::Column => {
+        if object_name.0.len() != 2 {
+          return Err(RequestError::SqlParseError(ParserError::ParserError(
+            "column name is missing for COMMENT command".to_string(),
+          )));
+        }
+        let table = object_name.0[0].to_string();
+        let column = object_name.0[1].to_string();
+        Ok(vec![SqlRequest::Comment(
+          table,
+          column,
+          comment.unwrap_or_default(),
+        )])
+      }
+      _ => Err(RequestError::UnsupportedSqlStatement),
+    },
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
@@ -349,19 +388,25 @@ fn parse_create_table(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> 
 
         let mut metadata: HashMap<String, Variant> = HashMap::new();
         for opt in col.options {
-          if let ColumnOption::DialectSpecific(tokens) = opt.option {
-            if let Some(agg) = tokens
-              .first()
-              .and_then(|t| match t {
-                sqlparser::tokenizer::Token::Word(w) => Some(w.value.clone()),
-                _ => None,
-              })
-              .as_deref()
-            {
-              if let Some(agg_id) = agg_keyword_to_state(agg) {
-                metadata.insert("agg".into(), Variant::String(agg_id.to_string()));
+          match opt.option {
+            ColumnOption::DialectSpecific(tokens) => {
+              if let Some(agg) = tokens
+                .first()
+                .and_then(|t| match t {
+                  sqlparser::tokenizer::Token::Word(w) => Some(w.value.clone()),
+                  _ => None,
+                })
+                .as_deref()
+              {
+                if let Some(agg_id) = agg_keyword_to_state(agg) {
+                  metadata.insert("agg".into(), Variant::String(agg_id.to_string()));
+                }
               }
             }
+            ColumnOption::Comment(comment) => {
+              metadata.insert("desc".into(), Variant::String(comment));
+            }
+            _ => {}
           }
         }
 
@@ -390,6 +435,9 @@ fn parse_create_table(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> 
             meta.insert(key.to_string(), value);
           }
         }
+      }
+      if let Some(comment) = ct.comment {
+        meta.insert("desc".into(), Variant::String(comment.to_string()));
       }
 
       if !meta.is_empty() {

@@ -1,9 +1,11 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
+use std::any::TypeId;
+
 use sqlparser::{
   ast::ColumnOption,
-  dialect::Dialect,
+  dialect::{Dialect, HiveDialect},
   keywords::Keyword,
   parser::{Parser, ParserError},
   tokenizer::Token,
@@ -34,6 +36,10 @@ impl Dialect for MsdSqlDialect {
     Some('`')
   }
 
+  fn dialect(&self) -> TypeId {
+    TypeId::of::<HiveDialect>()
+  }
+
   fn is_identifier_start(&self, ch: char) -> bool {
     // See https://www.sqlite.org/draft/tokenreq.html
     ch.is_ascii_lowercase()
@@ -55,6 +61,10 @@ impl Dialect for MsdSqlDialect {
   }
 
   fn supports_limit_comma(&self) -> bool {
+    true
+  }
+
+  fn supports_comment_on(&self) -> bool {
     true
   }
 

@@ -33,6 +33,11 @@ pub enum MsdRequest {
     req: DeleteRequest,
     resp_tx: RequestSender<DeleteResponse>,
   },
+  Comment {
+    table: String,
+    field: String,
+    desc: String,
+  },
 
   Broadcast(Broadcast),
 }
@@ -65,6 +70,14 @@ impl MsdRequest {
     MsdRequest::Broadcast(Broadcast::CreateTable(name.into(), table))
   }
 
+  pub fn comment<S: Into<String>>(table: S, field: S, desc: S) -> Self {
+    MsdRequest::Comment {
+      table: table.into(),
+      field: field.into(),
+      desc: desc.into(),
+    }
+  }
+
   pub fn drop_table<S: Into<String>>(name: S) -> Self {
     MsdRequest::Broadcast(Broadcast::DropTable(name.into()))
   }
@@ -82,6 +95,7 @@ impl Deref for MsdRequest {
       MsdRequest::Query { req, .. } => &req.key,
       MsdRequest::ListObjects { req, .. } => &req.key,
       MsdRequest::Delete { req, .. } => &req.key,
+      MsdRequest::Comment { .. } => broadcast_key(),
       MsdRequest::Broadcast(_) => broadcast_key(),
     }
   }

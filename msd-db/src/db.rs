@@ -160,6 +160,9 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
             }
           }
         }
+        MsdRequest::Comment { table, field, desc } => {
+          self.update_schema_desc(table, field, desc)?
+        }
         _ => {
           let worker = self.get_worker(&req);
           // send to worker without awaiting
@@ -495,5 +498,33 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     let hash = hasher.finish();
     let index = (hash as usize) % self.workers.len();
     &self.workers[index]
+  }
+
+  /// update the schema description
+  fn update_schema_desc(
+    &self,
+    table_name: String,
+    field: String,
+    desc: String,
+  ) -> Result<(), DbError> {
+    let mut guard = self
+      .schemas
+      .write()
+      .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+    let table = guard
+      .get_mut(&table_name)
+      .ok_or(DbError::TableNotFound(table_name.clone()))?;
+
+    if field.is_empty() {
+      table.set_table_meta("desc", desc.into())?;
+    } else {
+      table.set_field_meta(field, "desc", desc.into())?;
+    }
+
+    let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, &table_name);
+    let value = table.to_bytes()?;
+    self.store.put(key, value, SCHEMA_TABLE_NAME, None)?;
+
+    Ok(())
   }
 }

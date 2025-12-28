@@ -9,15 +9,17 @@ fn test_sql_parse_create_table() -> Result<()> {
   let sql = r#"
  CREATE TABLE kline1d (
    ts DATETIME,
-   open FLOAT64 AGG_FIRST,
+   open FLOAT64 AGG_FIRST COMMENT 'open price',
    high DECIMAL64 AGG_MAX,
    low DECIMAL64 AGG_MIN,
    close DECIMAL64
-
- ) WITH (
+ ) 
+ COMMENT 'daily kline'
+ WITH (
    chunkSize = 10,
    round = '1d'
- ); 
+ ) 
+ ; 
   "#;
 
   let req = super::sql_to_request(sql)?;
@@ -272,6 +274,35 @@ fn test_sql_parse_delete() -> Result<()> {
       );
     }
     _ => panic!("Expected Delete request"),
+  }
+
+  Ok(())
+}
+
+#[test]
+fn test_sql_parse_comment() -> Result<()> {
+  let sql = "COMMENT ON TABLE kline1d IS 'daily kline'";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Comment(table, field, comment) => {
+      assert_eq!(table, "kline1d");
+      assert_eq!(field, "");
+      assert_eq!(comment, "daily kline");
+    }
+    _ => panic!("Expected Comment request"),
+  }
+
+  let sql = "COMMENT ON COLUMN kline1d.open IS 'open price'";
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Comment(table, field, comment) => {
+      assert_eq!(table, "kline1d");
+      assert_eq!(field, "open");
+      assert_eq!(comment, "open price");
+    }
+    _ => panic!("Expected Comment request"),
   }
 
   Ok(())
