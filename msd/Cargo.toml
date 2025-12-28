@@ -10,6 +10,7 @@ anyhow.workspace = true
 axum = { version = "0.8" }
 axum-streams = { version = "0.24", features = ["json"] }
 clap.workspace = true
+colored = "3"
 csv.workspace = true
 dotenvy.workspace = true
 futures.workspace = true
@@ -28,6 +29,7 @@ rustc-hash.workspace = true
 rustyline = {version="17", features=["derive"]}
 serde.workspace = true
 serde_json.workspace = true
+simd-csv = "0.10"
 time.workspace = true
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
@@ -36,6 +38,5 @@ tower-http = {version="0.6", features=["compression-full", "cors", "decompressio
 tracing-appender = { version = "0.2" }
 tracing-subscriber.workspace = true
 tracing.workspace = true
-simd-csv = "0.10"
 
 

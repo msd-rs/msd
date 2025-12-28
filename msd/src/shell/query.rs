@@ -8,6 +8,7 @@ use crate::{
   shell::table_handler::{CsvHandler, TableHandler, build_table_handler},
 };
 use anyhow::{Context, Result};
+use colored::Colorize;
 use futures::StreamExt;
 use msd_request::{check_table_frame, unpack_table_frame};
 use msd_table::Table;
@@ -100,13 +101,14 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
 
   if opts.verbose {
     let s = timer.elapsed().as_secs_f64();
-    eprintln!(
+    let stat = format!(
       "Fetched {} objects with {} rows in {:.3} s, {:.0} rows/s",
       objects,
       fetched_rows,
       s,
       fetched_rows as f64 / s
     );
+    eprintln!("{}", stat.cyan());
   }
 
   Ok(())

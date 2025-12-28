@@ -10,8 +10,9 @@ use std::{env, path::PathBuf, sync::OnceLock};
 
 use crate::app_config::{MSD_USER_AGENT, ShellOptions};
 use anyhow::Result;
+use colored::Colorize;
 use rustyline::{
-  Completer, Editor, Helper, Highlighter, Hinter,
+  Completer, Config, Editor, Helper, Highlighter, Hinter,
   error::ReadlineError,
   validate::{ValidationContext, ValidationResult, Validator},
 };
@@ -22,7 +23,6 @@ const EXIT_COMMANDS: [&str; 3] = [".exit", ".quit", ".q"];
 const SET_SERVER_COMMAND: &str = ".server";
 const SET_REACTIVE_ROWS_COMMAND: &str = ".rows";
 const SCHEMA_COMMAND: &str = ".schema";
-const LIST_TABLES_COMMAND: &str = ".tables";
 const DUMP_COMMAND: &str = ".dump";
 const OUTPUT_COMMAND: &str = ".output";
 
@@ -101,7 +101,14 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
 
     print_help();
 
-    let mut rl = Editor::new()?;
+    let mut rl = Editor::with_config(
+      Config::builder()
+        .history_ignore_space(true)
+        .history_ignore_dups(true)?
+        .tab_stop(2)
+        .indent_size(2)
+        .build(),
+    )?;
 
     let h = InputValidator {};
     rl.set_helper(Some(h));
@@ -162,7 +169,7 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
           }
 
           if let Err(e) = run_command(&shell_options, line).await {
-            eprintln!("Error: {}", e);
+            eprintln!("{}", format!("Error: {}", e).red());
           }
         }
         Err(rustyline::error::ReadlineError::Interrupted) => {
@@ -170,7 +177,7 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
         }
         Err(rustyline::error::ReadlineError::Eof) => break,
         Err(e) => {
-          eprintln!("Error reading line: {}", e);
+          eprintln!("{}", format!("Error reading line: {}", e).red());
           break;
         }
       }
@@ -256,13 +263,32 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
 fn print_help() {
   println!("Input some SQL or commands, SQL should end with semicolon(;)");
   println!("Available commands:");
-  println!("  .server <url>    Set server url");
-  println!("  .rows <num>      Set reactive rows");
-  println!(
-    "  .import <file_path> <table> [skip] Import csv file to table, skip header [skip] rows"
-  );
-  println!("  .dump <table> [file_path]    Dump table to csv file (or stdout)");
-  println!("  .output [file_path]          Redirect output to file (append mode)");
-  println!("  .help            Print this help message");
-  println!("  .exit | .quit | .q  Exit shell");
+  let mut commands = [
+    (
+      ".dump <table> [file_path]",
+      "Dump table to csv file (or stdout)",
+    ),
+    (".exit | .quit | .q", "Exit shell"),
+    (
+      ".import <file_path> <table> [skip]",
+      "Import csv file to table, skip header [skip] rows",
+    ),
+    (
+      ".output <file_path>",
+      "Redirect output to file (append mode)",
+    ),
+    (".help", "Print this help message"),
+    (".rows", "Set reactive rows"),
+    (".schema", "Print table schema"),
+    (".server", "Set server url"),
+    (".tables", "List all tables"),
+  ];
+  commands.sort_by(|a, b| a.0.cmp(&b.0));
+  let mut max_len = 0;
+  for (cmd, _) in &commands {
+    max_len = max_len.max(cmd.len());
+  }
+  for (cmd, desc) in commands {
+    println!("  {:<max_len$}  {}", cmd.green(), desc);
+  }
 }

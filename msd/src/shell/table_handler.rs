@@ -4,6 +4,7 @@
 use std::{cell::RefCell, io::Write};
 
 use anyhow::Result;
+use colored::Colorize;
 use msd_table::Table;
 
 use crate::app_config::ShellOptions;
@@ -40,14 +41,20 @@ impl TableHandler for PrintHandler {
     for row in &rows {
       for (i, col) in row.iter().enumerate() {
         if i < col_widths.len() {
-          col_widths[i] = col_widths[i].max(col.len());
+          col_widths[i] = col_widths[i].max(col.len()).min(30);
         }
       }
     }
-    for row in rows {
-      print!("|");
+    let sep = "|";
+    for (i, row) in rows.iter().enumerate() {
+      print!("{}", sep);
       for (col, width) in row.iter().zip(col_widths.iter()) {
-        print!("{:>width$}|", col);
+        let col = match i {
+          0 => col.color("blue").bold(),
+          1 => col.color("green"),
+          _ => col.white(),
+        };
+        print!("{:>width$}{}", col, sep);
       }
       print!("\n");
     }
