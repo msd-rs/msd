@@ -7,17 +7,21 @@ from .query import query, async_query
 from .update import import_csv, import_dataframes
 from .const import MSD_USER_AGENT, MSD_IMPORT_PATH, MSD_QUERY_PATH
 from .pack import pack_dataframe
+from .easy import create_msd_pandas, create_msd_polars, MsdClient
 
 __all__ = [
-  "query",
+  "MSD_IMPORT_PATH",
+  "MSD_QUERY_PATH",
+  "MSD_USER_AGENT",
+  "MsdClient",
   "async_query",
+  "create_msd_pandas",
+  "create_msd_polars",
   "import_csv",
   "import_dataframes",
   "pack_dataframe",
   "parse_reader",
   "parse_reader_async",
-  "MSD_USER_AGENT",
-  "MSD_IMPORT_PATH",
-  "MSD_QUERY_PATH",
+  "query",
 ]
   

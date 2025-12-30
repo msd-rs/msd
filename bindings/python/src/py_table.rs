@@ -14,18 +14,18 @@ use numpy::{
 use pyo3::{
   exceptions::PyValueError,
   prelude::*,
-  types::{PyBytes, PyDict, PyList, PyString},
+  types::{PyBytes, PyList, PyString},
 };
 
-pub(crate) fn table_to_py_dict<'py>(py: Python<'py>, table: Table) -> Bound<'py, PyDict> {
-  let dict = PyDict::new(py);
+pub(crate) fn table_to_py_list<'py>(py: Python<'py>, table: Table) -> Bound<'py, PyList> {
+  let dict = PyList::empty(py);
 
   let rows = table.row_count();
   let fields: Vec<Field> = table.into();
 
   fields.into_iter().for_each(|field| {
     let name = field.name;
-    let _ = dict.set_item(name, series_to_array(py, field.data, rows));
+    let _ = dict.append((name, series_to_array(py, field.data, rows).into_any()));
   });
 
   dict

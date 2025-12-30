@@ -1,20 +1,22 @@
 # Copyright 2026 MSD-RS Project LiJia
 # SPDX-License-Identifier: agpl-3.0-only
 
-from _io import BytesIO
-from typing import TypeVar, Callable, Generator, Tuple
-import numpy as np
+from typing import AsyncGenerator, Callable, Generator, Tuple, TypeVar, overload
 from .reader import parse_reader, parse_reader_async
 from .const import *
 import logging
-type Table = dict[str, np.ndarray]
-R = TypeVar("R", default=Table)
 
-type Handler[R] = Callable[[Table], R] 
+logger = logging.getLogger("MSD")
 
+@overload
+def query(baseURL: str, sql: str) -> Generator[Tuple[str, str, MsdTable], None, None] :
+    ...
 
+@overload
+def query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R]) -> Generator[Tuple[str, str, R], None, None] :
+    ...
 
-def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
+def query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None) -> Generator[Tuple[str, str, R|MsdTable], None, None] :
   """
   Query data from msd.
 
@@ -23,14 +25,15 @@ def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, 
     sql: The SQL query to execute.
     h: The handler to call for each table, it's used to convert the table to another type, e.g. pandas.DataFrame or polars.DataFrame. 
   Returns:
-    A generator of tables.
+    A generator of (table, obj, data)
   """
 
   try:
     import requests
-    import requests.exceptions
   except ImportError:
     raise ImportError("requests is required for msd_query")
+
+  logger.info(f"query {baseURL}, sql: {sql}")
 
   endpoint = f"{baseURL}{MSD_QUERY_PATH}"
   response = requests.post(endpoint, json={"query": sql}, stream=True, headers={
@@ -42,17 +45,24 @@ def query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, 
   if response.status_code != 200:
     raise Exception(f"Query failed: {response.text}")
   try:
-    for obj, table in parse_reader(response.raw) :
+    for table, obj, data in parse_reader(response.raw) : # type: ignore
       if h is not None :
-        yield (obj, h(table))
+        yield (table, obj, h(data))
       else :
-        yield (obj, table)
+        yield (table, obj, data)
   except Exception as e:
     logging.getLogger("MSD").warning("no data received. error: %s", e)
 
 
+@overload
+async def async_query(baseURL: str, sql: str) -> AsyncGenerator[Tuple[str, str, MsdTable], None] :
+    ...
 
-async def async_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator[Tuple[str, R], None, None] :
+@overload
+async def async_query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R]) -> AsyncGenerator[Tuple[str, str, R], None] :
+    ...
+
+async def async_query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None) -> AsyncGenerator[Tuple[str, str, R|MsdTable], None] : # type: ignore
   """
   The async version of msd_query.
 
@@ -77,8 +87,8 @@ async def async_query(baseURL: str, sql: str, h: Handler[R] = None) -> Generator
     }) as response :
       if response.status != 200:
         raise Exception(f"Query failed: {response.text}")
-      async for obj, table in parse_reader_async(response.content) :
+      async for table, obj, data in parse_reader_async(response.content) : # type: ignore
         if h is not None :
-          yield (obj, h(table))
+          yield (table, obj, h(data))
         else :
-          yield (obj, table)
+          yield (table, obj, data)

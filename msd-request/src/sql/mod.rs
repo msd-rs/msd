@@ -75,39 +75,41 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
 }
 
 /// Parse SQL string to a list of SqlRequest
-pub fn sql_to_request(sql: &str) -> Result<Vec<SqlRequest>, RequestError> {
-  let sql = sql.trim();
+pub fn sql_to_request(text: &str) -> Result<Vec<SqlRequest>, RequestError> {
+  let mut requests = Vec::new();
+  for sql in text.trim().split(';') {
+    if sql_request_type(sql) == SqlRequestType::Schema {
+      requests.extend(parse_schema(sql)?);
+      continue;
+    }
 
-  if sql_request_type(sql) == SqlRequestType::Schema {
-    return parse_schema(sql);
-  }
+    if sql_request_type(sql) == SqlRequestType::ListTables {
+      requests.extend(parse_list_tables(sql)?);
+      continue;
+    }
 
-  if sql_request_type(sql) == SqlRequestType::ListTables {
-    return parse_list_tables(sql);
-  }
-
-  if let Some((first_line, rest)) = sql.split_once('\n') {
-    let mut part = first_line.split_whitespace();
-    if part.next().map(|s| s.eq_ignore_ascii_case("COPY")) == Some(true) {
-      while let Some(token) = part.next() {
-        // skip empty tokens
-        if token.is_empty() {
-          continue;
+    if let Some((first_line, rest)) = sql.split_once('\n') {
+      let mut part = first_line.split_whitespace();
+      if part.next().map(|s| s.eq_ignore_ascii_case("COPY")) == Some(true) {
+        while let Some(token) = part.next() {
+          // skip empty tokens
+          if token.is_empty() {
+            continue;
+          }
+          // next non-empty token is table name
+          requests.extend(parse_copy(token, rest)?);
         }
-        // next non-empty token is table name
-        return parse_copy(token, rest);
       }
     }
+
+    let dialect = MsdSqlDialect {};
+    let ast = Parser::parse_sql(&dialect, sql)?;
+
+    for stmt in ast {
+      requests.extend(parse_stmt(stmt)?);
+    }
   }
-
-  let dialect = MsdSqlDialect {};
-  let ast = Parser::parse_sql(&dialect, sql)?;
-
-  let r = ast
-    .into_iter()
-    .map(parse_stmt)
-    .collect::<Result<Vec<_>, _>>()?;
-  Ok(r.into_iter().flatten().collect())
+  Ok(requests)
 }
 
 fn parse_stmt(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {

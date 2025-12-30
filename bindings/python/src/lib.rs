@@ -17,7 +17,7 @@ mod msd {
     types::{PyList, PyTuple},
   };
 
-  use crate::py_table::{PyArrayTyped, table_to_py_dict};
+  use crate::py_table::{PyArrayTyped, table_to_py_list};
 
   #[pyfunction]
   fn set_local_zone(tz: i8) {
@@ -58,8 +58,13 @@ mod msd {
       .and_then(|v| v.get_str())
       .map(|v| v.to_string())
       .unwrap_or_default();
+    let table_name = table
+      .get_table_meta("table")
+      .and_then(|v| v.get_str())
+      .map(|v| v.to_string())
+      .unwrap_or_default();
 
-    (obj, table_to_py_dict(py, table)).into_pyobject(py)
+    (table_name, obj, table_to_py_list(py, table)).into_pyobject(py)
   }
 
   /// Pack columns into a table frame.

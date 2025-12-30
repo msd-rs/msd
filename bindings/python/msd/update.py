@@ -5,7 +5,7 @@
 
 from typing import BinaryIO, Iterator, Tuple
 from .const import *
-from .pack import DataFrame, pack_dataframe
+from .pack import pack_dataframe
 
 def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = True) -> dict:
   """
@@ -38,7 +38,7 @@ def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = Tr
 
   
 
-def import_dataframes(baseURL: str, table_name: str, data: Iterator[Tuple[str, DataFrame]]) -> dict:
+def import_dataframes(baseURL: str, table_name: str, data: Iterator[MsdTableFrame]) -> dict:
   """
   Import data from a generator of (object name, data) to msd.
 
