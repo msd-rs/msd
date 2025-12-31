@@ -8,6 +8,8 @@ main:
       runner:
         tags: cnb:arch:amd64
         cpus: 16
+      volumes:
+        - ./target
       env:
         RUSTFLAGS: "-C target-feature=+sse4.2 -C target-feature=+avx2 -C target-feature=+pclmulqdq"
       stages:
@@ -15,8 +17,8 @@ main:
           script: grep -o '^version = "[0-9.]*"' Cargo.toml | sed 's/version = "//' | sed 's/"$//'
           exports:
             info: MSD_VERSION
-        - name: build msd
-          script: cargo build --release -vv
+        - name: build
+          script: make all
         - name: set docker tag
           script: echo -n "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest"
           exports:
@@ -25,8 +27,6 @@ main:
           script: docker build -t $IMAGE_TAG .
         - name: push docker image
           script: docker push $IMAGE_TAG
-        - name: build python binding
-          script: maturin build -r -m bindings/python/Cargo.toml
         - name: push python binding
           script:
             - export TWINE_USERNAME="cnb"
