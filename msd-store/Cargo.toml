@@ -16,6 +16,7 @@ rocksdb = { version = "0.24", optional = true, default-features = false, feature
   "zstd",
   "lz4",
   "bindgen-runtime",
+  "jemalloc",
 ] }
 thiserror.workspace = true
 serde.workspace = true

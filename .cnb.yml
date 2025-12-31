@@ -18,7 +18,7 @@ main:
           exports:
             info: MSD_VERSION
         - name: build
-          script: make all
+          script: make release
         - name: set docker tag
           script: echo -n "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest"
           exports:
