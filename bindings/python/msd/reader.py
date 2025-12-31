@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: agpl-3.0-only
 
 
-from msd.const import MsdTable
-from .msd import check_table_frame, parse_table_frame
+from .const import MsdTable
+from ._msd import check_table_frame, parse_table_frame
 import io
 from typing import AsyncGenerator, Generator, Tuple
 import asyncio

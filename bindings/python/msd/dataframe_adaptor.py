@@ -1,4 +1,3 @@
-import numpy as npt
 from typing import Any, Generator, Literal, Tuple
 from os import PathLike
 from .const import MsdTable, MsdTableFrame
@@ -24,7 +23,7 @@ class DataFrameAdaptor[DataFrame]():
     """
     ...
 
-  def fields(self, df: DataFrame) -> list[tuple[str, str]]:
+  def fields(self, df: DataFrame) -> list[Tuple[str, str]]:
     """
     get fields of a DataFrame
     """
@@ -50,7 +49,8 @@ class DataFrameAdaptor[DataFrame]():
 
 
 
-ADAPTORS = []
+ADAPTORS: list[DataFrameAdaptor] = []
+
 try:
   import pandas as pd
   class PandasAdaptor(DataFrameAdaptor[pd.DataFrame]):

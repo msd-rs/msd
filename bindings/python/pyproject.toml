@@ -25,3 +25,5 @@ dev = [
     "requests>=2.32.4",
 ]
 
+[tool.maturin]
+module-name = "msd._msd"

@@ -55,11 +55,11 @@ def query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None) -
 
 
 @overload
-async def async_query(baseURL: str, sql: str) -> AsyncGenerator[Tuple[str, str, MsdTable], None] :
+def async_query(baseURL: str, sql: str) -> AsyncGenerator[Tuple[str, str, MsdTable], None] :
     ...
 
 @overload
-async def async_query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R]) -> AsyncGenerator[Tuple[str, str, R], None] :
+def async_query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R]) -> AsyncGenerator[Tuple[str, str, R], None] :
     ...
 
 async def async_query[R](baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None) -> AsyncGenerator[Tuple[str, str, R|MsdTable], None] : # type: ignore

@@ -3,10 +3,10 @@
 
 
 
-from msd.const import SupportedDataFrame
+from .const import SupportedDataFrame
 import numpy as np
-from .msd import pack_table_frame
-from msd.dataframe_adaptor import ADAPTORS
+from ._msd import pack_table_frame
+from .dataframe_adaptor import ADAPTORS
 
 
 

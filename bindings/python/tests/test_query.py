@@ -55,7 +55,7 @@ def test_query_concat_pandas(benchmark) -> None :
   adaptor = PandasAdaptor()
   @benchmark
   def concat_pandas() -> None :
-    dfs = []
+    dfs: list[pd.DataFrame] = []
     for table_name, obj, table in msd.query(BASE_URL, sql, adaptor.build) :
       dfs.append(table)
     df = pd.concat(dfs, ignore_index=True)

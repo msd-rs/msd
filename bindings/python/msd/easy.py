@@ -6,19 +6,18 @@ A Easy API for msd as pythonic way. Without writing SQL.
 """
 
 import datetime
-from msd.const import MsdTableFrame
-from msd.dataframe_adaptor import DataFrameAdaptor
-from msd.update import import_csv, import_dataframes
+from .const import MsdTableFrame
+from .dataframe_adaptor import DataFrameAdaptor
+from .update import import_csv, import_dataframes
 from typing import Iterator, Literal, overload
 from collections import defaultdict
-from msd.query import query
+from .query import query
 
 
 class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
   def __init__(self, baseURL: str, adaptor: Adaptor) -> None:
     self.baseURL = baseURL
     self.adaptor = adaptor
-    self._tables = self.tables()
 
 
 
@@ -30,7 +29,6 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    limit: int | None = None,
     ) -> dict[str, DataFrame]:
     ...
 
@@ -43,7 +41,6 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    limit: int | None = None,
     ) -> dict[str, dict[str, DataFrame]]:
     ...
 
@@ -54,10 +51,10 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    limit: int | None = None,
     )-> dict[str, dict[str, DataFrame]] | dict[str, DataFrame]:
     """
-    Load data from msd
+    Load data from msd, the data will be organized as {obj: {table: DataFrame}} or {obj: DataFrame} if join is specified.
+
     """
     sql = []
     tables = [tables] if isinstance(tables, str) else tables
@@ -87,8 +84,7 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
       else:
         ts_where = ""
       obj_where = ", ".join([f"'{o}'" for o in objs])
-      limit_str = f" limit {limit}" if limit is not None else ""
-      sql.append(f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where} {limit_str};")
+      sql.append(f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where};")
 
     
     # If only one table and one object, and no join, return DataFrame directly
@@ -102,7 +98,7 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
 
 
     if join is not None:
-      joined_result = {}
+      joined_result: dict[str, DataFrame] = {}
       for obj in result.values():
         joined_df = None
         for table in obj.values():
@@ -145,21 +141,19 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     """
     for _, _, result in query(self.baseURL, f"desc {table}", self.adaptor.build):
       return result
-    return self.adaptor.build([])
 
   def create_table(self, table: str, df: DataFrame):
     """
     Create a table from a DataFrame
     """
     sql = [f"create table {table} ("]
-    col_def = []
+    col_def: list[str] = []
     for name, kind in self.adaptor.fields(df):
       col_def.append(f"{name} {kind}")
     sql.append(",\n".join(col_def))
     sql.append(")")
     for _, _, _ in query(self.baseURL, "\n".join(sql)):
       return
-    return
 
 
 def create_msd_pandas(baseURL: str):

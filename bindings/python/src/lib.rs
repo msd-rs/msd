@@ -6,7 +6,7 @@ mod py_table;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-mod msd {
+mod _msd {
   use std::collections::HashMap;
 
   use msd_request::{pack_table_ref_frame, unpack_table_frame};

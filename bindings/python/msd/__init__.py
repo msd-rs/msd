@@ -8,6 +8,7 @@ from .update import import_csv, import_dataframes
 from .const import MSD_USER_AGENT, MSD_IMPORT_PATH, MSD_QUERY_PATH
 from .pack import pack_dataframe
 from .easy import create_msd_pandas, create_msd_polars, MsdClient
+from ._msd import check_table_frame, parse_table_frame, pack_table_frame
 
 __all__ = [
   "MSD_IMPORT_PATH",
