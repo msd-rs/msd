@@ -378,10 +378,11 @@ impl Table {
         self.column_count(),
       ));
     }
-    for row in other.rows(rev) {
+    let mut iter = other.rows(rev);
+    while let Some(row) = iter.next_cached() {
       if filter(&row) {
         for (col_self, cell) in self.columns.iter_mut().zip(row.into_iter()) {
-          col_self.data.push(cell.into())?;
+          col_self.data.push(cell.to_variant())?;
         }
       }
     }
@@ -559,11 +560,8 @@ impl<'t> RowIter<'t> {
       template: vec![VariantRef::Null; table.column_count()],
     }
   }
-}
 
-impl<'t> Iterator for RowIter<'t> {
-  type Item = Vec<VariantRef<'t>>;
-  fn next(&mut self) -> Option<Self::Item> {
+  pub fn next_cached(&mut self) -> Option<&Vec<VariantRef<'t>>> {
     if self.index >= self.rows {
       return None;
     }
@@ -582,6 +580,13 @@ impl<'t> Iterator for RowIter<'t> {
       });
 
     self.index += 1;
-    Some(self.template.clone())
+    Some(&self.template)
+  }
+}
+
+impl<'t> Iterator for RowIter<'t> {
+  type Item = Vec<VariantRef<'t>>;
+  fn next(&mut self) -> Option<Self::Item> {
+    self.next_cached().map(|row| row.to_vec())
   }
 }
