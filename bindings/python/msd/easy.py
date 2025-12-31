@@ -14,8 +14,8 @@ from collections import defaultdict
 from .query import query
 
 
-class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
-  def __init__(self, baseURL: str, adaptor: Adaptor) -> None:
+class MsdClient[DF]:
+  def __init__(self, baseURL: str, adaptor: DataFrameAdaptor[DF]) -> None:
     self.baseURL = baseURL
     self.adaptor = adaptor
 
@@ -29,7 +29,7 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    ) -> dict[str, DataFrame]:
+    ) -> dict[str, DF]:
     ...
 
   @overload
@@ -41,7 +41,7 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    ) -> dict[str, dict[str, DataFrame]]:
+    ) -> dict[str, dict[str, DF]]:
     ...
 
   def load(self, 
@@ -51,9 +51,9 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
     start: str | datetime.datetime | None = None, 
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
-    )-> dict[str, dict[str, DataFrame]] | dict[str, DataFrame]:
+    )-> dict[str, dict[str, DF]] | dict[str, DF]:
     """
-    Load data from msd, the data will be organized as {obj: {table: DataFrame}} or {obj: DataFrame} if join is specified.
+    Load data from msd, the data will be organized as {obj: {table: DF}} or {obj: DF} if join is specified.
 
     """
     sql = []
@@ -87,26 +87,22 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
       sql.append(f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where};")
 
     
-    # If only one table and one object, and no join, return DataFrame directly
-    if len(tables) == 1 and len(objs) == 1 and join is None:
-      for table, obj, df in query(self.baseURL, "\n".join(sql), self.adaptor.build):
-        return df
-    
-    result = defaultdict(dict)
+    result: dict[str, dict[str, DF]] = defaultdict(dict)
     for table, obj, df in query(self.baseURL, "\n".join(sql), self.adaptor.build):
       result[obj][table] = df
 
 
     if join is not None:
-      joined_result: dict[str, DataFrame] = {}
-      for obj in result.values():
-        joined_df = None
-        for table in obj.values():
+      joined_result: dict[str, DF] = {}
+      for obj, obj_tables in result.items():
+        joined_df: DF | None = None
+        for _, df in obj_tables.items():
           if joined_df is None:
-            joined_df = table
+            joined_df = df
           else:
-            joined_df = self.adaptor.join_asof(joined_df, table, "ts", join)
-        joined_result[obj] = joined_df
+            joined_df = self.adaptor.join_asof(joined_df, df, "ts", join)
+        if joined_df is not None:
+          joined_result[obj] = joined_df
       return joined_result
     else:
       return result
@@ -124,6 +120,8 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
         raise ValueError(f"Unsupported file format: {data}")
     elif isinstance(data, Iterator):
       return import_dataframes(self.baseURL, table, data)
+    else:
+      raise ValueError(f"Unsupported data type: {type(data)}")
 
 
   def tables(self) -> list[str]:
@@ -135,14 +133,14 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
         return result[0][1].tolist()
     return []
 
-  def table_schema(self, table: str) -> DataFrame:
+  def table_schema(self, table: str) -> DF:
     """
     Get table schema
     """
     for _, _, result in query(self.baseURL, f"desc {table}", self.adaptor.build):
       return result
 
-  def create_table(self, table: str, df: DataFrame):
+  def create_table(self, table: str, df: DF):
     """
     Create a table from a DataFrame
     """
@@ -159,13 +157,13 @@ class MsdClient[DataFrame, Adaptor: DataFrameAdaptor]:
 def create_msd_pandas(baseURL: str):
   import pandas
   from msd.dataframe_adaptor import PandasAdaptor
-  return MsdClient[pandas.DataFrame, PandasAdaptor](baseURL, PandasAdaptor())
+  return MsdClient[pandas.DataFrame](baseURL, PandasAdaptor()) # type: ignore
 
 
 def create_msd_polars(baseURL: str):
   import polars
   from msd.dataframe_adaptor import PolarsAdaptor
-  return MsdClient[polars.DataFrame, PolarsAdaptor](baseURL, PolarsAdaptor())
+  return MsdClient[polars.DataFrame](baseURL, PolarsAdaptor()) # type: ignore
   
 
 

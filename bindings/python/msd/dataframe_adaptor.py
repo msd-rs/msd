@@ -3,9 +3,9 @@ from os import PathLike
 from .const import MsdTable, MsdTableFrame
 
 
-class DataFrameAdaptor[DataFrame]():
+class DataFrameAdaptor[DF]():
 
-  def build(self, table: MsdTable) -> DataFrame:
+  def build(self, table: MsdTable) -> DF:
     """
     create a DataFrame from a table
     """
@@ -17,25 +17,25 @@ class DataFrameAdaptor[DataFrame]():
     """
     ...
   
-  def join_asof(self, df1: DataFrame, df2: DataFrame, on: str, method: Literal['backward', 'forward', 'nearest']) -> DataFrame:
+  def join_asof(self, df1: DF, df2: DF, on: str, method: Literal['backward', 'forward', 'nearest']) -> DF:
     """
     join two DataFrames asof
     """
     ...
 
-  def fields(self, df: DataFrame) -> list[Tuple[str, str]]:
+  def fields(self, df: DF) -> list[Tuple[str, str]]:
     """
     get fields of a DataFrame
     """
     ...
 
-  def to_msd_table(self, df: DataFrame) -> MsdTable:
+  def to_msd_table(self, df: DF) -> MsdTable:
     """
     convert a DataFrame to a msd table
     """
     ...
 
-  def is_data_frame(self, df: DataFrame) -> bool:
+  def is_data_frame(self, df: DF) -> bool:
     """
     check if a variable is a DataFrame
     """
