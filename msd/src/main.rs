@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
       .ok()
   });
 
-  set_default_timezone(main_options.tz_offset.unwrap().whole_hours());
+  set_default_timezone(main_options.tz_offset.unwrap());
 
   match &main_options.command {
     MsdCommands::Server(options) => {

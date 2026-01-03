@@ -4,7 +4,7 @@
 use std::vec;
 
 use msd_request::{InsertResponse, RequestError, RequestKey};
-use msd_table::{DataType, Table, Variant, parse_unit, round_ts};
+use msd_table::{DataType, Table, Variant, get_local_offset, parse_unit, round_ts_with_tz};
 use tracing::{debug, trace, warn};
 
 use super::{MsdStore, Worker};
@@ -58,6 +58,8 @@ impl<S: MsdStore> Worker<S> {
       .and_then(|s| parse_unit(s).ok())
       .unwrap_or((1, b's'));
 
+    let offset = get_local_offset();
+
     // Get chunk size from metadata
     let chunk_size = schema
       .get_table_meta("chunkSize")
@@ -97,7 +99,7 @@ impl<S: MsdStore> Worker<S> {
       debug!(?row, "Processing incoming row");
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
-      let pk = round_ts(raw_pk, &round_unit).unwrap_or(raw_pk);
+      let pk = round_ts_with_tz(raw_pk, &round_unit, offset).unwrap_or(raw_pk);
       let cached_min_pk = cache.last_pk();
 
       // Skip rows with pk less than cached min pk

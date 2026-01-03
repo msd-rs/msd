@@ -150,15 +150,18 @@ fn parse_tz(s: &str) -> Result<UtcOffset> {
       .map_err(|e| anyhow::anyhow!("Failed to get current local offset: {}", e));
   }
 
-  let format = format_description!("[offset_hour]");
-  match UtcOffset::parse(s, &format) {
-    Ok(offset) => Ok(offset),
-    Err(e) => Err(anyhow::anyhow!(
-      "Failed to parse timezone offset '{}': {}",
-      s,
-      e
-    )),
+  let format_hour = format_description!("[offset_hour]");
+  let format_minute = format_description!("[offset_hour]:[offset_minute]");
+
+  if let Ok(offset) = UtcOffset::parse(s, &format_minute) {
+    return Ok(offset);
   }
+
+  if let Ok(offset) = UtcOffset::parse(s, &format_hour) {
+    return Ok(offset);
+  }
+
+  Err(anyhow::anyhow!("Failed to parse timezone offset '{}'", s))
 }
 
 fn parse_compression(s: &str) -> Result<String> {

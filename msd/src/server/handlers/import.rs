@@ -19,7 +19,7 @@ use msd_db::request::MsdRequest;
 use msd_request::{
   InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
 };
-use msd_table::{Table, Variant};
+use msd_table::{Table, Variant, get_local_offset};
 use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -475,13 +475,15 @@ fn process_csv_block_simd(lines: &[u8], parse_schema: &Table) -> Result<(String,
         .unwrap_or_default();
     }
 
+    let tz = get_local_offset();
     let mut row = Vec::with_capacity(parse_schema.column_count());
     for (i, field) in parse_schema.columns().iter().enumerate() {
       let val_str = record
         .get(i + 1)
         .map(|s| String::from_utf8_lossy(s))
         .unwrap_or_default();
-      let variant = Variant::from_str(&val_str, field.kind).map_err(|e| e.to_string())?;
+      let variant =
+        Variant::from_str_with_tz(&val_str, field.kind, tz).map_err(|e| e.to_string())?;
       row.push(variant);
     }
     match table.push_row(row) {

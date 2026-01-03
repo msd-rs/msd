@@ -5,27 +5,30 @@
 
 use std::{
   convert::TryInto,
-  sync::atomic::{AtomicI8, Ordering},
+  sync::atomic::{AtomicI32, Ordering},
 };
 
-use time::{
-  Duration, Month, OffsetDateTime, UtcOffset, format_description::FormatItem,
-  macros::format_description,
+// re-export time crate
+pub use time::{
+  Duration, Month, OffsetDateTime, UtcOffset,
+  format_description::FormatItem,
+  macros::{format_description, offset},
 };
 
 use super::errors::TableError;
 
-static TZ_LOCAL: AtomicI8 = AtomicI8::new(8);
+static TZ_LOCAL: AtomicI32 = AtomicI32::new(8 * 60 * 60);
 pub const RFC3399_DATETIME: &[FormatItem] =
   format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]");
 
 /// 设置时间解析的默认的时区，出于安全性和性能考虑，不使用 localtime_r API，而是由配置指定, 默认的时区是 +8 即中国时区，参考 [`crate::MsdConf`]
-pub fn set_default_timezone(tz: i8) {
-  TZ_LOCAL.store(tz, Ordering::Relaxed);
+pub fn set_default_timezone(tz: UtcOffset) {
+  TZ_LOCAL.store(tz.whole_seconds(), Ordering::Relaxed);
 }
 
-pub fn get_local_offset() -> i64 {
-  TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000
+pub fn get_local_offset() -> UtcOffset {
+  let tz = TZ_LOCAL.load(Ordering::Relaxed);
+  UtcOffset::from_whole_seconds(tz).unwrap()
 }
 
 fn parse_i64(s: &[u8]) -> i64 {
@@ -169,7 +172,12 @@ where
   }
 }
 
-/// 解析时间到微秒的时间戳, 基于本地时间
+/// 解析时间到微秒的时间戳, 基于当前时区
+pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
+  parse_datetime_with_tz(s, get_local_offset())
+}
+
+/// 解析时间到微秒的时间戳, 基于指定时区
 ///
 /// 支持如下几种形式的字符串
 /// - 全为数字, 此时, 输入被理解成时间戳, 并根据其大小, 猜测单位并进行转换, 例如
@@ -179,7 +187,7 @@ where
 /// - 2021-01-02, 按日期解析
 /// - 2021-01-02 15:03:04, 按日期时间解析
 /// - 2021-01-02 15:03:04.999999, 按日期时间解析, 带有纳秒
-pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
+pub fn parse_datetime_with_tz(s: &str, tz: UtcOffset) -> Result<i64, TableError> {
   if s.is_empty() {
     return Err(TableError::BadDatetimeFormat(s.into()));
   }
@@ -205,9 +213,6 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
       sep = s.1.copied();
       n += 1;
     });
-
-  let local_offset: UtcOffset =
-    UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
 
   match n {
     1 => {
@@ -238,20 +243,20 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
     {
       time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
         .and_then(|d| d.with_hms(0, 0, 0))
-        .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
+        .map(|dt| (dt.assume_offset(tz).unix_timestamp_nanos() / 1_000) as i64)
         .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
     }
     // 2021-01-02 03:04:05
     6 => time::Date::from_calendar_date((&a[0]).into(), (&a[1]).into(), (&a[2]).into())
       .and_then(|d| d.with_hms((&a[3]).into(), (&a[4]).into(), (&a[5]).into()))
-      .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64)
+      .map(|dt| (dt.assume_offset(tz).unix_timestamp_nanos() / 1_000) as i64)
       .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into()),
     // 2021-01-02 03:04:05.999999 or 2021-01-02 03:04:05+08
     7 => {
       let (microsecond, hour_fix) = match (&a[6]).len {
         1..=2 => (
           0,
-          (TZ_LOCAL.load(Ordering::Relaxed) as i64 - (&a[6]).into_tz_hour()) * 3600_000_000,
+          (tz.whole_seconds() as i64 - (&a[6]).into_tz_hour() * 3600) * 1_000_000,
         ),
         3 => ((&a[6]).n * 1_000, 0),
         4 => ((&a[6]).n * 1_000_0, 0),
@@ -271,13 +276,12 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
             microsecond as u32,
           )
         })
-        .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
+        .map(|dt| (dt.assume_offset(tz).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
         .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
     }
     // 2021-01-02 03:04:05.999999+08
     8 => {
-      let hour_fix =
-        (TZ_LOCAL.load(Ordering::Relaxed) as i64 - (&a[7]).into_tz_hour()) * 3600_000_000;
+      let hour_fix = (tz.whole_seconds() as i64 - (&a[7]).into_tz_hour() * 3600) * 1_000_000;
       let microsecond = match (&a[6]).len {
         3 => (&a[6]).n * 1_000,
         4 => (&a[6]).n * 1_000_0,
@@ -297,7 +301,7 @@ pub fn parse_datetime(s: &str) -> Result<i64, TableError> {
             microsecond as u32,
           )
         })
-        .map(|dt| (dt.assume_offset(local_offset).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
+        .map(|dt| (dt.assume_offset(tz).unix_timestamp_nanos() / 1_000) as i64 + hour_fix)
         .map_err(|e| TableError::BadDatetimeFormat(e.to_string()).into())
     }
 
@@ -372,7 +376,7 @@ pub fn parse_unit(s: &str) -> Result<(i64, u8), bool> {
 }
 
 /// round the timestamp `src` to the given time unit parsed by [`parse_unit`]
-pub fn round_ts(src: i64, unit: &(i64, u8)) -> Result<i64, bool> {
+pub fn round_ts_with_tz(src: i64, unit: &(i64, u8), tz: UtcOffset) -> Result<i64, bool> {
   // no need to round
   if unit.0 == 1 && unit.1 == b's' {
     return Ok(src);
@@ -381,34 +385,32 @@ pub fn round_ts(src: i64, unit: &(i64, u8)) -> Result<i64, bool> {
   const ONE_DAY: i64 = 24 * 60 * 60 * 1_000_000;
   let (num, kind) = unit; //parse_unit(unit.as_bytes())?;
 
+  let offset = tz.whole_seconds() as i64 * 1_000_000;
+
   match kind {
     b'w' => {
       // week
-      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
       let src = src - ((src + offset) % ONE_DAY);
-      let dt = to_datetime(src);
+      let dt = to_datetime_with_tz(src, tz);
       let days = dt.weekday().number_days_from_monday() as i64;
       return Ok(src - days * ONE_DAY);
     }
     b'M' => {
       // month
-      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
       let src = src - ((src + offset) % ONE_DAY);
-      let dt = to_datetime(src);
+      let dt = to_datetime_with_tz(src, tz);
       let days = (dt.day() - 1) as i64;
       return Ok(src - days * ONE_DAY);
     }
     b'y' => {
       // year
-      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
       let src = src - ((src + offset) % ONE_DAY);
-      let dt = to_datetime(src);
+      let dt = to_datetime_with_tz(src, tz);
       let days = (dt.ordinal() - 1) as i64;
       return Ok(src - days * ONE_DAY);
     }
     b'd' => {
       // day
-      let offset = TZ_LOCAL.load(Ordering::Relaxed) as i64 * 3600_000_000;
       return Ok(src - ((src + offset) % ONE_DAY));
     }
     _ => {
@@ -418,6 +420,10 @@ pub fn round_ts(src: i64, unit: &(i64, u8)) -> Result<i64, bool> {
   }
 }
 
+pub fn round_ts(src: i64, unit: &(i64, u8)) -> Result<i64, bool> {
+  round_ts_with_tz(src, unit, get_local_offset())
+}
+
 pub fn add_duration(dt: i64, duration: Option<&str>) -> i64 {
   dt + duration
     .and_then(|s| parse_unit(s).ok())
@@ -425,40 +431,51 @@ pub fn add_duration(dt: i64, duration: Option<&str>) -> i64 {
     .unwrap_or_default()
 }
 
-/// 将一个纳秒转换成基于本地时间的 [`time::OffsetDateTime`]
-pub fn to_datetime(ns: i64) -> OffsetDateTime {
-  let local_offset: UtcOffset =
-    UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
-  OffsetDateTime::from_unix_timestamp_nanos(ns as i128 * 1_000)
-    .map(|dt| dt.to_offset(local_offset))
+/// 将一个微秒秒转换成基于指定时区的 [`time::OffsetDateTime`]
+pub fn to_datetime_with_tz(us: i64, tz: UtcOffset) -> OffsetDateTime {
+  OffsetDateTime::from_unix_timestamp_nanos(us as i128 * 1_000)
+    .map(|dt| dt.to_offset(tz))
     .unwrap_or(OffsetDateTime::now_utc())
+}
+
+/// 将一个微秒转换成基于本地时间的 [`time::OffsetDateTime`]
+pub fn to_datetime(us: i64) -> OffsetDateTime {
+  to_datetime_with_tz(us, get_local_offset())
+}
+
+/// 将一个微秒转换称 RFC3399 格式的字符串
+pub fn to_datetime_str_with_tz(us: i64, tz: UtcOffset) -> String {
+  to_datetime_with_tz(us, tz)
+    .format(RFC3399_DATETIME)
+    .unwrap_or_default()
 }
 
 /// 将一个纳秒转换称基于本地时间的字符 RFC3399
 pub fn to_datetime_str(ns: i64) -> String {
-  let local_offset: UtcOffset =
-    UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
-  OffsetDateTime::from_unix_timestamp_nanos(ns as i128 * 1_000)
-    .map(|dt| dt.to_offset(local_offset))
-    .map(|dt| dt.format(RFC3399_DATETIME).unwrap_or_default())
-    .unwrap_or_default()
+  to_datetime_str_with_tz(ns, get_local_offset())
 }
 
-/// 返回当前时区的 unix nano second
-pub fn now() -> i64 {
-  let local_offset: UtcOffset =
-    UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
+/// 返回给定时区的 unix micro second
+pub fn now_with_tz(tz: UtcOffset) -> i64 {
   OffsetDateTime::now_utc()
-    .to_offset(local_offset)
+    .to_offset(tz)
     .unix_timestamp_nanos() as i64
     / 1_000
 }
 
+/// 返回当前时区的 unix micro second
+pub fn now() -> i64 {
+  now_with_tz(get_local_offset())
+}
+
+/// 返回给定时区的时间
+pub fn now_datetime_with_tz(tz: UtcOffset) -> OffsetDateTime {
+  OffsetDateTime::now_utc().to_offset(tz)
+}
+
 /// 返回当前时区的时间
 pub fn now_datetime() -> OffsetDateTime {
-  let local_offset: UtcOffset =
-    UtcOffset::from_hms(TZ_LOCAL.load(Ordering::Relaxed), 0, 0).unwrap_or(UtcOffset::UTC);
-  OffsetDateTime::now_utc().to_offset(local_offset)
+  now_datetime_with_tz(get_local_offset())
 }
 
 #[cfg(test)]
@@ -511,7 +528,7 @@ mod tests {
 
   #[test]
   fn test_parse() {
-    set_default_timezone(8);
+    set_default_timezone(offset!(+8));
 
     assert_eq!(
       to_datetime(parse_datetime("1639447901252").unwrap()),

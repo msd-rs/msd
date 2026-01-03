@@ -11,8 +11,12 @@ mod cast;
 mod ops;
 
 use serde::{Deserialize, Serialize};
+use time::UtcOffset;
 
-use crate::{D64, D128, DataType, TableError, date::parse_datetime, to_datetime_str};
+use crate::{
+  D64, D128, DataType, TableError, date::parse_datetime, get_local_offset, parse_datetime_with_tz,
+  to_datetime_str,
+};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Variant {
@@ -128,7 +132,7 @@ impl Variant {
     }
   }
 
-  pub fn from_str(s: &str, dtype: DataType) -> Result<Self, TableError> {
+  pub fn from_str_with_tz(s: &str, dtype: DataType, tz: UtcOffset) -> Result<Self, TableError> {
     match dtype {
       DataType::Null => Ok(Variant::Null),
       DataType::Int32 => s
@@ -167,8 +171,12 @@ impl Variant {
       DataType::Decimal128 => D128::from_str(s)
         .map(Variant::Decimal128)
         .map_err(|_| TableError::UnknownDataType(s.to_string())),
-      DataType::DateTime => crate::date::parse_datetime(s).map(Variant::DateTime),
+      DataType::DateTime => parse_datetime_with_tz(s, tz).map(Variant::DateTime),
     }
+  }
+
+  pub fn from_str(s: &str, dtype: DataType) -> Result<Self, TableError> {
+    Self::from_str_with_tz(s, dtype, get_local_offset())
   }
 
   pub fn zero_value(&self) -> Self {

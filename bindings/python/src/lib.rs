@@ -10,7 +10,7 @@ mod _msd {
   use std::collections::HashMap;
 
   use msd_request::{pack_table_ref_frame, unpack_table_frame};
-  use msd_table::{FieldRef, TableRef};
+  use msd_table::{FieldRef, TableRef, UtcOffset};
   use pyo3::{
     exceptions::PyValueError,
     prelude::*,
@@ -20,13 +20,17 @@ mod _msd {
   use crate::py_table::{PyArrayTyped, table_to_py_list};
 
   #[pyfunction]
-  fn set_local_zone(tz: i8) {
-    msd_table::set_default_timezone(tz)
+  fn set_local_zone(tz: i8) -> PyResult<()> {
+    let tz =
+      UtcOffset::from_hms(tz, 0, 0).map_err(|_| PyValueError::new_err("invalid timezone"))?;
+    msd_table::set_default_timezone(tz);
+    Ok(())
   }
 
   #[pyfunction]
   fn get_local_offset() -> i64 {
-    msd_table::get_local_offset()
+    let offset = msd_table::get_local_offset();
+    offset.whole_seconds() as i64 * 1_000_000
   }
 
   /// Checks if the buffer is a table frame.
