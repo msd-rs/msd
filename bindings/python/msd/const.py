@@ -7,7 +7,7 @@ import numpy as np
 MSD_USER_AGENT = "msd-client"
 MSD_QUERY_PATH = "/query"
 MSD_IMPORT_PATH = "/table/{table_name}"
-
+MSD_TABLE_VERSION = 1299972097
 
 type MsdTable = list[tuple[str, np.ndarray]] 
 

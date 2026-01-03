@@ -5,6 +5,7 @@
 A Easy API for msd as pythonic way. Without writing SQL.
 """
 
+from .json_table import parse_json_table
 import datetime
 from .const import MsdTableFrame
 from .dataframe_adaptor import DataFrameAdaptor
@@ -15,11 +16,17 @@ from .query import query
 
 
 class MsdClient[DF]:
+
+  """
+  A Easy API for msd as pythonic way. Without writing SQL.
+
+  To use it, you need to create a MsdClient instance with a DataFrameAdaptor.
+  """
+
   def __init__(self, baseURL: str, adaptor: DataFrameAdaptor[DF]) -> None:
     self.baseURL = baseURL
     self.adaptor = adaptor
-
-
+    self._table_schemas: dict[str, DF] = {}
 
   @overload
   def load(self, 
@@ -30,6 +37,9 @@ class MsdClient[DF]:
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
     ) -> dict[str, DF]:
+    """
+    Load data from msd, result will be organized as {obj: DF} because join is specified.
+    """
     ...
 
   @overload
@@ -42,6 +52,9 @@ class MsdClient[DF]:
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
     ) -> dict[str, dict[str, DF]]:
+    """
+    Load data from msd, result will be organized as {obj: {table: DF}} because join is not specified.
+    """
     ...
 
   def load(self, 
@@ -52,6 +65,7 @@ class MsdClient[DF]:
     end: str | datetime.datetime | None = None, 
     fields : dict[str, list[str]] | list[str] | None = None, 
     )-> dict[str, dict[str, DF]] | dict[str, DF]:
+
     """
     Load data from msd, the data will be organized as {obj: {table: DF}} or {obj: DF} if join is specified.
 
@@ -129,15 +143,22 @@ class MsdClient[DF]:
     List available tables
     """
     for _, _, result in query(self.baseURL, ".tables"):
-      if isinstance(result, list):
-        return result[0][1].tolist()
-    return []
+      if len(result) != 2:
+        raise ValueError("Unexpected result from .tables")
+      for name, schema in zip(result[0][1], result[1][1]):
+        df = parse_json_table(schema, self.adaptor.build)
+        self._table_schemas[name] = df
+
+    return list(self._table_schemas.keys())
 
   def table_schema(self, table: str) -> DF:
     """
     Get table schema
     """
+    if table in self._table_schemas:
+      return self._table_schemas[table]
     for _, _, result in query(self.baseURL, f"desc {table}", self.adaptor.build):
+      self._table_schemas[table] = result
       return result
 
   def create_table(self, table: str, df: DF):
@@ -155,12 +176,18 @@ class MsdClient[DF]:
 
 
 def create_msd_pandas(baseURL: str):
+  """
+  Create a MsdClient instance with pandas DataFrame
+  """
   import pandas
   from msd.dataframe_adaptor import PandasAdaptor
   return MsdClient[pandas.DataFrame](baseURL, PandasAdaptor()) # type: ignore
 
 
 def create_msd_polars(baseURL: str):
+  """
+  Create a MsdClient instance with polars DataFrame
+  """
   import polars
   from msd.dataframe_adaptor import PolarsAdaptor
   return MsdClient[polars.DataFrame](baseURL, PolarsAdaptor()) # type: ignore

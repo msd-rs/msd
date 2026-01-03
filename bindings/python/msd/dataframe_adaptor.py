@@ -1,9 +1,19 @@
+# Copyright 2026 MSD-RS Project LiJia
+# SPDX-License-Identifier: agpl-3.0-only
+
+"""
+Adaptors for DataFrames, because msd doesn't force users to use pandas or polars. 
+It use the adaptor pattern to adapt different DataFrames.
+"""
+
 from typing import Any, Generator, Literal, Tuple
-from os import PathLike
 from .const import MsdTable, MsdTableFrame
 
 
 class DataFrameAdaptor[DF]():
+  """
+  Adaptor for DataFrame
+  """
 
   def build(self, table: MsdTable) -> DF:
     """

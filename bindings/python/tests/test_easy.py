@@ -36,8 +36,6 @@ def test_easy_query():
   assert not df.is_empty()
   assert df.shape[1] == 7  # ts, open, high, low
 
-
-
 if __name__ == "__main__":
   import logging
   logging.basicConfig(level=logging.INFO)

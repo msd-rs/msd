@@ -9,6 +9,7 @@ from msd.const import MSD_USER_AGENT, MSD_IMPORT_PATH, MSD_QUERY_PATH
 from msd.pack import pack_dataframe
 from msd.easy import create_msd_pandas, create_msd_polars, MsdClient
 from msd._msd import check_table_frame, parse_table_frame, pack_table_frame
+from msd.json_table import parse_json_table
 
 __all__ = [
   "MSD_IMPORT_PATH",
@@ -21,6 +22,7 @@ __all__ = [
   "import_csv",
   "import_dataframes",
   "pack_dataframe",
+  "parse_json_table",
   "parse_reader",
   "parse_reader_async",
   "query",
