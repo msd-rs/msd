@@ -5,6 +5,7 @@
 A Easy API for msd as pythonic way. Without writing SQL.
 """
 
+from pathlib import Path
 from .json_table import parse_json_table
 import datetime
 from .const import MsdTableFrame
@@ -124,12 +125,19 @@ class MsdClient[DF]:
   def save(self, table: str, data: Iterator[MsdTableFrame] | str, /, **kwargs) -> dict:
     """
     Save DataFrame or file to a table
+
+    Args:
+      table: table name
+      data: iterator of MsdTableFrame or csv file path, read 'import csv' for more details
     """
 
     if isinstance(data, str):
-      if data.endswith('.csv'):
+      p = Path(data)
+      if p.suffix == '.csv' and p.is_file():
         with open(data, 'rb') as f:
           return import_csv(self.baseURL, table, f, **kwargs)
+      elif p.is_dir():
+        return import_dataframes(self.baseURL, table, self.adaptor.read_data_file(data, **kwargs))
       else:
         raise ValueError(f"Unsupported file format: {data}")
     elif isinstance(data, Iterator):

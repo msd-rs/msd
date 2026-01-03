@@ -26,6 +26,7 @@ class DataFrameAdaptor[DF]():
     read a data file
     """
     ...
+
   
   def join_asof(self, df1: DF, df2: DF, on: str, method: Literal['backward', 'forward', 'nearest']) -> DF:
     """
@@ -55,7 +56,8 @@ class DataFrameAdaptor[DF]():
     """
     check if a file is a data file
     """
-    return p.endswith(('.csv', '.json', '.jsonl', '.xlsx', '.xls'))
+    return p.endswith(('.csv'))
+
 
 
 
@@ -72,11 +74,11 @@ try:
         read = pd.read_excel(p, **kwargs)
         if isinstance(read, dict):
           for sheet_name, df in read.items():
-            yield (sheet_name, self.to_msd_table(df))
+            yield (sheet_name, df)
         elif isinstance(read, pd.DataFrame):
           first_col = read.columns[0]
           for col, g in read.groupby(first_col):
-            yield (str(col), self.to_msd_table(g.drop(columns=first_col)))
+            yield (str(col), g.drop(columns=first_col))
       else:
         raise ValueError(f"Unsupported file format: {p}")
     
@@ -129,11 +131,11 @@ try:
         read = pl.read_excel(p, **kwargs)
         if isinstance(read, dict):
           for sheet_name, df in read.items():
-            yield (sheet_name, self.to_msd_table(df))
+            yield (sheet_name, df)
         elif isinstance(read, pl.DataFrame):
           first_col = read.columns[0]
           for col, g in read.group_by(first_col):
-            yield (str(col), self.to_msd_table(g.drop(first_col)))
+            yield (str(col), g.drop(first_col))
       else:
         raise ValueError(f"Unsupported file format: {p}")
     

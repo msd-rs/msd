@@ -48,27 +48,32 @@ def parse_json_table[DF](text: str, builder: Callable[[MsdTable], DF] | None = N
 def empty_ndarray_by_kind(kind: str) -> np.ndarray:
   if kind == "DateTime":
     return np.empty(0, dtype="datetime64[us]")
-  if kind == "Float64":
+  elif kind == "Float64":
     return np.empty(0, dtype="float64")
-  if kind == "Float32":
+  elif kind == "Float32":
     return np.empty(0, dtype="float32")
-  if kind == "Int64":
+  elif kind == "Int64":
     return np.empty(0, dtype="int64")
-  if kind == "Int32":
+  elif kind == "Int32":
     return np.empty(0, dtype="int32")
-  if kind == "Int16":
+  elif kind == "Int16":
     return np.empty(0, dtype="int16")
-  if kind == "Int8":
+  elif kind == "Int8":
     return np.empty(0, dtype="int8")
-  if kind == "UInt64":
+  elif kind == "UInt64":
     return np.empty(0, dtype="uint64")
-  if kind == "UInt32":
+  elif kind == "UInt32":
     return np.empty(0, dtype="uint32")
-  if kind == "UInt16":
+  elif kind == "UInt16":
     return np.empty(0, dtype="uint16")
-  if kind == "UInt8":
+  elif kind == "UInt8":
     return np.empty(0, dtype="uint8")
-  raise ValueError(f"unknown kind: {kind}")  
+  elif kind == "String":
+    return np.empty(0, dtype="object")
+  elif kind == "Boolean":
+    return np.empty(0, dtype="bool")
+  else:
+    raise ValueError(f"unknown kind: {kind}")  
 
 
 

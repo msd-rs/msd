@@ -11,7 +11,6 @@ MSD_TABLE_VERSION = 1299972097
 
 type MsdTable = list[tuple[str, np.ndarray]] 
 
-type MsdTableFrame = Tuple[str,MsdTable]
 
 
 if TYPE_CHECKING:
@@ -21,3 +20,5 @@ if TYPE_CHECKING:
   type SupportedDataFrame = MsdTable | pandas.DataFrame | polars.DataFrame
 else:
   type SupportedDataFrame = Any
+
+type MsdTableFrame = Tuple[str,SupportedDataFrame]
