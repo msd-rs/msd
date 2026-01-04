@@ -10,5 +10,6 @@ pub enum Broadcast {
   UpdateSchema(HashMap<String, Table>),
   CreateTable(String, Table),
   DropTable(String),
+  Flush,
   Shutdown,
 }

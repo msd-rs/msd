@@ -11,7 +11,7 @@ use axum::{
   Router,
   routing::{post, put},
 };
-use msd_db::MsdDb;
+use msd_db::{MsdDb, MsdDbOptions};
 use msd_store::RocksDbStore;
 use tower_http::{
   compression::CompressionLayer, cors::CorsLayer, decompression::DecompressionLayer,
@@ -56,7 +56,11 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
 
   let store = RocksDbStore::new(&db_path)?;
-  let db = MsdDb::new(store, server_options.worker_threads).await?;
+  let options = MsdDbOptions {
+    worker_count: server_options.worker_threads,
+    refresh_interval: server_options.flush_interval.whole_microseconds() as i64,
+  };
+  let db = MsdDb::new(store, options).await?;
 
   let db = Arc::new(db);
   let app = Router::new()

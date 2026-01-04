@@ -3,6 +3,9 @@
 
 //! MsdDb implementation.
 //!
+
+mod flusher;
+
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -25,38 +28,57 @@ use crate::worker::{Chan, Worker};
 const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";
 const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
 
+#[derive(Debug, Clone, Default)]
+pub struct MsdDbOptions {
+  pub worker_count: usize,
+  pub refresh_interval: i64,
+}
+
 /// MSD Database
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
   workers: Vec<mpsc::Sender<MsdRequest>>,
   schemas: Arc<RwLock<HashMap<String, Table>>>,
   objects: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+  flusher: mpsc::Sender<Broadcast>,
 }
 
 /// ## Public methods
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   /// Create a new MsdDb instance with the given store and number of workers
-  pub async fn new(store: S, worker_count: usize) -> Result<Self, DbError> {
+  pub async fn new(store: S, options: MsdDbOptions) -> Result<Self, DbError> {
     let store = Arc::new(store);
-    let mut workers = Vec::with_capacity(worker_count);
+    let mut workers = Vec::with_capacity(options.worker_count);
+    let mut flash_workers = Vec::with_capacity(options.worker_count);
 
-    info!(workers = worker_count, "database workers starting");
-    for i in 0..worker_count {
+    info!(workers = options.worker_count, "database workers starting");
+    for i in 0..options.worker_count {
       let (tx, rx) = mpsc::channel(200_000);
       workers.push(tx.clone());
-      let worker = Worker::new(i, store.clone(), tx);
+      flash_workers.push(tx.clone());
+      let worker = Worker::new(i, store.clone(), tx, options.refresh_interval);
       tokio::spawn(worker.run(rx));
     }
 
     let schemas = Arc::new(RwLock::new(HashMap::new()));
     let objects = Arc::new(RwLock::new(HashMap::new()));
+    let (flusher_tx, flusher_rx) = mpsc::channel(1);
 
     let db = Self {
       store: store.clone(),
       workers,
       schemas,
       objects,
+      flusher: flusher_tx,
     };
+
+    if options.refresh_interval > 0 {
+      let _ = tokio::spawn(flusher::bg_flush(
+        options.refresh_interval,
+        flash_workers,
+        flusher_rx,
+      ));
+    }
 
     info!("loading database schema");
     match db.load_schema() {
@@ -96,6 +118,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
   pub async fn shutdown(&self) {
     info!("database workers stopping");
+    let _ = self.flusher.send(Broadcast::Shutdown).await;
     let tasks = self
       .workers
       .iter()

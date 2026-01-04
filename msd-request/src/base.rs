@@ -45,7 +45,7 @@ impl Display for RequestKey {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Copy)]
 pub struct DateRange {
   /// start (timestamp, inclusive)
   pub start: Option<(i64, bool)>,

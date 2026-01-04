@@ -7,12 +7,13 @@
 //! Each worker maintains its own cache and interacts with the underlying store.
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use msd_store::MsdStore;
-use msd_table::Table;
+use msd_table::{Table, now};
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::errors::DbError;
 use crate::index::IndexItem;
@@ -37,17 +38,24 @@ pub struct Worker<S: MsdStore> {
   pub cache: CacheMap,
   pub schema: HashMap<String, Table>,
   pub tx: mpsc::Sender<MsdRequest>,
+  pub refresh_interval: i64,
 }
 
 /// # management functions for Worker
 impl<S: MsdStore> Worker<S> {
-  pub fn new(id: usize, store: Arc<S>, tx: mpsc::Sender<MsdRequest>) -> Self {
+  pub fn new(
+    id: usize,
+    store: Arc<S>,
+    tx: mpsc::Sender<MsdRequest>,
+    refresh_interval: i64,
+  ) -> Self {
     Self {
       id,
       store,
       cache: CacheMap::default(),
       schema: HashMap::new(),
       tx,
+      refresh_interval,
     }
   }
 
@@ -112,6 +120,27 @@ impl<S: MsdStore> Worker<S> {
           !should_drop
         });
       }
+      Broadcast::Flush => {
+        let now = now();
+        let store = self.store.clone();
+        self.cache.iter_mut().for_each(|(key, cache_item)| {
+          if cache_item.last_changed + self.refresh_interval >= now {
+            trace!(?key, "Flushing cache");
+            if let Err(err) = Self::flush_index(store.clone(), key, &cache_item.index) {
+              warn!(%key, %err, "Failed to flush index for key");
+            }
+            if let Err(err) = Self::flush_chunk(
+              store.clone(),
+              key,
+              &cache_item.cached,
+              cache_item.index.len() as u32 - 1,
+            ) {
+              warn!(%key, %err, "Failed to flush chunk for key");
+            }
+            cache_item.last_changed = now;
+          }
+        });
+      }
       _ => { /* ignore other broadcast messages */ }
     }
   }
@@ -120,11 +149,15 @@ impl<S: MsdStore> Worker<S> {
     info!(id = self.id, "worker stopping");
     for (key, cache_item) in &self.cache {
       debug!(?key, "Flushing cache before shutdown");
-      if let Err(err) = self.flush_index(key, &cache_item.index) {
+      if let Err(err) = Self::flush_index(self.store.clone(), key, &cache_item.index) {
         warn!(%key, %err, "Failed to flush index for key during shutdown");
       }
-      if let Err(err) = self.flush_chunk(key, &cache_item.cached, cache_item.index.len() as u32 - 1)
-      {
+      if let Err(err) = Self::flush_chunk(
+        self.store.clone(),
+        key,
+        &cache_item.cached,
+        cache_item.index.len() as u32 - 1,
+      ) {
         warn!(%key, %err, "Failed to flush chunk for key during shutdown");
       }
     }
@@ -140,29 +173,27 @@ impl<S: MsdStore> Worker<S> {
 impl<S: MsdStore> Worker<S> {
   /// Flush the index for a given key to the store.
   pub(crate) fn flush_index(
-    &self,
+    store: Arc<S>,
     key: &RequestKey,
     index: &Vec<IndexItem>,
   ) -> Result<(), DbError> {
     let index_key = Key::new_index(&key.obj);
     let index_val = DbBinary::to_bytes(index).map_err(|e| DbError::from(e))?;
-    self
-      .store
+    store
       .put(&index_key, index_val, &key.table, None)
       .map_err(|e| DbError::from(e))
   }
 
   /// Flush the chunk data for a given key to the store.
   pub(crate) fn flush_chunk(
-    &self,
+    store: Arc<S>,
     key: &RequestKey,
     data: &Table,
     seq: u32,
   ) -> Result<(), DbError> {
     let data_key = Key::new_data(&key.obj, seq);
     let data_val = DbBinary::to_bytes(data).map_err(|e| DbError::from(e))?;
-    self
-      .store
+    store
       .put(&data_key, data_val, &key.table, None)
       .map_err(|e| DbError::from(e))
   }

@@ -53,6 +53,6 @@ pub mod errors;
 pub mod index;
 pub mod request;
 pub mod worker;
-pub use db::MsdDb;
+pub use db::{MsdDb, MsdDbOptions};
 mod serde;
 pub use serde::DbBinary;

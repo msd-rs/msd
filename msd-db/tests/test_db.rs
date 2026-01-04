@@ -6,6 +6,7 @@ use std::{path::Path, sync::Once, vec};
 use anyhow::Result;
 use msd_db::{
   MsdDb,
+  MsdDbOptions,
   request::{DeleteRequest, InsertData, InsertRequest, MsdRequest, QueryRequest, RequestKey}, // Added DeleteRequest
 };
 use msd_request::AggStateId;
@@ -29,7 +30,11 @@ fn setup() {
 
 async fn create_db<P: AsRef<Path>>(path: P) -> Result<Db> {
   let s = RocksDbStore::new(path)?;
-  let db = MsdDb::new(s, 1).await?;
+  let opts = MsdDbOptions {
+    worker_count: 1,
+    ..Default::default()
+  };
+  let db = MsdDb::new(s, opts).await?;
   Ok(db)
 }
 

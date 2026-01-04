@@ -11,7 +11,7 @@ use crate::{
 use super::Worker;
 use msd_request::{Key, RequestKey};
 use msd_store::MsdStore;
-use msd_table::Table;
+use msd_table::{Table, now};
 
 impl<S: MsdStore> Worker<S> {
   /// Ensure that the cache for the given request key is initialized.
@@ -44,6 +44,7 @@ impl<S: MsdStore> Worker<S> {
     let table: Table = DbBinary::from_bytes(&data)?;
     let state = AggState::table_states(&table);
     let chan = Chan::try_from(&table).ok();
+    let last_saved = now();
     self.cache.insert(
       key.clone(),
       CacheValue {
@@ -51,6 +52,7 @@ impl<S: MsdStore> Worker<S> {
         index,
         state,
         chan,
+        last_changed: last_saved,
       },
     );
     Ok(true)

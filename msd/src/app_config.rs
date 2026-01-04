@@ -5,7 +5,8 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 use clap::{Args, Parser};
-use time::{UtcOffset, macros::format_description};
+use msd_table::parse_duration;
+use time::{Duration, UtcOffset, macros::format_description};
 
 use crate::server::parse_roles;
 
@@ -92,6 +93,10 @@ pub struct ServerOptions {
     env = "MSD_WORKERS"
   )]
   pub worker_threads: usize,
+
+  /// background flush interval in micro seconds
+  #[arg(short = 'i', long = "bg-flush-interval", default_value = "5m", value_parser = parse_duration)]
+  pub flush_interval: Duration,
 }
 
 /// Shell options

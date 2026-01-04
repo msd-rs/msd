@@ -4,7 +4,9 @@
 use std::vec;
 
 use msd_request::{InsertResponse, RequestError, RequestKey};
-use msd_table::{DataType, Table, Variant, get_local_offset, parse_unit, round_ts_with_tz};
+use msd_table::{
+  DataType, Table, Variant, get_local_offset, now_with_tz, parse_unit, round_ts_with_tz,
+};
 use tracing::{debug, trace, warn};
 
 use super::{MsdStore, Worker};
@@ -58,7 +60,7 @@ impl<S: MsdStore> Worker<S> {
       .and_then(|s| parse_unit(s).ok())
       .unwrap_or((1, b's'));
 
-    let offset = get_local_offset();
+    let tz_offset = get_local_offset();
 
     // Get chunk size from metadata
     let chunk_size = schema
@@ -72,14 +74,15 @@ impl<S: MsdStore> Worker<S> {
       cached: schema.to_empty(),
       state: AggState::table_states(schema),
       chan: Chan::try_from(schema).ok(),
+      last_changed: 0,
     });
 
     // Get the min pk from cached table (first row's pk)
-    let cached_min_pk = cache.last_pk();
+    let cached_last_pk = cache.last_pk();
 
     debug!(
       key = ?req.key,
-      cached_min_pk = cached_min_pk,
+      cached_last_pk,
       "Found existing cache for insert"
     );
 
@@ -99,16 +102,16 @@ impl<S: MsdStore> Worker<S> {
       debug!(?row, "Processing incoming row");
       // Get the incoming pk and optionally round it
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
-      let pk = round_ts_with_tz(raw_pk, &round_unit, offset).unwrap_or(raw_pk);
-      let cached_min_pk = cache.last_pk();
+      let pk = round_ts_with_tz(raw_pk, &round_unit, tz_offset).unwrap_or(raw_pk);
+      let cached_last_pk = cache.last_pk();
 
-      // Skip rows with pk less than cached min pk
-      if pk < cached_min_pk as i64 {
+      // Skip rows with pk less than cached last pk
+      if pk < cached_last_pk as i64 {
         warn!(
           key = ?req.key,
           incoming_pk = pk,
-          cached_min_pk = cached_min_pk,
-          "Skipping row with pk older than cached min"
+          cached_last_pk,
+          "Skipping row with pk older than cached last"
         );
         continue;
       }
@@ -119,11 +122,11 @@ impl<S: MsdStore> Worker<S> {
         key = %req.key,
         raw_pk,
         pk,
-        cached_min_pk,
+        cached_last_pk,
         "Processing incoming row"
       );
 
-      if pk == cached_min_pk && cached_row_count > 0 {
+      if pk == cached_last_pk && cached_row_count > 0 {
         // Update existing row using agg states
         let last_row_idx = cached_row_count - 1;
         for (col_idx, cell_value) in row.iter().enumerate() {
@@ -217,18 +220,10 @@ impl<S: MsdStore> Worker<S> {
 
     // Flush all new chunks to storage
     for (seq, chunk) in new_chunks.iter() {
-      self.flush_chunk(&req.key, chunk, *seq)?;
+      Self::flush_chunk(self.store.clone(), &req.key, chunk, *seq)?;
     }
-
-    // Update the last index item based on current cached state
-    // Note: The index for the current cached chunk is NOT stored yet
-    // It will be stored when the chunk is rotated or flushed
-
-    // Flush updated index to storage
-    let cache = self.cache.get(&req.key).unwrap();
-    self.flush_index(&req.key, &cache.index)?;
-    self.flush_chunk(&req.key, &cache.cached, (cache.index.len() - 1) as u32)?;
-
+    // Update last changed time, this will trigger flush in next flush interval
+    cache.last_changed = now_with_tz(tz_offset);
     Ok((Table::default(), chan_table))
   }
 
