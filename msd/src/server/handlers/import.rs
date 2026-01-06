@@ -90,35 +90,16 @@ pub async fn handle_table(
   }
 }
 
-async fn handle_table_csv(
+fn spawn_csv_workers(
+  worker_tasks: &mut JoinSet<Result<(), String>>,
+  worker_idx: usize,
   db: DBState,
   table_name: String,
-  body: Body,
-  skip: usize,
-) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
-  let mut response = TableResponse::start();
+  parse_schema: Table,
+) -> mpsc::Sender<Vec<u8>> {
+  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
 
-  // 1. get the schema of the table by table_name
-  let schema = db
-    .get_schema(&table_name)
-    .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
-
-  let parse_schema = schema.clone();
-
-  // 3. spawn workers
-  let worker_count = 8;
-  let mut senders = Vec::with_capacity(worker_count);
-  let mut worker_tasks = JoinSet::new();
-
-  for worker_idx in 0..worker_count {
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
-    senders.push(tx);
-
-    let db = db.clone();
-    let table_name = table_name.clone();
-    let parse_schema = parse_schema.clone();
-
-    worker_tasks.spawn(async move {
+  worker_tasks.spawn(async move {
       info!(id = worker_idx, "updater started");
 
       while let Some(line) = rx.recv().await {
@@ -144,7 +125,28 @@ async fn handle_table_csv(
       info!(id = worker_idx, "updater completed");
       Ok::<_, String>(())
     });
-  }
+  return tx;
+}
+
+async fn handle_table_csv(
+  db: DBState,
+  table_name: String,
+  body: Body,
+  skip: usize,
+) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
+  let mut response = TableResponse::start();
+
+  // 1. get the schema of the table by table_name
+  let schema = db
+    .get_schema(&table_name)
+    .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
+
+  let parse_schema = schema.clone();
+
+  // 3. spawn workers
+  let worker_count = 8;
+  let mut senders = Vec::with_capacity(worker_count);
+  let mut worker_tasks = JoinSet::new();
 
   // 4. parse the csv lines and dispatch to workers
   let mut stream = BodyStream::new(body);
@@ -152,6 +154,8 @@ async fn handle_table_csv(
   let mut skipped = 0;
 
   info!("start parsing csv lines");
+
+  let mut tasks_idx = 0;
   while let Some(frame_res) = stream.next().await {
     let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
@@ -188,15 +192,24 @@ async fn handle_table_csv(
         if last_key != &line[..first_col_pos] {
           let mut hasher = FxHasher::default();
           last_key.hash(&mut hasher);
-          let hash = hasher.finish();
-          let worker_idx = (hash as usize) % worker_count;
+          let worker_idx = tasks_idx % worker_count;
           let block = Vec::from(&buffer[block_start..block_end]);
+          if worker_idx >= senders.len() {
+            senders.push(spawn_csv_workers(
+              &mut worker_tasks,
+              worker_idx,
+              db.clone(),
+              table_name.clone(),
+              parse_schema.clone(),
+            ));
+          }
           senders[worker_idx]
             .send(block)
             .await
             .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
           block_start = block_end;
           last_key = &line[..first_col_pos];
+          tasks_idx += 1;
         }
         block_end += pos + 1;
         line_start = block_end;
@@ -206,14 +219,21 @@ async fn handle_table_csv(
 
       if block_start < block_end {
         let block = Vec::from(&buffer[block_start..block_end]);
-        let mut hasher = FxHasher::default();
-        last_key.hash(&mut hasher);
-        let hash = hasher.finish();
-        let worker_idx = (hash as usize) % worker_count;
+        let worker_idx = tasks_idx % worker_count;
+        if worker_idx >= senders.len() {
+          senders.push(spawn_csv_workers(
+            &mut worker_tasks,
+            worker_idx,
+            db.clone(),
+            table_name.clone(),
+            parse_schema.clone(),
+          ));
+        }
         senders[worker_idx]
           .send(block)
           .await
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        tasks_idx += 1;
       }
 
       buffer.drain(0..last_line_end + 1);
@@ -225,16 +245,16 @@ async fn handle_table_csv(
     response.add_rows(buffer.iter().filter(|&&b| b == b'\n').count());
 
     let line_bytes = buffer;
-    // Calculate hash
-    let end = line_bytes
-      .iter()
-      .position(|&b| b == b',')
-      .unwrap_or(line_bytes.len());
-    let key = &line_bytes[..end];
-    let mut hasher = FxHasher::default();
-    key.hash(&mut hasher);
-    let hash = hasher.finish();
-    let worker_idx = (hash as usize) % worker_count;
+    let worker_idx = tasks_idx % worker_count;
+    if worker_idx >= senders.len() {
+      senders.push(spawn_csv_workers(
+        &mut worker_tasks,
+        worker_idx,
+        db.clone(),
+        table_name.clone(),
+        parse_schema.clone(),
+      ));
+    }
 
     senders[worker_idx]
       .send(line_bytes)
