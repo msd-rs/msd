@@ -24,9 +24,10 @@ msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
 pprof = { version = "0.15", features = ["flamegraph"] }
 reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"] }
-rmcp = { version = "0.12", features = ["server", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
+rmcp = { version = "0.12", features = ["server", "transport-streamable-http-server", "transport-streamable-http-server-session", "schemars"] }
 rustc-hash.workspace = true
 rustyline = {version="17", features=["derive"]}
+schemars = "1.0"
 serde.workspace = true
 serde_json.workspace = true
 simd-csv = "0.10"

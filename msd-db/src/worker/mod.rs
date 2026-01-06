@@ -7,7 +7,6 @@
 //! Each worker maintains its own cache and interacts with the underlying store.
 
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use msd_store::MsdStore;

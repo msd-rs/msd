@@ -19,7 +19,7 @@ pub(crate) async fn bg_flush(
       _ = timer.tick() => {
         debug!("invoking flush");
         for worker in &workers {
-          worker.send(MsdRequest::Broadcast(Broadcast::Flush)).await;
+          let _ = worker.send(MsdRequest::Broadcast(Broadcast::Flush)).await;
         }
       }
       msg = rx.recv() => {

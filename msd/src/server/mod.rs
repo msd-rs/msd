@@ -13,6 +13,7 @@ use axum::{
 };
 use msd_db::{MsdDb, MsdDbOptions};
 use msd_store::RocksDbStore;
+use tokio_util::sync::CancellationToken;
 use tower_http::{
   compression::CompressionLayer, cors::CorsLayer, decompression::DecompressionLayer,
 };
@@ -62,28 +63,33 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   };
   let db = MsdDb::new(store, options).await?;
 
+  let ct = tokio_util::sync::CancellationToken::new();
   let db = Arc::new(db);
   let app = Router::new()
     .layer(DecompressionLayer::new())
     .route(QUERY_PATH, post(handlers::handle_data))
     .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
-    .nest_service(MCP_PATH, handlers::mcp_service(db.clone()))
+    .nest_service(
+      MCP_PATH,
+      handlers::mcp_service(db.clone(), ct.child_token()),
+    )
     .with_state(db.clone())
     .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
   info!("msd server start");
+
   axum::serve(
     listener,
     app.into_make_service_with_connect_info::<SocketAddr>(),
   )
-  .with_graceful_shutdown(shutdown_signal())
+  .with_graceful_shutdown(shutdown_signal(ct))
   .await?;
   db.shutdown().await;
   info!("msd server stopped");
   Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(ct: CancellationToken) {
   #[cfg(unix)]
   {
     let mut ctrlc = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
@@ -94,6 +100,7 @@ async fn shutdown_signal() {
       _ = ctrlc.recv() => {},
       _ = terminate.recv() => {},
     }
+    ct.cancel();
   }
   #[cfg(not(unix))]
   {

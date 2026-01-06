@@ -70,6 +70,17 @@ class MsdClient[DF]:
     """
     Load data from msd, the data will be organized as {obj: {table: DF}} or {obj: DF} if join is specified.
 
+    Args:
+      objs: list of object names or a single object name
+      tables: list of table names or a single table name
+      join: join type, can be "backward", "forward", "nearest", or None
+      start: start time, can be str or datetime.datetime
+      end: end time, can be str or datetime.datetime
+      fields: fields to load, can be dict[str, list[str]] or list[str] or None
+
+    Returns:
+      dict[str, dict[str, DF]] or dict[str, DF]: the loaded data
+
     """
     sql = []
     tables = [tables] if isinstance(tables, str) else tables
