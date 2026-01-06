@@ -1,10 +1,7 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use std::{
-  hash::{Hash, Hasher},
-  net::SocketAddr,
-};
+use std::net::SocketAddr;
 
 use axum::{
   Json,
@@ -20,7 +17,6 @@ use msd_request::{
   InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
 };
 use msd_table::{Table, Variant, get_local_offset};
-use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -128,6 +124,57 @@ fn spawn_csv_workers(
   return tx;
 }
 
+fn spawn_binary_workers(
+  worker_tasks: &mut JoinSet<Result<usize, String>>,
+  worker_idx: usize,
+  db: DBState,
+  table_name: String,
+  schema: Table,
+) -> mpsc::Sender<Vec<u8>> {
+  let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
+
+  worker_tasks.spawn(async move {
+    info!(id = worker_idx, "updater started");
+    let mut rows = 0;
+
+    while let Some(block) = rx.recv().await {
+      if block.starts_with(b"#exit") {
+        break;
+      }
+
+      match unpack_table_frame(&block, false) {
+        Ok(table) => {
+          rows += table.row_count();
+          let obj = table
+            .get_table_meta("obj")
+            .and_then(|v| v.get_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+          if !schema.same_shape(&table) {
+            return Err(format!(
+              "schema mismatch for table '{}' obj '{}'",
+              table_name, obj
+            ));
+          }
+          match flush_table(&db, &table_name, &obj, table).await {
+            Ok(_) => {}
+            Err(e) => {
+              error!(%e, id = worker_idx, "process block failed");
+            }
+          }
+        }
+        Err(e) => {
+          error!(%e, id = worker_idx, "process block failed");
+        }
+      }
+    }
+
+    info!(id = worker_idx, "updater completed");
+    Ok::<_, String>(rows)
+  });
+  return tx;
+}
+
 async fn handle_table_csv(
   db: DBState,
   table_name: String,
@@ -190,8 +237,6 @@ async fn handle_table_csv(
           last_key = &line[..first_col_pos];
         }
         if last_key != &line[..first_col_pos] {
-          let mut hasher = FxHasher::default();
-          last_key.hash(&mut hasher);
           let worker_idx = tasks_idx % worker_count;
           let block = Vec::from(&buffer[block_start..block_end]);
           if worker_idx >= senders.len() {
@@ -295,64 +340,20 @@ async fn handle_table_binary(
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
 
+  // 1. get the schema of the table by table_name
+  let schema = db
+    .get_schema(&table_name)
+    .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
+
   // 3. spawn workers
   let worker_count = 8;
   let mut senders = Vec::with_capacity(worker_count);
   let mut worker_tasks = JoinSet::new();
 
-  for worker_idx in 0..worker_count {
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
-    senders.push(tx);
-
-    let db = db.clone();
-    let table_name = table_name.clone();
-
-    worker_tasks.spawn(async move {
-      info!(id = worker_idx, "updater started");
-      let mut rows = 0;
-      let schema = db.get_schema(&table_name).map_err(|e| e.to_string())?;
-
-      while let Some(block) = rx.recv().await {
-        if block.starts_with(b"#exit") {
-          break;
-        }
-
-        match unpack_table_frame(&block, false) {
-          Ok(table) => {
-            rows += table.row_count();
-            let obj = table
-              .get_table_meta("obj")
-              .and_then(|v| v.get_str())
-              .map(|s| s.to_string())
-              .unwrap_or_default();
-            if !schema.same_shape(&table) {
-              return Err(format!(
-                "schema mismatch for table '{}' obj '{}'",
-                table_name, obj
-              ));
-            }
-            match flush_table(&db, &table_name, &obj, table).await {
-              Ok(_) => {}
-              Err(e) => {
-                error!(%e, id = worker_idx, "process block failed");
-              }
-            }
-          }
-          Err(e) => {
-            error!(%e, id = worker_idx, "process block failed");
-          }
-        }
-      }
-
-      info!(id = worker_idx, "updater completed");
-      Ok::<_, String>(rows)
-    });
-  }
-
   // 4. parse the binary stream and dispatch to workers
   let mut stream = BodyStream::new(body);
   let mut buffer = Vec::new();
-  let mut worker_idx_rr = 0;
+  let mut tasks_idx = 0;
 
   info!("start parsing binary stream");
   while let Some(frame_res) = stream.next().await {
@@ -378,12 +379,23 @@ async fn handle_table_binary(
         let data = buffer.drain(0..frame_size).collect::<Vec<u8>>();
 
         // Dispatch DATA
-        senders[worker_idx_rr]
+        let worker_idx = tasks_idx % worker_count;
+        if worker_idx >= senders.len() {
+          senders.push(spawn_binary_workers(
+            &mut worker_tasks,
+            worker_idx,
+            db.clone(),
+            table_name.clone(),
+            schema.clone(),
+          ));
+        }
+
+        senders[worker_idx]
           .send(data)
           .await
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        worker_idx_rr = (worker_idx_rr + 1) % worker_count;
+        tasks_idx += 1;
       }
     }
   }
