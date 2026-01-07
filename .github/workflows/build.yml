@@ -41,11 +41,20 @@ jobs:
           command: build
           args: --release -m bindings/python/Cargo.toml
 
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - name: Write release version without 'v'
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Original ref_name: $GITHUB_REF_NAME"
+          echo "Version without v: $VERSION"
+          echo "MSD_VERSION=$VERSION" >> $GITHUB_ENV
+        shell: bash
+        
+      - name: Upload Rust Binary
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
           bin: msd 
-          asset: ./target/wheels/msd-${{ github.ref_name }}-cp310-abi3-manylinux_2_34_x86_64.whl
+          asset: ./target/wheels/msd-${{ env.MSD_VERSION }}-cp310-abi3-manylinux_2_34_x86_64.whl
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
