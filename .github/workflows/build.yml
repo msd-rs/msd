@@ -41,12 +41,9 @@ jobs:
           command: build
           args: --release -m bindings/python/Cargo.toml
 
-      - name: Write release version without 'v'
+      - name: Collect wheels
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          echo "Original ref_name: $GITHUB_REF_NAME"
-          echo "Version without v: $VERSION"
-          echo "MSD_VERSION=$VERSION" >> $GITHUB_ENV
+          python3 tests/scripts/wheels.py $GITHUB_REF_NAME  >> $GITHUB_ENV
         shell: bash
         
       - name: Upload Rust Binary
@@ -55,6 +52,6 @@ jobs:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
           bin: msd 
-          asset: ./target/wheels/msd-${{ env.MSD_VERSION }}-cp310-abi3-manylinux_2_34_x86_64.whl
+          asset: ${{ env.MSD_WHEELS }}
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
