@@ -1,0 +1,51 @@
+name: Main
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # (optional) Path to changelog.
+          changelog: CHANGELOG.md
+          # (required) GitHub token for creating GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: "-C target-feature=+sse4.2 -C target-feature=+avx2 -C target-feature=+pclmulqdq"
+
+      
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10' 
+
+      - name: Build Msd
+        run: cargo build --release 
+
+      - name: Build Python Binding
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m bindings/python/Cargo.toml
+
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
+          bin: msd 
+          asset: ./target/wheels/msd-${{ github.ref_name }}*.whl
+          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
