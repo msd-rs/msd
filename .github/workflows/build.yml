@@ -33,7 +33,7 @@ jobs:
           python-version: '3.10' 
 
       - name: Build Msd
-        run: cargo build --release 
+        run: cargo build --release --bin msd
 
       - name: Build Python Binding
         uses: PyO3/maturin-action@v1
@@ -46,6 +46,6 @@ jobs:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
           bin: msd 
-          asset: ./target/wheels/msd-${{ github.ref_name }}*.whl
+          asset: ./target/wheels/msd-${{ github.ref_name }}-cp310-abi3-manylinux_2_34_x86_64.whl
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
