@@ -11,6 +11,15 @@ license.workspace = true
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
+thiserror.workspace = true
+serde.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+
+
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
 rocksdb = { version = "0.24", optional = true, default-features = false, features = [
   "multi-threaded-cf",
   "zstd",
@@ -18,7 +27,11 @@ rocksdb = { version = "0.24", optional = true, default-features = false, feature
   "bindgen-runtime",
   "jemalloc",
 ] }
-thiserror.workspace = true
-serde.workspace = true
-time.workspace = true
-tracing.workspace = true
+
+[target.'cfg(target_env = "msvc")'.dependencies]
+rocksdb = { version = "0.24", optional = true, default-features = false, features = [
+  "multi-threaded-cf",
+  "zstd",
+  "lz4",
+  "bindgen-runtime",
+] }
