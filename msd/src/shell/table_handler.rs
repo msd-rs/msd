@@ -34,6 +34,9 @@ impl From<&ShellOptions> for PrintHandler {
 
 impl TableHandler for PrintHandler {
   fn handle(&self, table: &Table) -> Result<()> {
+    if table.row_count() == 0 {
+      return Ok(());
+    }
     let rows = table_to_text(table, self.print_rows);
     let col_count = if rows.is_empty() { 0 } else { rows[0].len() };
     let mut col_widths = vec![0; col_count];

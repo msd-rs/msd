@@ -3,6 +3,7 @@
 
 use crate::{app_config::ShellOptions, server::TABLE_PUT_PATH};
 use anyhow::{Context, Result};
+use colored::Colorize;
 use reqwest::Body;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
@@ -32,7 +33,8 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str, skip: us
     anyhow::bail!("Import failed: {} - {}", status, txt);
   } else {
     let txt = resp.text().await.unwrap_or_default();
-    println!("Import successful: {}", txt);
+    let stat = format!("Import successful: {}", txt);
+    println!("{}", stat.cyan());
   }
 
   Ok(())

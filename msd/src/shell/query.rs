@@ -101,13 +101,17 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
 
   if opts.verbose {
     let s = timer.elapsed().as_secs_f64();
-    let stat = format!(
-      "Fetched {} objects with {} rows in {:.3} s, {:.0} rows/s",
-      objects,
-      fetched_rows,
-      s,
-      fetched_rows as f64 / s
-    );
+    let stat = if fetched_rows > 0 {
+      format!(
+        "Fetched {} objects with {} rows in {:.3} s, {:.0} rows/s",
+        objects,
+        fetched_rows,
+        s,
+        fetched_rows as f64 / s
+      )
+    } else {
+      format!("No data in {:.3} s", s)
+    };
     eprintln!("{}", stat.cyan());
   }
 

@@ -40,6 +40,8 @@ pub async fn handle_data(
   headers: HeaderMap,
   Json(body): Json<DataRequest>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
+  debug!(remote_addr = %remote_addr, sql= body.query, "query");
+
   let requests = sql_to_request(&body.query).map_err(|e| {
     (
       axum::http::StatusCode::BAD_REQUEST,

@@ -101,3 +101,9 @@ comment on column stock_financial_basic.op_margin is 'operating margin,营业利
 comment on column stock_financial_basic.roe_diluted is 'return on equity,摊薄净资产收益率';
 comment on column stock_financial_basic.roe is 'return on equity,净资产收益率';
 comment on column stock_financial_basic.debt_asset_ratio is 'debt asset ratio,资产负债率';
+
+
+.import tests/data/stock_financial_basic.csv stock_financial_basic;
+.import tests/data/stock_kline_1d.csv stock_kline_1d;
+.import tests/data/stock_shares.csv stock_shares;
+.import tests/data/stock_dividend.csv stock_dividend;
