@@ -16,8 +16,15 @@ jobs:
           changelog: CHANGELOG.md
           # (required) GitHub token for creating GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
-  build:
-    runs-on: ubuntu-22.04
+  build_x86_64:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+          - runner: windows-latest
+            target: x86_64
     steps:
       - uses: actions/checkout@v6
 
@@ -49,9 +56,45 @@ jobs:
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
-          # Note that glob pattern is not supported yet.
           bin: msd 
           asset: ${{ env.MSD_WHEELS }}
-          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build_aarch64:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-14
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10' 
+
+      - name: Build Msd
+        run: cargo build --release --bin msd
+
+      - name: Build Python Binding
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m bindings/python/Cargo.toml
+
+      - name: Collect wheels
+        run: |
+          python3 tests/scripts/wheels.py $GITHUB_REF_NAME  >> $GITHUB_ENV
+        shell: bash
+        
+      - name: Upload Rust Binary
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: msd 
+          asset: ${{ env.MSD_WHEELS }}
           token: ${{ secrets.GITHUB_TOKEN }}
