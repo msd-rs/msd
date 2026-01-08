@@ -58,6 +58,7 @@ jobs:
         with:
           name: wheels-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
+          overwrite: true
         
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
@@ -104,6 +105,7 @@ jobs:
         with:
           name: wheels-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
+          overwrite: true
         
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
