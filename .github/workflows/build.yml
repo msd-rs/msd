@@ -57,7 +57,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
-          path: ${{ env.MSD_WHEELS }}
+          path: ./target/wheels/pymsd-${{ env.MSD_VERSION }}*.whl
           overwrite: true
         
       - name: Upload Rust Binary
@@ -104,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
-          path: ${{ env.MSD_WHEELS }}
+          path: ./target/wheels/pymsd-${{ env.MSD_VERSION }}*.whl
           overwrite: true
         
       - name: Upload Rust Binary

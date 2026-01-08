@@ -12,6 +12,7 @@ def main():
   print("Pattern: ", pattern, file=sys.stderr)
   print("Wheels: ", wheels, file=sys.stderr)
 
+  print(f"MSD_VERSION={version}")
   print(f"MSD_WHEELS={','.join(wheels)}")
 
 
