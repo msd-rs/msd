@@ -1,7 +1,7 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use std::net::SocketAddr;
+use std::{hash::Hash, hash::Hasher, net::SocketAddr};
 
 use axum::{
   Json,
@@ -17,6 +17,7 @@ use msd_request::{
   InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
 };
 use msd_table::{Table, Variant, get_local_offset};
+use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -96,31 +97,30 @@ fn spawn_csv_workers(
   let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
 
   worker_tasks.spawn(async move {
-      info!(id = worker_idx, "updater started");
+    info!(id = worker_idx, "updater started");
+    let mut rows = 0;
 
-      while let Some(line) = rx.recv().await {
-        if line.starts_with(b"#exit") {
-          break;
+    while let Some(line) = rx.recv().await {
+      if line.starts_with(b"#exit") {
+        break;
+      }
+      match process_csv_block_simd(&line, &parse_schema) {
+        Ok((obj, table)) => {
+          if obj.is_empty() || table.row_count() == 0 {
+            continue;
+          }
+          rows += table.row_count();
+          let _ = flush_table(&db, &table_name, &obj, table).await;
         }
-        match process_csv_block_simd(&line, &parse_schema) {
-          Ok((obj, table)) => {
-            if obj.is_empty() || table.row_count() == 0 {
-              continue;
-            }
-            let db = db.clone();
-            let table_name = table_name.clone();
-            let obj = obj.clone();
-            let _ = flush_table(&db, &table_name, &obj, table).await;
-          }
-          Err(e) => {
-            error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
-          }
+        Err(e) => {
+          error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
         }
       }
+    }
 
-      info!(id = worker_idx, "updater completed");
-      Ok::<_, String>(())
-    });
+    info!(id = worker_idx, rows, "updater completed");
+    Ok::<_, String>(())
+  });
   return tx;
 }
 
@@ -192,7 +192,7 @@ async fn handle_table_csv(
 
   // 3. spawn workers
   let worker_count = 8;
-  let mut senders = Vec::with_capacity(worker_count);
+  let mut senders = vec![None; worker_count];
   let mut worker_tasks = JoinSet::new();
 
   // 4. parse the csv lines and dispatch to workers
@@ -202,7 +202,6 @@ async fn handle_table_csv(
 
   info!("start parsing csv lines");
 
-  let mut tasks_idx = 0;
   while let Some(frame_res) = stream.next().await {
     let frame = frame_res.map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
 
@@ -237,10 +236,15 @@ async fn handle_table_csv(
           last_key = &line[..first_col_pos];
         }
         if last_key != &line[..first_col_pos] {
-          let worker_idx = tasks_idx % worker_count;
+          let mut hasher = FxHasher::default();
+          last_key.hash(&mut hasher);
+          let hash = hasher.finish();
+          // ensure order of the same obj
+          let worker_idx = (hash as usize) % worker_count;
+
           let block = Vec::from(&buffer[block_start..block_end]);
-          if worker_idx >= senders.len() {
-            senders.push(spawn_csv_workers(
+          if senders[worker_idx].is_none() {
+            senders[worker_idx] = Some(spawn_csv_workers(
               &mut worker_tasks,
               worker_idx,
               db.clone(),
@@ -248,13 +252,20 @@ async fn handle_table_csv(
               parse_schema.clone(),
             ));
           }
+          debug!(
+            id = worker_idx,
+            obj = String::from_utf8_lossy(last_key).to_string(),
+            "dispatched, waiting for workers lines={}",
+            buffer.len()
+          );
           senders[worker_idx]
+            .as_ref()
+            .unwrap() // should be initialized
             .send(block)
             .await
             .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
           block_start = block_end;
           last_key = &line[..first_col_pos];
-          tasks_idx += 1;
         }
         block_end += pos + 1;
         line_start = block_end;
@@ -264,9 +275,13 @@ async fn handle_table_csv(
 
       if block_start < block_end {
         let block = Vec::from(&buffer[block_start..block_end]);
-        let worker_idx = tasks_idx % worker_count;
-        if worker_idx >= senders.len() {
-          senders.push(spawn_csv_workers(
+        let mut hasher = FxHasher::default();
+        last_key.hash(&mut hasher);
+        let hash = hasher.finish();
+        // ensure order of the same obj
+        let worker_idx = (hash as usize) % worker_count;
+        if senders[worker_idx].is_none() {
+          senders[worker_idx] = Some(spawn_csv_workers(
             &mut worker_tasks,
             worker_idx,
             db.clone(),
@@ -275,10 +290,11 @@ async fn handle_table_csv(
           ));
         }
         senders[worker_idx]
+          .as_ref()
+          .unwrap() // should be initialized
           .send(block)
           .await
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        tasks_idx += 1;
       }
 
       buffer.drain(0..last_line_end + 1);
@@ -290,9 +306,17 @@ async fn handle_table_csv(
     response.add_rows(buffer.iter().filter(|&&b| b == b'\n').count());
 
     let line_bytes = buffer;
-    let worker_idx = tasks_idx % worker_count;
-    if worker_idx >= senders.len() {
-      senders.push(spawn_csv_workers(
+    let end = line_bytes
+      .iter()
+      .position(|&b| b == b',')
+      .unwrap_or(line_bytes.len());
+    let key = &line_bytes[..end];
+    let mut hasher = FxHasher::default();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let worker_idx = (hash as usize) % worker_count;
+    if senders[worker_idx].is_none() {
+      senders[worker_idx] = Some(spawn_csv_workers(
         &mut worker_tasks,
         worker_idx,
         db.clone(),
@@ -302,13 +326,15 @@ async fn handle_table_csv(
     }
 
     senders[worker_idx]
+      .as_ref()
+      .unwrap() // should be initialized
       .send(line_bytes)
       .await
       .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
   }
 
   // Close all channels
-  for sender in senders {
+  for sender in senders.into_iter().filter_map(|s| s) {
     let _ = sender.send(b"#exit".to_vec()).await;
   }
 
@@ -347,7 +373,7 @@ async fn handle_table_binary(
 
   // 3. spawn workers
   let worker_count = 8;
-  let mut senders = Vec::with_capacity(worker_count);
+  let mut senders = vec![None; worker_count];
   let mut worker_tasks = JoinSet::new();
 
   // 4. parse the binary stream and dispatch to workers
@@ -380,8 +406,8 @@ async fn handle_table_binary(
 
         // Dispatch DATA
         let worker_idx = tasks_idx % worker_count;
-        if worker_idx >= senders.len() {
-          senders.push(spawn_binary_workers(
+        if senders[worker_idx].is_none() {
+          senders[worker_idx] = Some(spawn_binary_workers(
             &mut worker_tasks,
             worker_idx,
             db.clone(),
@@ -391,6 +417,8 @@ async fn handle_table_binary(
         }
 
         senders[worker_idx]
+          .as_ref()
+          .unwrap()
           .send(data)
           .await
           .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -401,7 +429,7 @@ async fn handle_table_binary(
   }
 
   // Close all channels
-  for sender in senders {
+  for sender in senders.into_iter().filter_map(|s| s) {
     let _ = sender.send(b"#exit".to_vec()).await;
   }
 
