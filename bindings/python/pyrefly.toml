@@ -1,8 +1,8 @@
-project-includes = ["msd", "msd/_msd.abi3.so"]
+project-includes = ["pymsd", "pymsd/_msd.abi3.so"]
 # exclude some uninteresting files
 project-excludes = ["**/node_modules", "**/__pycache__", "**/*venv/**", "**/.[!/.]*/**"]
 # import project files from "."
-search-path = ["msd"]
+search-path = ["pymsd"]
 
 
 [errors]

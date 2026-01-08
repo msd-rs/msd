@@ -98,3 +98,17 @@ jobs:
           bin: msd 
           asset: ${{ env.MSD_WHEELS }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_python:
+    runs-on: ubuntu-latest
+    needs: [build_x86_64, build_aarch64]
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v7
+        with:
+          path: ./dist
+      - name: upload release to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

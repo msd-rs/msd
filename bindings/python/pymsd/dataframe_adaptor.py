@@ -2,15 +2,17 @@
 # SPDX-License-Identifier: agpl-3.0-only
 
 """
-Adaptors for DataFrames, because msd doesn't force users to use pandas or polars. 
+Adaptors for DataFrames, because msd doesn't force users to use pandas or polars.
 It use the adaptor pattern to adapt different DataFrames.
 """
 
 from typing import Any, Generator, Literal, Tuple
 from .const import MsdTable, MsdTableFrame
 
+type JoinMethod = Literal["backward", "forward", "nearest", "zero", "nan"]
 
-class DataFrameAdaptor[DF]():
+
+class DataFrameAdaptor[DF]:
   """
   Adaptor for DataFrame
   """
@@ -21,14 +23,21 @@ class DataFrameAdaptor[DF]():
     """
     ...
 
-  def read_data_file(self, file_name: str, / , **kwargs) -> Generator[MsdTableFrame, None, None]:
+  def read_data_file(
+    self, file_name: str, /, **kwargs
+  ) -> Generator[MsdTableFrame, None, None]:
     """
     read a data file
     """
     ...
 
-  
-  def join_asof(self, df1: DF, df2: DF, on: str, method: Literal['backward', 'forward', 'nearest']) -> DF:
+  def join_asof(
+    self,
+    df1: DF,
+    df2: DF,
+    on: str,
+    method: JoinMethod,
+  ) -> DF:
     """
     join two DataFrames asof
     """
@@ -56,21 +65,22 @@ class DataFrameAdaptor[DF]():
     """
     check if a file is a data file
     """
-    return p.endswith(('.csv'))
-
-
+    return p.endswith((".csv"))
 
 
 ADAPTORS: list[DataFrameAdaptor] = []
 
 try:
   import pandas as pd
+
   class PandasAdaptor(DataFrameAdaptor[pd.DataFrame]):
     def build(self, table: MsdTable) -> pd.DataFrame:
       return pd.DataFrame({col: data for col, data in table})
-    
-    def read_data_file(self, p: str, / , **kwargs) -> Generator[MsdTableFrame, None, None]:
-      if p.endswith('.xlsx') or p.endswith('.xls'):
+
+    def read_data_file(
+      self, p: str, /, **kwargs
+    ) -> Generator[MsdTableFrame, None, None]:
+      if p.endswith(".xlsx") or p.endswith(".xls"):
         read = pd.read_excel(p, **kwargs)
         if isinstance(read, dict):
           for sheet_name, df in read.items():
@@ -81,14 +91,31 @@ try:
             yield (str(col), g.drop(columns=first_col))
       else:
         raise ValueError(f"Unsupported file format: {p}")
-    
-    def join_asof(self, df1: pd.DataFrame, df2: pd.DataFrame, on: str, method: Literal['backward', 'forward', 'nearest']
-) -> pd.DataFrame:
-      return pd.merge_asof(df1, df2, on=on, direction=method)
-    
+
+    def join_asof(
+      self,
+      df1: pd.DataFrame,
+      df2: pd.DataFrame,
+      on: str,
+      method: JoinMethod,
+    ) -> pd.DataFrame:
+      if method in ["backward", "forward", "nearest"]:
+        return pd.merge_asof(df1, df2, on=on, direction=method)
+      elif method == "nan":
+        return pd.merge(df1, df2, on=on, how="left")
+      elif method == "zero":
+        df2_columns = df2.columns
+        df = pd.merge(df1, df2, on=on, how="left")
+        for col in df2_columns:
+          if col != on:
+            df[col] = df[col].fillna(0)
+        return df
+      else:
+        raise ValueError(f"Unsupported method: {method}")
+
     def fields(self, df: pd.DataFrame) -> list[tuple[str, str]]:
       return [(col, self.dtype_to_sql(df[col].dtype.kind)) for col in df.columns]
-    
+
     def is_data_frame(self, df: Any) -> bool:
       return isinstance(df, pd.DataFrame)
 
@@ -115,6 +142,7 @@ try:
       for col in df.columns:
         table.append((col, df[col].to_numpy()))
       return table
+
   ADAPTORS.append(PandasAdaptor())
 except ImportError:
   pass
@@ -122,12 +150,15 @@ except ImportError:
 
 try:
   import polars as pl
+
   class PolarsAdaptor(DataFrameAdaptor[pl.DataFrame]):
     def build(self, table: MsdTable) -> pl.DataFrame:
       return pl.DataFrame([pl.Series(name, data) for name, data in table])
-    
-    def read_data_file(self, p: str, / , **kwargs) -> Generator[MsdTableFrame, None, None]:
-      if p.endswith('.xlsx') or p.endswith('.xls'):
+
+    def read_data_file(
+      self, p: str, /, **kwargs
+    ) -> Generator[MsdTableFrame, None, None]:
+      if p.endswith(".xlsx") or p.endswith(".xls"):
         read = pl.read_excel(p, **kwargs)
         if isinstance(read, dict):
           for sheet_name, df in read.items():
@@ -138,10 +169,28 @@ try:
             yield (str(col), g.drop(first_col))
       else:
         raise ValueError(f"Unsupported file format: {p}")
-    
-    def join_asof(self, df1: pl.DataFrame, df2: pl.DataFrame, on: str, method: Literal['backward', 'forward', 'nearest']) -> pl.DataFrame:
-      return df1.join_asof(df2, on=on, strategy=method)
-    
+
+    def join_asof(
+      self,
+      df1: pl.DataFrame,
+      df2: pl.DataFrame,
+      on: str,
+      method: JoinMethod,
+    ) -> pl.DataFrame:
+      if method in ["backward", "forward", "nearest"]:
+        return df1.join_asof(df2, on=on, strategy=method)
+      elif method == "nan":
+        return df1.join(df2, on=on, how="left")
+      elif method == "zero":
+        df2_columns = df2.columns
+        df = df1.join(df2, on=on, how="left")
+        for col in df2_columns:
+          if col != on:
+            df[col] = df[col].fill_nan(0)
+        return df
+      else:
+        raise ValueError(f"Unsupported method: {method}")
+
     def fields(self, df: pl.DataFrame) -> list[tuple[str, str]]:
       return [(col, self.dtype_to_sql(df[col].dtype)) for col in df.columns]
 
@@ -169,8 +218,7 @@ try:
       for col in df.columns:
         table.append((col, df[col].to_numpy()))
       return table
+
   ADAPTORS.append(PolarsAdaptor())
 except ImportError:
   pass
-
-
