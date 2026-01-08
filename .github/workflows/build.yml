@@ -56,7 +56,7 @@ jobs:
       - name: Archive wheels
         uses: actions/upload-artifact@v6
         with:
-          name: wheels 
+          name: wheels-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
         
       - name: Upload Rust Binary
@@ -102,7 +102,7 @@ jobs:
       - name: Archive wheels
         uses: actions/upload-artifact@v6
         with:
-          name: wheels 
+          name: wheels-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
         
       - name: Upload Rust Binary
