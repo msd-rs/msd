@@ -10,8 +10,8 @@ def main():
   pattern = f"{target}/wheels/msd-{version}*.whl"
   wheels = glob.glob(pattern)
 
-  eprint("Pattern: ", pattern)
-  eprint("Wheels: ", wheels)
+  print("Pattern: ", pattern, file=sys.stderr)
+  print("Wheels: ", wheels, file=sys.stderr)
 
   print(f"MSD_WHEELS={','.join(wheels)}")
 
