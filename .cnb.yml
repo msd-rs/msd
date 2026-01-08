@@ -31,5 +31,5 @@ main:
           script:
             - export TWINE_USERNAME="cnb"
             - export TWINE_PASSWORD=$CNB_TOKEN
-            - export TWINE_REPOSITORY_URL="https://pypi.cnb.cool/elsejj/msd/-/packages/simple"
-            - twine upload target/wheels/msd-${MSD_VERSION}-*.whl
+            - export TWINE_REPOSITORY_URL="https://pypi.cnb.cool/elsejj/pymsd/-/packages/simple"
+            - twine upload target/wheels/pymsd-${MSD_VERSION}-*.whl
