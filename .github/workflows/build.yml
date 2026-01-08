@@ -56,7 +56,7 @@ jobs:
       - name: Archive wheels
         uses: actions/upload-artifact@v6
         with:
-          name: wheels-${{ matrix.platform.target }}
+          name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
           overwrite: true
         
@@ -103,7 +103,7 @@ jobs:
       - name: Archive wheels
         uses: actions/upload-artifact@v6
         with:
-          name: wheels-${{ matrix.platform.target }}
+          name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
           path: ${{ env.MSD_WHEELS }}
           overwrite: true
         
