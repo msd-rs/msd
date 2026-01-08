@@ -26,6 +26,7 @@ async fn main() -> Result<()> {
   let main_options = app_config();
   let _logging_guards = logging::setup_logging();
 
+  #[cfg(not(target_env = "msvc"))]
   let pprof_guard = main_options.pprof.as_ref().and_then(|_| {
     pprof::ProfilerGuardBuilder::default()
       .frequency(1000)
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
     }
   }
 
+  #[cfg(not(target_env = "msvc"))]
   pprof_guard
     .and_then(|guard| guard.report().build().ok())
     .zip(main_options.pprof.as_ref())

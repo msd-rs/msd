@@ -22,7 +22,6 @@ msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
-pprof = { version = "0.15", features = ["flamegraph"] }
 reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"] }
 rmcp = { version = "0.12", features = ["server", "transport-streamable-http-server", "transport-streamable-http-server-session", "schemars"] }
 rustc-hash.workspace = true
@@ -43,4 +42,5 @@ tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
+pprof = { version = "0.15", features = ["flamegraph"] }
 
