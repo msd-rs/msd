@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.1.11] - 2026-01-08
+
+### Added
+
+- Python doc
+
+### Changed
+
+- Fix insert order
+
 
 ## [0.1.10] - 2026-01-07
 
