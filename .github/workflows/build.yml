@@ -110,5 +110,9 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: ./dist
+          pattern: '*.whl'
+          merge-multiple: true
+      - name: Display structure of downloaded files
+        run: ls -R .
       - name: upload release to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
