@@ -1,25 +1,34 @@
 # Introduction
 
-This is the Python binding for [msd](https://github.com/msd-rs/msd-rs2). `msd` is a high-performance financial time series database.
+This is the Python binding for [msd](https://github.com/msd-rs/msd-app). `msd` is a high-performance financial time series database.
 
-The transport layer is based on HTTP, and the data format can be JSON or Binary. The Binary format is more efficient and recommended for non-browser clients.
+For high level usage, it provides `MsdClient` class, which uses `requests` and a DataFrame (pandas or polars) as the data format. You should install `requests`, `pandas` or `polars` manually.
 
-Because of the HTTP request library is very common, this package does not provide a client, instead it provides `parse_reader` and `parse_reader_async` functions to parse the HTTP response. With these functions, you can use any HTTP request library to query data from `msd`. For example, you can use `requests` for synchronous requests, and `aiohttp` for asynchronous requests.
+High level API return DataFrame (pandas or polars) as the data format.
 
-It also provides `msd_query_requests` and `msd_query_aiohttp` functions to query data from `msd`, which just demonstrate how to use `parse_reader` and `parse_reader_async`. When your want use these functions, your should install `requests` or `aiohttp` manually.
 
 # Installation
 
 ```bash
-pip install msd
+pip install pymsd
 ```
 
+# High Level Usage
 
-# Basic Usage
+1. install `requests` by `pip install requests` 
+2. choose a DataFrame library, `pandas` or `polars`, and install it by `pip install pandas` or `pip install polars` 
+3. create a `MsdClient` instance by `pymsd.create_msd_pandas` or `pymsd.create_msd_polars` with the url of msd server
+4. use the `MsdClient.load` method to query data from msd
 
-1. Choose a HTTP request library, which should support stream reading Response(have a `read` method). For example, `requests.Response.raw` or `aiohttp.ClientResponse.content`   
-2. Set the user agent to `MSD_USER_AGENT`
-3. Provide response stream reader to `parse_reader` or `parse_reader_async`
+
+# Low Level Usage
+
+The transport layer is based on HTTP, and the data format can be JSON or Binary. The Binary format is more efficient and recommended for non-browser clients, binary format is parsed by `pymsd._msd` native library.
+
+Because of the HTTP request library is very common, this package does not provide a client, instead it provides `parse_reader` and `parse_reader_async` functions to parse the HTTP response. With these functions, you can use any HTTP request library to query data from `msd`. For example, you can use `requests` for synchronous requests, and `aiohttp` for asynchronous requests.
+
+It also provides `pymsd.query` and `pymsd.query_async` functions to query data from `msd`, which just demonstrate how to use `pymsd.parse_reader` and `pymsd.parse_reader_async`. When your want use these functions, your should install `requests` or `aiohttp` manually.
+
 
 # Performance
 
