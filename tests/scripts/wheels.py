@@ -1,4 +1,3 @@
-from polars._utils.logging import eprint
 import sys
 import glob
 
