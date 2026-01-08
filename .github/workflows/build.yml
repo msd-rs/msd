@@ -95,6 +95,7 @@ jobs:
 
       - name: Collect wheels
         run: |
+          ls -R ./target/wheels
           python3 tests/scripts/wheels.py $GITHUB_REF_NAME  >> $GITHUB_ENV
         shell: bash
 

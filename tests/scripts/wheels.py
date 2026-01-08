@@ -1,3 +1,4 @@
+from polars._utils.logging import eprint
 import sys
 import glob
 
@@ -8,6 +9,9 @@ def main():
   target = "./target"
   pattern = f"{target}/wheels/msd-{version}*.whl"
   wheels = glob.glob(pattern)
+
+  eprint("Pattern: ", pattern)
+  eprint("Wheels: ", wheels)
 
   print(f"MSD_WHEELS={','.join(wheels)}")
 
