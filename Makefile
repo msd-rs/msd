@@ -5,10 +5,10 @@
 all: build
 
 build:
-	cargo build
+	cargo build --bin msd
 
 release:
-	cargo build --release
+	cargo build --release --bin msd
 	maturin build -r -m bindings/python/Cargo.toml
 
 test:
