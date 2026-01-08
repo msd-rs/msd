@@ -52,6 +52,12 @@ jobs:
         run: |
           python3 tests/scripts/wheels.py $GITHUB_REF_NAME  >> $GITHUB_ENV
         shell: bash
+
+      - name: Archive wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels 
+          path: ${{ env.MSD_WHEELS }}
         
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
@@ -91,6 +97,12 @@ jobs:
         run: |
           python3 tests/scripts/wheels.py $GITHUB_REF_NAME  >> $GITHUB_ENV
         shell: bash
+
+      - name: Archive wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels 
+          path: ${{ env.MSD_WHEELS }}
         
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
