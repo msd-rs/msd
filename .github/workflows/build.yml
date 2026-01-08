@@ -54,7 +54,7 @@ jobs:
         shell: bash
 
       - name: Archive wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels 
           path: ${{ env.MSD_WHEELS }}
@@ -99,7 +99,7 @@ jobs:
         shell: bash
 
       - name: Archive wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels 
           path: ${{ env.MSD_WHEELS }}
