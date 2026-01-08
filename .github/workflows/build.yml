@@ -106,6 +106,7 @@ jobs:
           name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
           path: ./target/wheels/pymsd-${{ env.MSD_VERSION }}*.whl
           overwrite: true
+          compression-level: 0
         
       - name: Upload Rust Binary
         uses: taiki-e/upload-rust-binary-action@v1
@@ -125,7 +126,6 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: ./dist
-          pattern: '*.whl'
           merge-multiple: true
       - name: Display structure of downloaded files
         run: ls -R .
