@@ -1,7 +1,10 @@
 
 # MSD
 
+[English](./README.md) | [简体中文](./README.cn.md)
+
 MSD (Micro Strategy Daemon) is a **AI Friendly**, **High-Performance** time-series database built on top of [RocksDB](https://rocksdb.org/), written in pure Rust. It is engineered to handle massive amounts of time-series data with speed and efficiency.
+
 
 ## Purpose & Domain
 
