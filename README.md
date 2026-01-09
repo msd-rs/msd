@@ -1,56 +1,40 @@
 
-# MSD-RS
+# MSD
 
-MSD-RS is a **high-performance time-series database** built on top of [RocksDB](https://rocksdb.org/), written in pure Rust. It is engineered to handle massive amounts of time-series data with speed and efficiency.
+MSD (Micro Strategy Daemon) is a **AI Friendly**, **High-Performance** time-series database built on top of [RocksDB](https://rocksdb.org/), written in pure Rust. It is engineered to handle massive amounts of time-series data with speed and efficiency.
 
 ## Purpose & Domain
 
-The primary goal of MSD-RS is to provide a robust storage and query engine for high-frequency time-series data. 
+The primary goal of MSD is to provide a easy-to-use, AI-aware time-series database for quantitative finance, help your do financial analysis and trading strategy development in 'one person studio' with AI assistance.
 
-**Most Suitable Domain:**
-
-- **Quantitative Finance:** Storing and analyzing market data (ticks, candles, quotes).
-  - **Zero-Latency OHLCV:** The **Data Pre-aggregation** feature eliminates the need to scan millions of ticks to build K-lines (candles), allowing for instant access to any timeframe (1m, 1d, etc.) as data streams in.
-  - **Reactive Data Pipelines:** **Chain Updates** allow new market data to automatically propagate through dependent tables, updating indicators or derived strategies in real-time.
-  - **High-Frequency Ready:** Optimized for the high write throughput and low latency reads required by algorithmic trading and market analysis.
 
 ## Key Features
 
-- **🚀 High Performance:** Leveraging Rust's safety and speed, coupled with the proven performance of RocksDB for persistent storage.
-- **⚡ Data Pre-aggregation:**
-  - Instead of performing costly aggregations at query time, `msd` computes aggregations incrementally as data is updated.
-  - Ideally suited for financial data where raw ticks are voluminous; the system maintains real-time aggregated states (like `Sum`, `Min`, `Max`, `Avg`, `First`, `Uniq`) for derived datasets (e.g., 1-minute or 1-day K-lines), ensuring instant query responses without scanning raw history.
-  - *See `agg_state.rs` for implementation details.*
-- **🔗 Chain Updates (Chan):**
-  - Configurable "Chain" logic allows updates in one table to automatically propagate to and update independent dependent tables.
-  - For example, an update to a `snapshot` table can trigger updates to `kline1m` and `kline1d` tables, filtering and transforming data on the fly (e.g., `ChangedIf` logic).
-  - This capability enables complex, event-driven data pipelines entirely within the database engine.
-  - *See `chan.rs` for implementation details.*
-- **📦 Structured Data:** Based on strongly typed `Table` and `Series` structures, ensuring data integrity and efficient columnar processing.
-- **🔌 Client-Server Architecture (HTTP Protocol):**
-  - **Server:** Built with `axum`, capable of handling high concurrency request processing.
-  - **Universality:** Uses standard HTTP for communication, making it accessible from **any** programming language or tool (curl, Postman, browser) without needing custom drivers.
-  - **Simplicity & Debugging:** Requests and responses are easy to inspect and debug.
-  - **Shell:** Integrated interactive shell for querying and managing the database.
-- **🐍 Python Bindings:** Python is the first citizen language for MSD bindings. Both performance and ease of use are prioritized.
-  - **Zero-Copy NumPy Transformation:** Leveraging Rust's memory safety and PyO3, the bindings allow for near instant transformation of `msd` tables into NumPy arrays (using `from_vec` / `from_slice`), enabling ultra-fast data analysis without serialization overhead.
-  - **Easy integration with pandas/polars:** The bindings provide easy integration with popular data analysis libraries, such as pandas and polars, with about 1% overhead to convert query results to pandas/polars dataframes.
-- **🛠️ Single Binary Deployment:**
+- **🤖 AI Friendly:** 
+  - **MCP Integration:** The built-in [MCP](https://modelcontextprotocol.io/docs/getting-started/intro) service allows AI to understand the data, write correct data queries and analysis code. 
+  - **Simple API:** The API is designed to be simple, let AI write correct code easily.
+
+- **🛠️ Easy Deployment:**
   - **Zero Dependencies:** compiled as a single, self-contained executable with all dependencies (including RocksDB) statically linked.
   - **Simplified Ops:** No complex installation scripts, library conflicts, or container orchestrations required—just copy the binary and run.
   - **Easy Upgrades:** Updating the database is as simple as replacing the executable file.
+
+- **🐍 Python First:** Python is the first citizen language for MSD bindings. Both performance and ease of use are prioritized.
+  - **Zero-Copy NumPy Transformation:** Leveraging Rust's memory safety and PyO3, the bindings allow for near instant transformation of `msd` tables into NumPy arrays (using `from_vec` / `from_slice`), enabling ultra-fast data analysis without serialization overhead.
+  - **Easy integration with pandas/polars:** The bindings provide easy integration with popular data analysis libraries, such as pandas and polars, API return grouped, joined, aggregated DataFrames directly, no need to write complex SQL queries.
+
+- **🚀 High Performance:** We know that prepare data is a time-consuming process, and know there are huge data read in  'write-restart-verify' iterations when doing data analysis. In a typical workstation hardware(8C 16G SSD), MSD can
+  - Insert total 100M OHLCVA rows within 10K stocks less than 20s at 5M/s speed
+  - Query total 100M OHLCVA rows within 10K stocks less than 10s at 10M/s speed
+  - See [bench-of-msd](https://cnb.cool/elsejj/bench-of-msd) for more details
+  
 
 ## Usage Guide
 
 ### prerequisites
 
-Ensure you have the latest Rust toolchain installed.
+Download the pre-built binary from [releases](https://github.com/msd-rs/msd-app/releases) with your platform, unpack it to any `PATH` aware location.
 
-### Build the Project
-
-```bash
-cargo build --release
-```
 
 ### Running the Server
 
@@ -58,45 +42,81 @@ Start the MSD server to accept connections and requests.
 
 ```bash
 # Run with default settings (listens on 127.0.0.1:50510)
-cargo run --release -p msd -- server
+msd server
 
 # Custom configuration
-cargo run --release -p msd -- server --listen 0.0.0.0:8080 --workers 16 --db ./my_data
-```
+msd server --listen 0.0.0.0:8080 --workers 16 --db ./my_data
 
-**Server Options:**
-- `-l, --listen <ADDR>`: Address to listen on (default: `127.0.0.1:50510`).
-- `-w, --workers <NUM>`: Number of worker threads (default: `8`).
-- `--db <PATH>`: Path to the database directory (default: `./msd_db`).
-- `-a, --auth-token <TOKEN>`: Optional authentication token.
+# Help
+msd server --help
+```
 
 ### Interactive Shell
 
 Connect to a running server and interact with it using the built-in shell.
 
 ```bash
-cargo run --release -p msd -- shell
+# Run with default settings (connects to 127.0.0.1:50510)
+msd shell
+
+# Custom configuration
+msd shell -s http://192.168.1.100:50510
+
+# Execute a command without entering the shell
+msd shell "select * from stock_kline_1d where obj='SH600000' limit 10"
+
+# Help
+msd shell --help
+
 ```
 
-**Shell Options:**
-- `-s, --server <URL>`: Server URL to connect to (default: `http://127.0.0.1:50510`).
-- `[COMMAND]`: Optional command to run directly (non-interactive mode).
+### Python Bindings
 
-
-### Running Tests
-
-Run the comprehensive test suite across all workspace members.
-
+1. Install the bindings
 ```bash
-cargo test --workspace
+pip install pymsd
+```
+2. Install your favorite data analysis library and http client library, for example pandas and requests
+```bash
+pip install pandas requests
 ```
 
-## Project Structure
+3. Use the bindings
+```python
+import pymsd
 
-- **`msd`**: Main binary (entry point for Server & Shell).
-- **`msd-db`**: Core database logic, request handling, and worker pool.
-- **`msd-store`**: Storage layer abstraction (RocksDB implementation).
-- **`msd-table`**: High-performance dataframe/table structures.
-- **`msd-request`**: Protocol definitions for requests and responses.
-- **`bindings/python`**: Python client bindings.
-- **`bindings/typescript`**: TypeScript client bindings.
+MSD_URL = "http://127.0.0.1:50510"
+client = pymsd.create_msd_pandas(MSD_URL)
+
+data = client.load(
+  objs=["SH600000", "SZ000001"],
+  tables=["stock_kline_1d", "stock_dividend", "stock_shares"],
+  start="2025-01-01",
+  join={"stock_dividend": "zero", "*": "backward"},
+)
+
+sh600000 = data["SH600000"]
+print(sh600000[(sh600000["dividend"] > 0) | (sh600000.index < 5) | (sh600000.index > 240)])
+
+# results:
+# - result is a pandas DataFrame as stock_kline_1d date order
+# - stock_dividend is joined by zero, can be do compute meaningful, natural in next step
+# - stock_shares is joined by backward, can be do compute meaningful, natural in next step
+
+"""
+            ts   open   high    low  close       volume  ...  transfers  dividend  rightShare  rightPrice         total      tradable
+0   2025-01-02  11.73  11.77  11.39  11.43  181959699.0  ...        0.0      0.00         0.0         0.0  1.940557e+10  1.940557e+10
+1   2025-01-03  11.44  11.54  11.36  11.38  115468044.0  ...        0.0      0.00         0.0         0.0  1.940557e+10  1.940557e+10
+2   2025-01-06  11.38  11.48  11.22  11.44  108553630.0  ...        0.0      0.00         0.0         0.0  1.940557e+10  1.940557e+10
+3   2025-01-07  11.42  11.53  11.37  11.51   74786288.0  ...        0.0      0.00         0.0         0.0  1.940557e+10  1.940557e+10
+4   2025-01-08  11.50  11.63  11.40  11.50  106238601.0  ...        0.0      0.00         0.0         0.0  1.940557e+10  1.940557e+10
+104 2025-06-12  11.56  11.70  11.52  11.68  129022000.0  ...        0.0      3.62         0.0         0.0  1.940557e+10  1.940557e+10
+187 2025-10-15  11.34  11.42  11.26  11.40  127106100.0  ...        0.0      2.36         0.0         0.0  1.940560e+10  1.940560e+10
+241 2025-12-30  11.53  11.56  11.45  11.48   58258400.0  ...        0.0      0.00         0.0         0.0  1.940560e+10  1.940560e+10
+242 2025-12-31  11.48  11.49  11.40  11.41   59062000.0  ...        0.0      0.00         0.0         0.0  1.940560e+10  1.940560e+10
+243 2026-01-05  11.42  11.51  11.41  11.50   87549100.0  ...        0.0      0.00         0.0         0.0  1.940560e+10  1.940560e+10
+244 2026-01-06  11.50  11.68  11.48  11.67  130464800.0  ...        0.0      0.00         0.0         0.0  1.940560e+10  1.940560e+10
+
+[11 rows x 14 columns]
+"""
+```

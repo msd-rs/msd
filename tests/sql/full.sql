@@ -80,8 +80,8 @@ create table stock_financial_basic (
   chunkSize = 50
 );
 
-comment on table stock_financial_basic is 'stock financial basic, 基本财务简表';
-comment on column stock_financial_basic.ts is 'timestamp';
+comment on table stock_financial_basic is 'stock financial basic, 基本财务简表, 每季度更新一次';
+comment on column stock_financial_basic.ts is 'timestamp, 日期 单位 季度 03-31, 06-30, 09-30, 12-31';
 comment on column stock_financial_basic.eps_basic is 'basic earnings per share, 基本每股收益, 单位 元';
 comment on column stock_financial_basic.eps_diluted is 'diluted earnings per share, 摊薄每股收益, 单位 元';
 comment on column stock_financial_basic.eps_deduct is 'adjusted earnings per share, 扣非每股收益, 单位 元';
