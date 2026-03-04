@@ -6,13 +6,15 @@ Adaptors for DataFrames, because msd doesn't force users to use pandas or polars
 It use the adaptor pattern to adapt different DataFrames.
 """
 
-from typing import Any, Generator, Literal, Tuple
+from typing import Any, Generator, Literal, Tuple, Generic, TypeAlias, TypeVar
 from .const import MsdTable, MsdTableFrame
 
-type JoinMethod = Literal["backward", "forward", "nearest", "zero", "nan"]
+JoinMethod: TypeAlias = Literal["backward", "forward", "nearest", "zero", "nan"]
+
+DF = TypeVar("DF")
 
 
-class DataFrameAdaptor[DF]:
+class DataFrameAdaptor(Generic[DF]):
   """
   Adaptor for DataFrame
   """
@@ -67,6 +69,12 @@ class DataFrameAdaptor[DF]:
     """
     return p.endswith((".csv"))
 
+  def concat(self, dfs: dict[str, DF], base: str, join: JoinMethod) -> DF:
+    """
+    Concatenate the result of load() to a long dataframe
+    """
+    ...
+
 
 ADAPTORS: list[DataFrameAdaptor] = []
 
@@ -88,14 +96,14 @@ try:
         elif isinstance(read, pd.DataFrame):
           first_col = read.columns[0]
           for col, g in read.groupby(first_col):
-            yield (str(col), g.drop(columns=first_col))
+            yield (str(col), g.drop(columns=[0]))
       else:
         raise ValueError(f"Unsupported file format: {p}")
 
     def join_asof(
       self,
-      df1: pd.DataFrame,
-      df2: pd.DataFrame,
+      df1: pd.DataFrame | pd.Series,
+      df2: pd.DataFrame | pd.Series,
       on: str,
       method: JoinMethod,
     ) -> pd.DataFrame:
@@ -114,7 +122,7 @@ try:
         raise ValueError(f"Unsupported method: {method}")
 
     def fields(self, df: pd.DataFrame) -> list[tuple[str, str]]:
-      return [(col, self.dtype_to_sql(df[col].dtype.kind)) for col in df.columns]
+      return [(str(col), self.dtype_to_sql(df[col].dtype.kind)) for col in df.columns]
 
     def is_data_frame(self, df: Any) -> bool:
       return isinstance(df, pd.DataFrame)
@@ -140,8 +148,31 @@ try:
       if hasattr(df, "index") and df.index.name is not None:
         table.append((str(df.index.name), df.index.to_numpy()))
       for col in df.columns:
-        table.append((col, df[col].to_numpy()))
+        table.append((str(col), df[col].to_numpy()))
       return table
+
+    def concat(
+      self, dfs: dict[str, pd.DataFrame], base: str, join: JoinMethod
+    ) -> pd.DataFrame:
+      if not dfs:
+        return pd.DataFrame()
+
+      base_obj = base if base in dfs else next(iter(dfs))
+      base_df = dfs[base_obj]
+
+      aligned_dfs = []
+
+      for obj, df in dfs.items():
+        if obj == base_obj:
+          res_df = df.copy()
+        else:
+          res_df = self.join_asof(base_df["ts"], df, "ts", join)
+
+        res_df.insert(0, "obj", obj)
+
+        aligned_dfs.append(res_df)
+
+      return pd.concat(aligned_dfs, ignore_index=True)
 
   ADAPTORS.append(PandasAdaptor())
 except ImportError:
@@ -218,6 +249,33 @@ try:
       for col in df.columns:
         table.append((col, df[col].to_numpy()))
       return table
+
+    def concat(
+      self, dfs: dict[str, pl.DataFrame], base: str, join: JoinMethod
+    ) -> pl.DataFrame:
+      if not dfs:
+        return pl.DataFrame()
+
+      base_obj = base if base in dfs else next(iter(dfs))
+      base_df = dfs[base_obj]
+
+      aligned_dfs = []
+      for obj, df in dfs.items():
+        if obj == base_obj:
+          res_df = df
+        else:
+          res_df = self.join_asof(base_df.select("ts"), df, "ts", join)
+
+        # Add obj column
+        res_df = res_df.with_columns(pl.lit(obj).alias("obj"))
+        # Reorder to make obj first, ts second.
+        original_cols = res_df.columns
+        cols = ["obj", "ts"] + [c for c in original_cols if c not in ["obj", "ts"]]
+        res_df = res_df.select(cols)
+
+        aligned_dfs.append(res_df)
+
+      return pl.concat(aligned_dfs)
 
   ADAPTORS.append(PolarsAdaptor())
 except ImportError:

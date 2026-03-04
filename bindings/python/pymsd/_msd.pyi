@@ -1,6 +1,5 @@
-
 from typing import Tuple
-from .const import MsdTable, MsdTableFrame
+from .const import MsdTable
 
 def pack_table_frame(obj: str, table: MsdTable) -> bytes:
   """

@@ -26,4 +26,7 @@ __all__ = [
   "parse_reader",
   "parse_reader_async",
   "query",
+  "check_table_frame",
+  "parse_table_frame",
+  "pack_table_frame",
 ]

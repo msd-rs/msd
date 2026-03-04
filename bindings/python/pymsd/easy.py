@@ -11,12 +11,18 @@ import datetime
 from .const import MsdTableFrame
 from .dataframe_adaptor import DataFrameAdaptor, JoinMethod
 from .update import import_csv, import_dataframes
-from typing import Iterator, overload
+from typing import Iterator, overload, Generic, TypeVar
 from collections import defaultdict
 from .query import query
+import logging
 
 
-class MsdClient[DF]:
+logger = logging.getLogger("MSD")
+
+DF = TypeVar("DF")
+
+
+class MsdClient(Generic[DF]):
   """
   A Easy API for msd as pythonic way. Without writing SQL.
 
@@ -113,9 +119,10 @@ class MsdClient[DF]:
             table_fields.remove("ts")
             table_fields.insert(0, "ts")
       ts_where = []
-      if start is not None:
+      # only filter date on the first table
+      if start is not None and table != tables[0]:
         ts_where.append(f"ts >= '{start}'")
-      if end is not None:
+      if end is not None and table != tables[0]:
         ts_where.append(f"ts < '{end}'")
       if len(ts_where) > 0:
         ts_where = "and " + " and ".join(ts_where)
@@ -126,8 +133,10 @@ class MsdClient[DF]:
         f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where};"
       )
 
+    sql = "\n".join(sql)
+    logger.debug(sql)
     result: dict[str, dict[str, DF]] = defaultdict(dict)
-    for table, obj, df in query(self.baseURL, "\n".join(sql), self.adaptor.build):
+    for table, obj, df in query(self.baseURL, sql, self.adaptor.build):
       result[obj][table] = df
 
     if join is not None:
@@ -153,6 +162,25 @@ class MsdClient[DF]:
       return joined_result
     else:
       return result
+
+  def concat(
+    self, dfs: dict[str, DF], /, base: str = "", join: JoinMethod = "nan"
+  ) -> DF:
+    """
+    Concatenate the result of load() to a long dataframe, after concat,
+    the result will have length of len(dfs) * len(base), order by obj, then ts
+
+    So the result can be passed to some analysis functions.
+
+    Args:
+      dfs: dict of dataframes, key is obj, value is dataframe
+      base: base obj name, it's 'ts' column will be used as the join key, if empty or not in dfs, the first obj will be used as the base
+      join: join method, used to join the dataframes
+
+    Returns:
+      DF: the concatenated dataframe
+    """
+    return self.adaptor.concat(dfs, base, join)
 
   def save(self, table: str, data: Iterator[MsdTableFrame] | str, /, **kwargs) -> dict:
     """
@@ -192,9 +220,9 @@ class MsdClient[DF]:
 
     return list(self._table_schemas.keys())
 
-  def table_schema(self, table: str) -> DF:
+  def table_schema(self, table: str) -> DF | None:
     """
-    Get table schema
+    Get table schema, return None if table not exists
     """
     if table in self._table_schemas:
       return self._table_schemas[table]

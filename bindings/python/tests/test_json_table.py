@@ -1,5 +1,7 @@
-import msd
-from msd.dataframe_adaptor import PolarsAdaptor, PandasAdaptor
+import pymsd
+from pymsd.dataframe_adaptor import PolarsAdaptor, PandasAdaptor
+import polars as pl
+import pandas as pd
 
 
 sample = """
@@ -8,22 +10,18 @@ sample = """
 
 
 def test_parse_json_table():
-  table = msd.parse_json_table(sample)
+  table = pymsd.parse_json_table(sample)
   assert len(table) == 7
   print(table)
 
   adaptor = PolarsAdaptor()
-  df = msd.parse_json_table(sample, adaptor.build)
+  df = pymsd.parse_json_table(sample, adaptor.build)
   assert isinstance(df, pl.DataFrame)
   assert df.shape == (0, 7)
   print(df)
 
   adaptor = PandasAdaptor()
-  df = msd.parse_json_table(sample, adaptor.build)
+  df = pymsd.parse_json_table(sample, adaptor.build)
   assert isinstance(df, pd.DataFrame)
   assert df.shape == (0, 7)
   print(df)
-
-
-
-

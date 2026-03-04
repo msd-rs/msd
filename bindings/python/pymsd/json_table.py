@@ -1,26 +1,27 @@
-
-
-from typing import overload
 from .const import MsdTable, MSD_TABLE_VERSION
-from typing import Callable
+from typing import Callable, TypeVar, overload
 import json
 import numpy as np
 
 
+DF = TypeVar("DF")
+
 
 @overload
-def parse_json_table[DF](text: str, builder: Callable[[MsdTable], DF]) -> DF:
-  ...
+def parse_json_table(text: str, builder: Callable[[MsdTable], DF]) -> DF: ...
+
 
 @overload
-def parse_json_table[DF](text: str) -> MsdTable:
-  ...
+def parse_json_table(text: str) -> MsdTable: ...
 
-def parse_json_table[DF](text: str, builder: Callable[[MsdTable], DF] | None = None) -> DF | MsdTable:
+
+def parse_json_table(
+  text: str, builder: Callable[[MsdTable], DF] | None = None
+) -> DF | MsdTable:
   """
   Parse a json table to a DataFrame or MsdTable
-  
-  the json table usually comes from '.tables' query or JSON response of query 
+
+  the json table usually comes from '.tables' query or JSON response of query
 
   Args:
     text: json table string
@@ -31,7 +32,7 @@ def parse_json_table[DF](text: str, builder: Callable[[MsdTable], DF] | None = N
   if version != MSD_TABLE_VERSION:
     raise ValueError(f"version mismatch: expected {MSD_TABLE_VERSION}, got {version}")
   columns = obj.get("columns", [])
-  
+
   cols = []
   for col in columns:
     name = col.get("name", "")
@@ -73,7 +74,4 @@ def empty_ndarray_by_kind(kind: str) -> np.ndarray:
   elif kind == "Boolean":
     return np.empty(0, dtype="bool")
   else:
-    raise ValueError(f"unknown kind: {kind}")  
-
-
-
+    raise ValueError(f"unknown kind: {kind}")

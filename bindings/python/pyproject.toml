@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pymsd"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -12,7 +12,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "numpy>=1.24.4"
+    "numpy>=1.24.4",
 ]
 readme = "README.md"
 description = "Python binding for msd"
@@ -26,7 +26,7 @@ repository = "https://github.com/msd-rs/msd-app/tree/main/bindings/python"
 [dependency-groups]
 dev = [
     "aiohttp>=3.10.11",
-    "pandas>=2.0.3",
+    "pandas>=3.0.0",
     "polars>=1.8.2",
     "pytest>=8.3.5",
     "pytest-benchmark>=4.0.0",
@@ -35,3 +35,12 @@ dev = [
 
 [tool.maturin]
 module-name = "pymsd._msd"
+
+
+[tool.pytest.ini_options]
+pythonpath = [ "." ]
+log_format = "%(asctime)s %(levelname)s %(message)s"
+log_date_format = "%Y-%m-%d %H:%M:%S"
+log_cli_level = "INFO"
+log_cli = true
+addopts = "--benchmark-skip"

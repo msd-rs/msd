@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: agpl-3.0-only
 
 
-
-from typing import BinaryIO, Iterator, Tuple
-from .const import *
+from typing import BinaryIO, Iterator
+from .const import MSD_IMPORT_PATH, MSD_USER_AGENT
 from .pack import pack_dataframe
+from .dataframe_adaptor import MsdTableFrame
 
-def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = True) -> dict:
+
+def import_csv(
+  baseURL: str, table_name: str, data: BinaryIO, header: bool = True
+) -> dict:
   """
   Import data from csv file to msd.
 
@@ -27,18 +30,23 @@ def import_csv(baseURL: str, table_name: str, data: BinaryIO,  header: bool = Tr
 
   skip = 1 if header else 0
   endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}?skip={skip}"
-  response = requests.put(endpoint, data=data, headers={
-    "User-Agent": MSD_USER_AGENT,
-    "Content-Type": "text/csv",
-  })
+  response = requests.put(
+    endpoint,
+    data=data,
+    headers={
+      "User-Agent": MSD_USER_AGENT,
+      "Content-Type": "text/csv",
+    },
+  )
   if response.status_code != 200:
     raise Exception(f"Import failed: {response.text}")
 
   return response.json()
 
-  
 
-def import_dataframes(baseURL: str, table_name: str, data: Iterator[MsdTableFrame]) -> dict:
+def import_dataframes(
+  baseURL: str, table_name: str, data: Iterator[MsdTableFrame]
+) -> dict:
   """
   Import data from a generator of (object name, data) to msd.
 
@@ -56,12 +64,15 @@ def import_dataframes(baseURL: str, table_name: str, data: Iterator[MsdTableFram
     raise ImportError("requests is required for msd_import_csv")
 
   endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}"
-  response = requests.put(endpoint, data=map(lambda x: pack_dataframe(x[0], x[1]), data), headers={
-    "User-Agent": MSD_USER_AGENT,
-    "Content-Type": "application/x-msd-table-frame",
-  })
+  response = requests.put(
+    endpoint,
+    data=map(lambda x: pack_dataframe(x[0], x[1]), data),
+    headers={
+      "User-Agent": MSD_USER_AGENT,
+      "Content-Type": "application/x-msd-table-frame",
+    },
+  )
   if response.status_code != 200:
     raise Exception(f"Import failed: {response.text}")
 
   return response.json()
-
