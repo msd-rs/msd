@@ -42,7 +42,7 @@ impl<S: MsdStore> Worker<S> {
       .iter()
       .enumerate()
       .filter_map(|(idx, item)| {
-        if req.in_range(item.start) || req.in_range(item.end) {
+        if item.overlap(&req.date_range) {
           Some(idx)
         } else {
           None

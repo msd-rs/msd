@@ -8,6 +8,7 @@ It use the adaptor pattern to adapt different DataFrames.
 
 from typing import Any, Generator, Literal, Tuple, Generic, TypeAlias, TypeVar
 from .const import MsdTable, MsdTableFrame
+import numpy as np
 
 JoinMethod: TypeAlias = Literal["backward", "forward", "nearest", "zero", "nan"]
 
@@ -69,9 +70,12 @@ class DataFrameAdaptor(Generic[DF]):
     """
     return p.endswith((".csv"))
 
-  def concat(self, dfs: dict[str, DF], base: str, join: JoinMethod) -> DF:
+  def concat(
+    self, dfs: dict[str, DF], base: str, join: JoinMethod
+  ) -> Tuple[dict[str, np.ndarray], list[str]]:
     """
-    Concatenate the result of load() to a long dataframe
+    Concatenate the result of load() to a long dataframe.
+    Return a dict of concatenated dataframes and sorted symbols. dict key is column name. first symbol is base then sorted by symbol.
     """
     ...
 
@@ -153,26 +157,25 @@ try:
 
     def concat(
       self, dfs: dict[str, pd.DataFrame], base: str, join: JoinMethod
-    ) -> pd.DataFrame:
+    ) -> Tuple[dict[str, np.ndarray], list[str]]:
       if not dfs:
-        return pd.DataFrame()
+        return {}, []
 
       base_obj = base if base in dfs else next(iter(dfs))
       base_df = dfs[base_obj]
 
-      aligned_dfs = []
+      aligned_dfs = [base_df]
+      symbols = [base_obj]
 
-      for obj, df in dfs.items():
+      for obj, df in sorted(dfs.items()):
         if obj == base_obj:
-          res_df = df.copy()
-        else:
-          res_df = self.join_asof(base_df["ts"], df, "ts", join)
-
-        res_df.insert(0, "obj", obj)
+          continue
+        res_df = self.join_asof(base_df["ts"], df, "ts", join)
 
         aligned_dfs.append(res_df)
-
-      return pd.concat(aligned_dfs, ignore_index=True)
+        symbols.append(obj)
+      concat = pd.concat(aligned_dfs)
+      return {col: concat[col].to_numpy() for col in concat.columns}, symbols
 
   ADAPTORS.append(PandasAdaptor())
 except ImportError:
@@ -252,30 +255,27 @@ try:
 
     def concat(
       self, dfs: dict[str, pl.DataFrame], base: str, join: JoinMethod
-    ) -> pl.DataFrame:
+    ) -> Tuple[dict[str, np.ndarray], list[str]]:
       if not dfs:
-        return pl.DataFrame()
+        return {}, []
 
       base_obj = base if base in dfs else next(iter(dfs))
       base_df = dfs[base_obj]
 
-      aligned_dfs = []
-      for obj, df in dfs.items():
-        if obj == base_obj:
-          res_df = df
-        else:
-          res_df = self.join_asof(base_df.select("ts"), df, "ts", join)
+      aligned_dfs = [base_df]
+      symbols = [base_obj]
 
-        # Add obj column
-        res_df = res_df.with_columns(pl.lit(obj).alias("obj"))
-        # Reorder to make obj first, ts second.
-        original_cols = res_df.columns
-        cols = ["obj", "ts"] + [c for c in original_cols if c not in ["obj", "ts"]]
-        res_df = res_df.select(cols)
+      for obj, df in sorted(dfs.items()):
+        if obj == base_obj:
+          continue
+        res_df = self.join_asof(base_df.select("ts"), df, "ts", join)
 
         aligned_dfs.append(res_df)
+        symbols.append(obj)
 
-      return pl.concat(aligned_dfs)
+      return {
+        col: df[col].to_numpy() for col in pl.concat(aligned_dfs).columns
+      }, symbols
 
   ADAPTORS.append(PolarsAdaptor())
 except ImportError:

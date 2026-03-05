@@ -6,6 +6,7 @@
 //! An `IndexItem` represents a range of timestamps and the count of items within that range.
 //! It is used as part of cache state management in the Worker.
 
+use msd_request::DateRange;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
@@ -16,6 +17,22 @@ pub struct IndexItem {
   pub end: i64,
   /// count of items in this range
   pub count: u64,
+}
+
+impl IndexItem {
+  pub fn overlap(&self, r: &DateRange) -> bool {
+    let self_start = self.start;
+    let self_end = self.end;
+    let r_start = r
+      .start
+      .map(|(ts, inclusive)| if inclusive { ts } else { ts - 1 })
+      .unwrap_or(0);
+    let r_end = r
+      .end
+      .map(|(ts, inclusive)| if inclusive { ts } else { ts + 1 })
+      .unwrap_or(i64::MAX);
+    self_start <= r_end && self_end >= r_start
+  }
 }
 
 impl Ord for IndexItem {

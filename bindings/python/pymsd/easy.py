@@ -5,6 +5,7 @@
 A Easy API for msd as pythonic way. Without writing SQL.
 """
 
+from typing import Tuple
 from pathlib import Path
 from .json_table import parse_json_table
 import datetime
@@ -15,6 +16,7 @@ from typing import Iterator, overload, Generic, TypeVar
 from collections import defaultdict
 from .query import query
 import logging
+import numpy as np
 
 
 logger = logging.getLogger("MSD")
@@ -120,9 +122,9 @@ class MsdClient(Generic[DF]):
             table_fields.insert(0, "ts")
       ts_where = []
       # only filter date on the first table
-      if start is not None and table != tables[0]:
+      if start is not None and table == tables[0]:
         ts_where.append(f"ts >= '{start}'")
-      if end is not None and table != tables[0]:
+      if end is not None and table == tables[0]:
         ts_where.append(f"ts < '{end}'")
       if len(ts_where) > 0:
         ts_where = "and " + " and ".join(ts_where)
@@ -165,10 +167,9 @@ class MsdClient(Generic[DF]):
 
   def concat(
     self, dfs: dict[str, DF], /, base: str = "", join: JoinMethod = "nan"
-  ) -> DF:
+  ) -> Tuple[dict[str, np.ndarray], list[str]]:
     """
-    Concatenate the result of load() to a long dataframe, after concat,
-    the result will have length of len(dfs) * len(base), order by obj, then ts
+    Concatenate the result of load() to a long dataframe
 
     So the result can be passed to some analysis functions.
 
@@ -178,7 +179,8 @@ class MsdClient(Generic[DF]):
       join: join method, used to join the dataframes
 
     Returns:
-      DF: the concatenated dataframe
+      dict[str, np.ndarray]: the concatenated dataframe, key is column name, value have length of len(dfs) * len(base), order by symbols
+      list[str]: the symbols, first is base, then sorted symbols
     """
     return self.adaptor.concat(dfs, base, join)
 

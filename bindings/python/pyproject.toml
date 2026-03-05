@@ -27,6 +27,7 @@ repository = "https://github.com/msd-rs/msd-app/tree/main/bindings/python"
 dev = [
     "aiohttp>=3.10.11",
     "pandas>=3.0.0",
+    "patchelf>=0.17.2.4",
     "polars>=1.8.2",
     "pytest>=8.3.5",
     "pytest-benchmark>=4.0.0",
