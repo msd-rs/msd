@@ -133,6 +133,10 @@ impl Variant {
   }
 
   pub fn from_str_with_tz(s: &str, dtype: DataType, tz: UtcOffset) -> Result<Self, TableError> {
+    if s.trim().is_empty() {
+      return Ok(Self::empty_value(dtype));
+    }
+
     match dtype {
       DataType::Null => Ok(Variant::Null),
       DataType::Int32 => s
@@ -194,6 +198,24 @@ impl Variant {
       Variant::Decimal64(_) => Variant::Decimal64(D64::default()),
       Variant::Decimal128(_) => Variant::Decimal128(D128::ZERO),
       Variant::DateTime(_) => Variant::DateTime(0),
+    }
+  }
+
+  pub fn empty_value(dtype: DataType) -> Self {
+    match dtype {
+      DataType::Null => Variant::Null,
+      DataType::Int32 => Variant::Int32(0),
+      DataType::UInt32 => Variant::UInt32(0),
+      DataType::Int64 => Variant::Int64(0),
+      DataType::UInt64 => Variant::UInt64(0),
+      DataType::Float32 => Variant::Float32(f32::NAN),
+      DataType::Float64 => Variant::Float64(f64::NAN),
+      DataType::String => Variant::String(String::new()),
+      DataType::Bytes => Variant::Bytes(Vec::new()),
+      DataType::Bool => Variant::Bool(false),
+      DataType::Decimal64 => Variant::Decimal64(D64::default()),
+      DataType::Decimal128 => Variant::Decimal128(D128::ZERO),
+      DataType::DateTime => Variant::DateTime(0),
     }
   }
 
