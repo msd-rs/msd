@@ -227,6 +227,11 @@ async fn handle_table_csv(
           continue;
         }
         let line = &buffer[line_start..line_start + pos + 1];
+        if line.trim_ascii().is_empty() {
+          block_end += pos + 1;
+          line_start = block_end;
+          continue;
+        }
 
         let first_col_pos = match memchr(b',', line) {
           Some(pos) => pos,
@@ -255,8 +260,8 @@ async fn handle_table_csv(
           debug!(
             id = worker_idx,
             obj = String::from_utf8_lossy(last_key).to_string(),
-            "dispatched, waiting for workers lines={}",
-            buffer.len()
+            len = block.len(),
+            "dispatched, waiting for workers"
           );
           senders[worker_idx]
             .as_ref()
@@ -520,6 +525,9 @@ fn process_csv_block_simd(lines: &[u8], parse_schema: &Table) -> Result<(String,
   let mut table = parse_schema.clone();
   let mut obj = String::default();
   while let Some(record) = rdr.read_byte_record().map_err(|e| e.to_string())? {
+    if record.is_empty() {
+      continue;
+    }
     if record.len() != parse_schema.column_count() + 1 {
       return Err(format!(
         "Column count mismatch: expected {}, got {}",
