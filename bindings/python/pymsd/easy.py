@@ -5,6 +5,7 @@
 A Easy API for msd as pythonic way. Without writing SQL.
 """
 
+from typing import Callable
 from typing import Tuple
 from pathlib import Path
 from .json_table import parse_json_table
@@ -45,6 +46,7 @@ class MsdClient(Generic[DF]):
     start: str | datetime.datetime | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
+    pre_join_hook: Callable[[str, DF], DF] | None = None,
   ) -> dict[str, DF]:
     """
     Load data from msd, result will be organized as {obj: DF} because join is specified.
@@ -60,6 +62,7 @@ class MsdClient(Generic[DF]):
     start: str | datetime.datetime | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
+    pre_join_hook: Callable[[str, DF], DF] | None = None,
   ) -> dict[str, dict[str, DF]]:
     """
     Load data from msd, result will be organized as {obj: {table: DF}} because join is not specified.
@@ -74,6 +77,7 @@ class MsdClient(Generic[DF]):
     start: str | datetime.datetime | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
+    pre_join_hook: Callable[[str, DF], DF] | None = None,
   ) -> dict[str, dict[str, DF]] | dict[str, DF]:
     """
     Load data from msd, the data will be organized as {obj: {table: DF}} or {obj: DF} if join is specified.
@@ -95,6 +99,7 @@ class MsdClient(Generic[DF]):
       start: start time, can be str or datetime.datetime
       end: end time, can be str or datetime.datetime
       fields: fields to load, can be dict[str, list[str]] or list[str] or None
+      pre_join_hook: a function that takes (table_name, df) and returns df, it will be called before join, it's useful for data preprocessing, for example, you can calculate some derived fields like YoY or MoM before join. First parameter is table name, second parameter is dataframe.
 
     Returns:
       dict[str, dict[str, DF]] or dict[str, DF]: the loaded data
@@ -139,6 +144,8 @@ class MsdClient(Generic[DF]):
     logger.debug(sql)
     result: dict[str, dict[str, DF]] = defaultdict(dict)
     for table, obj, df in query(self.baseURL, sql, self.adaptor.build):
+      if pre_join_hook is not None:
+        df = pre_join_hook(table, df)
       result[obj][table] = df
 
     if join is not None:
