@@ -43,7 +43,7 @@ def query(
   except ImportError:
     raise ImportError("requests is required for msd_query")
 
-  logger.info(f"query {baseURL}, sql: {sql}")
+  logger.debug(f"query {baseURL}, sql: {sql}")
 
   endpoint = f"{baseURL}{MSD_QUERY_PATH}"
   response = requests.post(
