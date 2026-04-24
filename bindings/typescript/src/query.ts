@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: agpl-3.0-only
  */
 
-import type { MsdTable, MsdTableApi} from "./table";
+import type { MsdTable, MsdTableApi } from "./table";
 import { parseMsdTable } from "./table";
 
 
@@ -14,12 +14,12 @@ export type MsdQueryOptions = {
 }
 
 export type MsdQueryResponse = {
-  [key: string]: MsdTableApi & MsdTable;  
+  [key: string]: MsdTableApi & MsdTable;
 }
 
 export async function msdQuery(query: string, options: MsdQueryOptions): Promise<MsdQueryResponse> {
   const { baseURL, fetch = globalThis.fetch } = options;
-  const url = `${baseURL}/data`;
+  const url = `${baseURL}/query`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -55,10 +55,9 @@ export async function msdQuery(query: string, options: MsdQueryOptions): Promise
       for (const line of lines) {
         if (!line.trim()) continue;
         const table = parseMsdTable(line);
-        // Use cell(0, 0) as the key. We expect it to be a string.
-        const key = table.cell(0, 0);
-        if (typeof key === "string") {
-          result[key] = table;
+        const obj = table.metadata?.obj?.String;
+        if (typeof obj === "string") {
+          result[obj] = table;
         }
       }
     }
@@ -70,9 +69,9 @@ export async function msdQuery(query: string, options: MsdQueryOptions): Promise
   buffer += decoder.decode();
   if (buffer.trim()) {
     const table = parseMsdTable(buffer);
-    const key = table.cell(0, 0);
-    if (typeof key === "string") {
-      result[key] = table;
+    const obj = table.metadata?.obj;
+    if (typeof obj === "string") {
+      result[obj] = table;
     }
   }
 

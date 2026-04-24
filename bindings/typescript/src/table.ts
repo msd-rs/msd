@@ -6,18 +6,34 @@
 import { d64ToFloat } from "./d64";
 
 type SeriesTypes = {
-  String: { String: string[] };
-  Bytes: { Bytes: number[][] };
-  Int32: { Int32: number[] };
-  UInt32: { UInt32: number[] };
-  Int64: { Int64: number[] };
-  UInt64: { UInt64: number[] };
-  Float32: { Float32: number[] };
-  Float64: { Float64: number[] };
-  Decimal64: { Decimal64: number[] };
-  Decimal128: { Decimal128: number[] };
-  Bool: { Bool: boolean[] };
-  DateTime: { DateTime: number[] };
+  String: string[];
+  Bytes: number[][];
+  Int32: number[];
+  UInt32: number[];
+  Int64: number[];
+  UInt64: number[];
+  Float32: number[];
+  Float64: number[];
+  Decimal64: number[];
+  Decimal128: number[];
+  Bool: boolean[];
+  DateTime: number[];
+  Null: "Null";
+};
+
+type MetaTypes = {
+  String: string;
+  Bytes: number[];
+  Int32: number;
+  UInt32: number;
+  Int64: number;
+  UInt64: number;
+  Float32: number;
+  Float64: number;
+  Decimal64: number;
+  Decimal128: number;
+  Bool: boolean;
+  DateTime: number;
   Null: "Null";
 };
 
@@ -31,14 +47,14 @@ type SeriesTypes = {
 // TypeScript understands the relation between `kind` and `data`.
 type Field = {
   name: string;
-  metadata: Record<string, number | string | boolean> | null;
+  metadata: Record<string, { [K in keyof MetaTypes]: MetaTypes[K] }> | null;
 } & {
-  [K in keyof SeriesTypes]: { kind: K; data: SeriesTypes[K] };
+  [K in keyof SeriesTypes]: { kind: K; data: { [K in keyof SeriesTypes]: SeriesTypes[K] } };
 }[keyof SeriesTypes];
 
 export type MsdTable = {
   columns: Field[];
-  metadata: Record<string, number | string | boolean> | null;
+  metadata: Record<string, { [K in keyof MetaTypes]: MetaTypes[K] }> | null;
 };
 
 type CellType = string | number | boolean | Uint8Array | Date | null;
@@ -67,11 +83,18 @@ export type MsdTableApi = {
   row<T = { [key: string]: CellType }>(row: number): T;
 
   /**
+   * Get the values of all cells in a specific column
+   * @param column The column index
+   * @returns An array containing the values of all cells in the column
+   */
+  column<T = CellType>(column: number | string): T[] | null;
+
+  /**
    * Get the metadata of a specific column
    * @param key The key of the metadata
    * @returns The value of the metadata if it exists, otherwise null
    */
-  getMetadata(key: string): CellType; 
+  getMetadata(key: string): CellType;
 
   /**
    * Iterate over all rows in the table
@@ -145,7 +168,7 @@ export function parseMsdTable(data: string): MsdTable & MsdTableApi {
     }
     if (typeof v === 'object') {
       return Object.values(v)[0] as CellType;
-    }else{
+    } else {
       return v;
     }
   };
@@ -190,6 +213,47 @@ export function parseMsdTable(data: string): MsdTable & MsdTableApi {
         ) as T;
     }
   };
+
+  obj.column = function <T = CellType>(column: number | string): T[] | null {
+    if (typeof column === "string") {
+      const col = this.columns.find((col) => col.name === column);
+      if (!col) {
+        return null;
+      }
+      column = this.columns.indexOf(col);
+    }
+    const col = this.columns[column];
+    if (!col || col.kind === "Null") {
+      return null;
+    }
+    switch (col.kind) {
+      case "String":
+        return (col.data.String as T[]) ?? null;
+      case "Bytes":
+        return (col.data.Bytes as T[]) ?? null;
+      case "Int32":
+        return (col.data.Int32 as T[]) ?? null;
+      case "UInt32":
+        return (col.data.UInt32 as T[]) ?? null;
+      case "Int64":
+        return (col.data.Int64 as T[]) ?? null;
+      case "UInt64":
+        return (col.data.UInt64 as T[]) ?? null;
+      case "Float32":
+        return (col.data.Float32 as T[]) ?? null;
+      case "Float64":
+        return (col.data.Float64 as T[]) ?? null;
+      case "Decimal64":
+        return (col.data.Decimal64 as T[]) ?? null;
+      case "Decimal128":
+        return (col.data.Decimal128 as T[]) ?? null;
+      case "Bool":
+        return (col.data.Bool as T[]) ?? null;
+      case "DateTime":
+        return (col.data.DateTime as T[]) ?? null;
+    }
+  };
+
 
   obj.row = function <T = { [key: string]: CellType }>(row: number): T {
     const result: { [key: string]: CellType } = {};

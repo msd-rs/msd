@@ -35,7 +35,11 @@ const testTable = `
       "name": "null"
     }
   ],
-  "metadata": null,
+  "metadata": {
+    "obj": {
+      "String": "SH600000"
+      }
+  },
   "version": 1299972097
 }
 `;
@@ -67,4 +71,21 @@ test("parse table and access cells", () => {
     expect(row["null"]).toBeNull();
     console.log(JSON.stringify(row));
   }
+
+  const tsColumn = msdTable.column("ts");
+  expect(tsColumn).toBeDefined();
+  expect(tsColumn?.length).toBe(3);
+  expect(typeof tsColumn?.[0]).toBe("number");
+  expect(typeof tsColumn?.[1]).toBe("number");
+  expect(typeof tsColumn?.[2]).toBe("number");
+
+  const priceColumn = msdTable.column("price");
+  expect(priceColumn).toBeDefined();
+  expect(priceColumn?.length).toBe(3);
+  expect(typeof priceColumn?.[0]).toBe("number");
+  expect(typeof priceColumn?.[1]).toBe("number");
+  expect(typeof priceColumn?.[2]).toBe("number");
+
+  const nullColumn = msdTable.column("null");
+  expect(nullColumn).toBeNull();
 });
