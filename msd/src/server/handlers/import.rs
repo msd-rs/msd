@@ -1,7 +1,11 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use std::{hash::Hash, hash::Hasher, net::SocketAddr};
+use std::{
+  hash::{Hash, Hasher},
+  net::SocketAddr,
+  sync::Arc,
+};
 
 use axum::{
   Json,
@@ -23,7 +27,10 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info};
 
-use crate::server::{DBState, handlers::is_msd_table_format};
+use crate::server::{
+  AppState, AppStateRef,
+  handlers::{is_msd_table_format, ws},
+};
 
 #[derive(Debug, Serialize)]
 pub struct TableResponse {
@@ -68,7 +75,7 @@ pub struct ImportQuery {
 use crate::server::handlers::permission::Permission;
 
 pub async fn handle_table(
-  State(db): State<DBState>,
+  State(state): State<AppStateRef>,
   ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
   Path(table_name): Path<String>,
   Query(q): Query<ImportQuery>,
@@ -77,20 +84,22 @@ pub async fn handle_table(
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   Permission::check_write(&headers, &remote_addr)?;
 
-  db.get_schema(&table_name)
+  state
+    .db
+    .get_schema(&table_name)
     .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
 
   if is_msd_table_format(&headers) {
-    handle_table_binary(db, table_name, body).await
+    handle_table_binary(state.clone(), table_name, body).await
   } else {
-    handle_table_csv(db, table_name, body, q.skip.unwrap_or_default()).await
+    handle_table_csv(state.clone(), table_name, body, q.skip.unwrap_or_default()).await
   }
 }
 
 fn spawn_csv_workers(
   worker_tasks: &mut JoinSet<Result<(), String>>,
   worker_idx: usize,
-  db: DBState,
+  db: AppStateRef,
   table_name: String,
   parse_schema: Table,
 ) -> mpsc::Sender<Vec<u8>> {
@@ -110,7 +119,7 @@ fn spawn_csv_workers(
             continue;
           }
           rows += table.row_count();
-          let _ = flush_table(&db, &table_name, &obj, table).await;
+          let _ = flush_table(db.clone(), &table_name, &obj, table).await;
         }
         Err(e) => {
           error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
@@ -127,7 +136,7 @@ fn spawn_csv_workers(
 fn spawn_binary_workers(
   worker_tasks: &mut JoinSet<Result<usize, String>>,
   worker_idx: usize,
-  db: DBState,
+  db: AppStateRef,
   table_name: String,
   schema: Table,
 ) -> mpsc::Sender<Vec<u8>> {
@@ -156,7 +165,7 @@ fn spawn_binary_workers(
               table_name, obj
             ));
           }
-          match flush_table(&db, &table_name, &obj, table).await {
+          match flush_table(db.clone(), &table_name, &obj, table).await {
             Ok(_) => {}
             Err(e) => {
               error!(%e, id = worker_idx, "process block failed");
@@ -176,7 +185,7 @@ fn spawn_binary_workers(
 }
 
 async fn handle_table_csv(
-  db: DBState,
+  state: AppStateRef,
   table_name: String,
   body: Body,
   skip: usize,
@@ -184,7 +193,8 @@ async fn handle_table_csv(
   let mut response = TableResponse::start();
 
   // 1. get the schema of the table by table_name
-  let schema = db
+  let schema = state
+    .db
     .get_schema(&table_name)
     .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
 
@@ -252,7 +262,7 @@ async fn handle_table_csv(
             senders[worker_idx] = Some(spawn_csv_workers(
               &mut worker_tasks,
               worker_idx,
-              db.clone(),
+              state.clone(),
               table_name.clone(),
               parse_schema.clone(),
             ));
@@ -289,7 +299,7 @@ async fn handle_table_csv(
           senders[worker_idx] = Some(spawn_csv_workers(
             &mut worker_tasks,
             worker_idx,
-            db.clone(),
+            state.clone(),
             table_name.clone(),
             parse_schema.clone(),
           ));
@@ -324,7 +334,7 @@ async fn handle_table_csv(
       senders[worker_idx] = Some(spawn_csv_workers(
         &mut worker_tasks,
         worker_idx,
-        db.clone(),
+        state.clone(),
         table_name.clone(),
         parse_schema.clone(),
       ));
@@ -365,11 +375,13 @@ async fn handle_table_csv(
 }
 
 async fn handle_table_binary(
-  db: DBState,
+  state: AppStateRef,
   table_name: String,
   body: Body,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
+
+  let db = &state.db;
 
   // 1. get the schema of the table by table_name
   let schema = db
@@ -415,7 +427,7 @@ async fn handle_table_binary(
           senders[worker_idx] = Some(spawn_binary_workers(
             &mut worker_tasks,
             worker_idx,
-            db.clone(),
+            state.clone(),
             table_name.clone(),
             schema.clone(),
           ));
@@ -460,7 +472,7 @@ async fn handle_table_binary(
 }
 
 async fn flush_table(
-  db: &DBState,
+  state: Arc<AppState>,
   table_name: &str,
   obj: &str,
   table: Table,
@@ -474,7 +486,10 @@ async fn flush_table(
   };
   // ignore response from rx
   let (req, _rx) = MsdRequest::insert(req);
-  db.request(req).await.map_err(|e| e.to_string())?;
+  state.db.request(req).await.map_err(|e| e.to_string())?;
+  state
+    .broker
+    .broadcast(Arc::new(ws::Message::build_notify(table_name, obj, 0, 0)));
   Ok(())
 }
 

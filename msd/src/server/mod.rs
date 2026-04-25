@@ -9,8 +9,9 @@ use crate::app_config::ServerOptions;
 use anyhow::Result;
 use axum::{
   Router,
-  routing::{post, put},
+  routing::{any, post, put},
 };
+use handlers::Broker;
 use msd_db::{MsdDb, MsdDbOptions};
 use msd_store::RocksDbStore;
 use tokio_util::sync::CancellationToken;
@@ -23,12 +24,17 @@ pub use handlers::permission::{Permission, parse_roles};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-type DBState = Arc<MsdDb<RocksDbStore>>;
-
 pub const QUERY_PATH: &str = "/query";
 pub const TABLE_PUT_PATH: &str = "/table/";
 pub const MCP_PATH: &str = "/mcp";
+pub const WS_PATH: &str = "/ws";
 const TABLE_PUT_PARAM_PATH: &str = "/table/{table_name}";
+
+pub struct AppState {
+  pub db: MsdDb<RocksDbStore>,
+  pub broker: Broker,
+}
+type AppStateRef = Arc<AppState>;
 
 pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let app_options = super::app_config::app_config();
@@ -52,6 +58,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   info!("Query Path:        {}", QUERY_PATH);
   info!("Table Put Path:    {}", TABLE_PUT_PARAM_PATH);
   info!("MCP Path:          {}", MCP_PATH);
+  info!("Notify Path:       {}", WS_PATH);
 
   let db_path = app_options.db_path.clone();
   let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
@@ -64,16 +71,20 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   let db = MsdDb::new(store, options).await?;
 
   let ct = tokio_util::sync::CancellationToken::new();
-  let db = Arc::new(db);
+  let state = Arc::new(AppState {
+    db,
+    broker: Broker::new(),
+  });
   let app = Router::new()
     .layer(DecompressionLayer::new())
     .route(QUERY_PATH, post(handlers::handle_data))
     .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
+    .route(WS_PATH, any(handlers::handle_ws))
     .nest_service(
       MCP_PATH,
-      handlers::mcp_service(db.clone(), ct.child_token()),
+      handlers::mcp_service(state.clone(), ct.child_token()),
     )
-    .with_state(db.clone())
+    .with_state(state.clone())
     .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
   info!("msd server start");
@@ -84,7 +95,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   )
   .with_graceful_shutdown(shutdown_signal(ct))
   .await?;
-  db.shutdown().await;
+  state.db.shutdown().await;
   info!("msd server stopped");
   Ok(())
 }

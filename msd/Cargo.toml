@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-axum = { version = "0.8" }
+axum = { version = "0.8", features = ["ws"] }
 axum-streams = { version = "0.24", features = ["json"] }
 clap.workspace = true
 colored = "3"

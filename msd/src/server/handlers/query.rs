@@ -4,7 +4,10 @@
 use std::net::SocketAddr;
 
 use super::is_msd_client;
-use crate::{app_config::MSD_TABLE_FORMAT, server::DBState};
+use crate::{
+  app_config::MSD_TABLE_FORMAT,
+  server::{AppState, AppStateRef},
+};
 use axum::{
   Json,
   body::{Body, HttpBody},
@@ -35,7 +38,7 @@ pub struct DataRequest {
 use crate::server::handlers::permission::Permission;
 
 pub async fn handle_data(
-  State(db): State<DBState>,
+  State(state): State<AppStateRef>,
   ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Json(body): Json<DataRequest>,
@@ -53,23 +56,23 @@ pub async fn handle_data(
     Permission::check(&headers, &remote_addr, req)?;
   }
 
-  let requests = flatten_requests_by_object(db.clone(), requests);
+  let requests = flatten_requests_by_object(state.clone(), requests);
 
   debug!(count = requests.len(), "start to handle requests");
 
   if is_msd_client(&headers) {
-    let body = TableFrameBody::new(db.clone(), requests);
+    let body = TableFrameBody::new(state.clone(), requests);
     Ok(body.into_response())
   } else {
     let s = stream::iter(requests)
-      .then(move |r| handle_sql_request(db.clone(), r))
+      .then(move |r| handle_sql_request(state.clone(), r))
       .map(|r| r.map_err(|e| axum::Error::new(e)));
 
     Ok(StreamBodyAs::new(TableNdJsonFormat {}, s).into_response())
   }
 }
 
-async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbError> {
+async fn handle_sql_request(db: AppStateRef, req: SqlRequest) -> Result<Table, DbError> {
   debug!("Handling SQL request: {:?}", req);
   let res = match req {
     SqlRequest::Query(query_req) => handle_query(db, query_req).await,
@@ -90,7 +93,7 @@ async fn handle_sql_request(db: DBState, req: SqlRequest) -> Result<Table, DbErr
   }
 }
 
-fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<SqlRequest> {
+fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> Vec<SqlRequest> {
   requests
     .into_iter()
     .flat_map(|r| match r {
@@ -105,13 +108,13 @@ fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<Sql
           .unwrap_or(true)
         {
           // if no specific objects, use obj in key
-          matched_objects(db.clone(), &query_req.table, &query_req.obj)
+          matched_objects(state.clone(), &query_req.table, &query_req.obj)
         } else {
           // if specific objects, use them
           let objects = query_req.objects.as_ref().unwrap();
           objects
             .iter()
-            .map(|obj| matched_objects(db.clone(), &query_req.table, &obj))
+            .map(|obj| matched_objects(state.clone(), &query_req.table, &obj))
             .flatten()
             .collect()
         };
@@ -128,7 +131,7 @@ fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<Sql
           .collect()
       }
       SqlRequest::Insert(insert_req) => {
-        let sub_requests = match db.get_schema(&insert_req.table) {
+        let sub_requests = match state.db.get_schema(&insert_req.table) {
           Ok(schema) => insert_req.to_table(&schema).unwrap_or_default(),
           Err(e) => {
             warn!(%e, table = &insert_req.table, "Failed to get schema");
@@ -145,12 +148,12 @@ fn flatten_requests_by_object(db: DBState, requests: Vec<SqlRequest>) -> Vec<Sql
     .collect()
 }
 
-fn matched_objects(db: DBState, table: &str, pattern: &str) -> Vec<String> {
+fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<String> {
   if pattern.is_empty() || pattern.contains(|c| c == '*' || c == '?') {
     let req = ListObjectsRequest {
       key: RequestKey::new(table, pattern),
     };
-    match db.matched_objects(&req) {
+    match state.db.matched_objects(&req) {
       Ok(objects) => objects.into_iter().collect(),
       Err(e) => {
         warn!(%e, table, pattern, "Failed to get matched objects");
@@ -170,54 +173,65 @@ fn is_list_objects(req: &QueryRequest) -> bool {
     .unwrap_or(false)
 }
 
-async fn handle_schema(db: DBState, name: String) -> Result<Table, DbError> {
-  db.get_schema(&name)
+async fn handle_schema(state: AppStateRef, name: String) -> Result<Table, DbError> {
+  state.db.get_schema(&name)
 }
 
-async fn handle_query(db: DBState, req: QueryRequest) -> Result<Table, DbError> {
+async fn handle_query(state: AppStateRef, req: QueryRequest) -> Result<Table, DbError> {
   if is_list_objects(&req) {
     let req = ListObjectsRequest { key: req.key };
-    let mut objs = db.matched_objects(&req)?.into_iter().collect::<Vec<_>>();
+    let mut objs = state
+      .db
+      .matched_objects(&req)?
+      .into_iter()
+      .collect::<Vec<_>>();
     objs.sort();
     return Ok(table!({name : "obj", kind : string, data : objs}));
   }
 
   let (msd_req, resp_rx) = MsdRequest::query(req);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   resp_rx.await.map_err(|e| e)?
 }
 
-async fn handle_insert(db: DBState, req: InsertRequest) -> Result<Table, DbError> {
+async fn handle_insert(state: AppStateRef, req: InsertRequest) -> Result<Table, DbError> {
   let (msd_req, _resp_rx) = MsdRequest::insert(req);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }
 
-async fn handle_delete(db: DBState, req: DeleteRequest) -> Result<Table, DbError> {
+async fn handle_delete(state: AppStateRef, req: DeleteRequest) -> Result<Table, DbError> {
   let (msd_req, _resp_rx) = MsdRequest::delete(req);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }
 
-async fn handle_create_table(db: DBState, name: String, table: Table) -> Result<Table, DbError> {
+async fn handle_create_table(
+  state: AppStateRef,
+  name: String,
+  table: Table,
+) -> Result<Table, DbError> {
   let msd_req = MsdRequest::create_table(name, table);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }
 
 async fn handle_comment(
-  db: DBState,
+  state: AppStateRef,
   table: String,
   field: String,
   desc: String,
 ) -> Result<Table, DbError> {
   let msd_req = MsdRequest::comment(table, field, desc);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }
 
-async fn handle_list_tables(db: DBState, _pattern: Option<String>) -> Result<Table, DbError> {
-  let all = db.list_tables()?;
+async fn handle_list_tables(
+  state: AppStateRef,
+  _pattern: Option<String>,
+) -> Result<Table, DbError> {
+  let all = state.db.list_tables()?;
   let mut items = all.into_iter().collect::<Vec<_>>();
   items.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -234,10 +248,10 @@ async fn handle_list_tables(db: DBState, _pattern: Option<String>) -> Result<Tab
   )
 }
 
-async fn handle_drop_table(db: DBState, name: String) -> Result<Table, DbError> {
+async fn handle_drop_table(state: AppStateRef, name: String) -> Result<Table, DbError> {
   info!(name, "Dropping table");
   let msd_req = MsdRequest::drop_table(name);
-  db.request(msd_req).await.map_err(|e| e)?;
+  state.db.request(msd_req).await.map_err(|e| e)?;
   Ok(Table::default())
 }
 
@@ -247,7 +261,7 @@ struct TableFrameBody {
 }
 
 impl TableFrameBody {
-  fn new(db: DBState, requests: Vec<SqlRequest>) -> Self {
+  fn new(db: AppStateRef, requests: Vec<SqlRequest>) -> Self {
     let mut set = JoinSet::new();
     for req in requests {
       let db = db.clone();

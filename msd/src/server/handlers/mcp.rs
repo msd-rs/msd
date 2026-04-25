@@ -16,20 +16,20 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::server::DBState;
+use crate::server::AppStateRef;
 
 #[derive(Clone)]
 pub struct MsdMcp {
   #[allow(dead_code)]
-  db: DBState,
+  state: AppStateRef,
   tool_router: ToolRouter<MsdMcp>,
   prompt_router: PromptRouter<MsdMcp>,
 }
 
 impl MsdMcp {
-  pub fn new(db: DBState) -> Self {
+  pub fn new(state: AppStateRef) -> Self {
     Self {
-      db,
+      state,
       tool_router: Self::tool_router(),
       prompt_router: Self::prompt_router(),
     }
@@ -41,6 +41,7 @@ impl MsdMcp {
   #[tool(description = "list all tables in database, let you know what tables are available")]
   pub async fn list_tables(&self) -> Result<Json<GetTableResult>, McpError> {
     let all = self
+      .state
       .db
       .list_tables()
       .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -64,6 +65,7 @@ impl MsdMcp {
     params: Parameters<GetTableParams>,
   ) -> Result<Json<GetTableResult>, McpError> {
     let all = self
+      .state
       .db
       .list_tables()
       .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -123,7 +125,7 @@ impl ServerHandler for MsdMcp {
 }
 
 pub fn mcp_service(
-  db: DBState,
+  db: AppStateRef,
   cancellation_token: CancellationToken,
 ) -> StreamableHttpService<MsdMcp> {
   let service = StreamableHttpService::new(
