@@ -119,7 +119,7 @@ fn spawn_csv_workers(
             continue;
           }
           rows += table.row_count();
-          let _ = flush_table(db.clone(), &table_name, &obj, table).await;
+          let _ = flush_table(&db, &table_name, &obj, table).await;
         }
         Err(e) => {
           error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
@@ -136,7 +136,7 @@ fn spawn_csv_workers(
 fn spawn_binary_workers(
   worker_tasks: &mut JoinSet<Result<usize, String>>,
   worker_idx: usize,
-  db: AppStateRef,
+  state: AppStateRef,
   table_name: String,
   schema: Table,
 ) -> mpsc::Sender<Vec<u8>> {
@@ -165,7 +165,7 @@ fn spawn_binary_workers(
               table_name, obj
             ));
           }
-          match flush_table(db.clone(), &table_name, &obj, table).await {
+          match flush_table(&state, &table_name, &obj, table).await {
             Ok(_) => {}
             Err(e) => {
               error!(%e, id = worker_idx, "process block failed");
@@ -472,11 +472,24 @@ async fn handle_table_binary(
 }
 
 async fn flush_table(
-  state: Arc<AppState>,
+  state: &AppState,
   table_name: &str,
   obj: &str,
   table: Table,
 ) -> Result<(), String> {
+  let pk_col_idx = table.pk_column();
+  let min_ts = table
+    .cell(0, pk_col_idx)
+    .get_i64()
+    .map(|v| *v)
+    .unwrap_or_default();
+  let max_ts = table
+    .cell(table.row_count() - 1, pk_col_idx)
+    .get_i64()
+    .map(|v| *v)
+    .unwrap_or_default();
+  let count = table.row_count();
+
   let req = InsertRequest {
     key: RequestKey {
       table: table_name.to_string(),
@@ -487,9 +500,13 @@ async fn flush_table(
   // ignore response from rx
   let (req, _rx) = MsdRequest::insert(req);
   state.db.request(req).await.map_err(|e| e.to_string())?;
+
   state
     .broker
-    .broadcast(Arc::new(ws::Message::build_notify(table_name, obj, 0, 0)));
+    .broadcast(Arc::new(ws::Message::build_notify(
+      table_name, obj, min_ts, max_ts, count,
+    )))
+    .await;
   Ok(())
 }
 

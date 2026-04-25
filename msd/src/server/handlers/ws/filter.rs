@@ -244,14 +244,12 @@ mod tests {
     assert!(filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
     assert!(!filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600001".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
   }
 
@@ -265,14 +263,12 @@ mod tests {
     assert!(filter.is_allowed(&Notify {
       table: "trade_sh".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
     assert!(!filter.is_allowed(&Notify {
       table: "quote".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
   }
 
@@ -290,14 +286,12 @@ mod tests {
     assert!(filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600001".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
     assert!(!filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
   }
 
@@ -325,32 +319,28 @@ mod tests {
     assert!(filter.is_allowed(&Notify {
       table: "quote".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
 
     // Excluded prefix
     assert!(!filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH123456".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
 
     // Re-included sub-prefix
     assert!(filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600001".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
 
     // Specifically excluded exact
     assert!(!filter.is_allowed(&Notify {
       table: "trade".to_string(),
       obj: "SH600000".to_string(),
-      min_ts: 0,
-      max_ts: 0,
+      ..Default::default()
     }));
   }
 }

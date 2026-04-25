@@ -7,12 +7,13 @@ pub struct Subscribe {
   pub objs: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Notify {
   pub table: String,
   pub obj: String,
   pub min_ts: i64,
   pub max_ts: i64,
+  pub count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,12 +45,13 @@ impl TryFrom<ws::Message> for Message {
 }
 
 impl Message {
-  pub fn build_notify(table: &str, obj: &str, min_ts: i64, max_ts: i64) -> Self {
+  pub fn build_notify(table: &str, obj: &str, min_ts: i64, max_ts: i64, count: usize) -> Self {
     let notify = Notify {
       table: table.to_string(),
       obj: obj.to_string(),
       min_ts,
       max_ts,
+      count,
     };
     let json_bytes = serde_json::to_vec(&notify)
       .map_err(|e| e.to_string())

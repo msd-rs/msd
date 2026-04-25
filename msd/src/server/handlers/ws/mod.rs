@@ -77,6 +77,8 @@ async fn handle_msg(
 
   while let Some(msg) = ev_rx.recv().await {
     let msg = msg.as_ref();
+
+    debug!(name, msg = ?msg, "received message");
     match msg {
       Message::Subscribe(sub) => {
         filter.subscribe(sub);

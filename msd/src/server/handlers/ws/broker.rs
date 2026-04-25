@@ -42,11 +42,11 @@ impl Broker {
     }
   }
 
-  pub fn broadcast(&self, message: Arc<Message>) {
+  pub async fn broadcast(&self, message: Arc<Message>) {
     match self.subscribes.read() {
       Ok(subscribes) => {
         for (_, sender) in subscribes.iter() {
-          let _ = sender.send(message.clone());
+          let _ = sender.send(message.clone()).await;
         }
       }
       Err(e) => {
