@@ -480,12 +480,12 @@ async fn flush_table(
   let pk_col_idx = table.pk_column();
   let min_ts = table
     .cell(0, pk_col_idx)
-    .get_i64()
+    .get_datetime()
     .map(|v| *v)
     .unwrap_or_default();
   let max_ts = table
     .cell(table.row_count() - 1, pk_col_idx)
-    .get_i64()
+    .get_datetime()
     .map(|v| *v)
     .unwrap_or_default();
   let count = table.row_count();
@@ -501,12 +501,9 @@ async fn flush_table(
   let (req, _rx) = MsdRequest::insert(req);
   state.db.request(req).await.map_err(|e| e.to_string())?;
 
-  state
-    .broker
-    .broadcast(Arc::new(ws::Message::build_notify(
-      table_name, obj, min_ts, max_ts, count,
-    )))
-    .await;
+  state.broker.broadcast(Arc::new(ws::Message::build_notify(
+    table_name, obj, min_ts, max_ts, count,
+  )));
   Ok(())
 }
 

@@ -9,7 +9,7 @@ ws.onopen = () => {
   ws.send(JSON.stringify({
     Subscribe: {
       table: "*",
-      objs: ["SH600000"]
+      objs: ["*"]
     }
   }))
 }

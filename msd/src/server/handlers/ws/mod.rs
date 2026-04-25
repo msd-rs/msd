@@ -66,6 +66,7 @@ async fn handle_socket(socket: WebSocket, state: AppStateRef, ip: String) {
   }
 
   state.broker.remove(&name);
+  debug!(name, "ws handler quit");
 }
 
 async fn handle_msg(
@@ -88,6 +89,7 @@ async fn handle_msg(
       }
       Message::Notify(notify, json_bytes) => {
         if !filter.is_allowed(notify) {
+          debug!(name, msg = ?msg, "received unallowed message");
           continue;
         }
         match ws_sender.send(ws::Message::Text(json_bytes.clone())).await {
@@ -103,4 +105,6 @@ async fn handle_msg(
       }
     }
   }
+
+  debug!(name, "ws msg handler quit");
 }
