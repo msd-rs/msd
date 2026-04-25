@@ -10,7 +10,7 @@ pub mod ws;
 pub use import::handle_table;
 pub use mcp::mcp_service;
 pub use query::handle_data;
-pub use ws::{Broker, Message, handle_ws};
+pub use ws::{Broker, handle_ws};
 
 use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT};
 
