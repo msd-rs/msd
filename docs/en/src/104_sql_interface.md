@@ -14,7 +14,7 @@ CREATE TABLE kline1d (
   low FLOAT64 AGG_MIN,
   close FLOAT64,
   vol FLOAT64 AGG_DIFF_FIRST,
-  amount FLOAT64 AGG_DIFF_LAST
+  amount FLOAT64 AGG_DIFF_FIRST
 ) WITH (
   chunkSize = 250,
   round = 'd'
@@ -102,6 +102,45 @@ For some datafeed like chinese market level 1 data, it's snapshot data every 3 s
 
 The `CHANGED_IF` means if `field1` is changed, use it's value, otherwise use `field2`'s value.
 
+#### Chan Table create order
+
+When creating a table with chan, the target table should be created before the source table. For example:
+
+For a "source" table with a "chan" clause (e.g., `snapshot` ) chan to `kline1d` and `kline1m`. The create order should be:
+
+1. First create table `kline1d` and `kline1m`
+2. Then create table `snapshot`
+
+```sql
+-- First create the target table
+CREATE TABLE kline1d (
+  ts DATETIME,
+  open FLOAT64 AGG_FIRST,
+  high FLOAT64 AGG_MAX,
+  low FLOAT64 AGG_MIN,
+  close FLOAT64,
+  vol FLOAT64 AGG_DIFF_FIRST,
+  amount FLOAT64 AGG_DIFF_FIRST
+) WITH (
+  chunkSize = 250,
+  round = 'd'
+);
+
+-- Then create the source table
+CREATE TABLE kline1m (
+  ts DATETIME,
+  open FLOAT64 AGG_FIRST,
+  high FLOAT64 AGG_MAX,
+  low FLOAT64 AGG_MIN,
+  close FLOAT64,
+  vol FLOAT64 AGG_DIFF_FIRST,
+  amount FLOAT64 AGG_DIFF_FIRST
+) WITH (
+  chunkSize = 250,
+  round = '1m',
+  chan = 'kline1d: open, high, low, close, vol, amount'
+);
+```
 
 ## SELECT
 

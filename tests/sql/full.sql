@@ -1,11 +1,13 @@
+
+
 create table stock_kline_1d (
   ts datetime,
-  open double,
-  high double,
-  low double,
-  close double,
-  volume double,
-  amount double
+  open double AGG_FIRST,
+  high double AGG_MAX,
+  low double AGG_MIN,
+  close double ,
+  volume double AGG_DIFF_FIRST,
+  amount double AGG_DIFF_FIRST
 ) with (
   chunkSize = 250,
   round='1d'
@@ -19,6 +21,44 @@ comment on column stock_kline_1d.low is 'low price, 最低价, 单位 元';
 comment on column stock_kline_1d.close is 'close price, 收盘价, 单位 元';
 comment on column stock_kline_1d.volume is 'volume, 成交量, 单位 股';
 comment on column stock_kline_1d.amount is 'amount, 成交额, 单位 元';
+
+create table stock_kline_1m (
+  ts datetime,
+  open double AGG_FIRST,
+  high double AGG_MAX,
+  low double AGG_MIN,
+  close double ,
+  volume double AGG_DIFF_FIRST,
+  amount double AGG_DIFF_FIRST
+) with (
+  chunkSize = 250,
+  round='1m'
+);
+
+comment on table stock_kline_1m is 'daily kline';
+comment on column stock_kline_1m.ts is 'timestamp';
+comment on column stock_kline_1m.open is 'open price, 开盘价, 单位 元';
+comment on column stock_kline_1m.high is 'high price, 最高价, 单位 元';
+comment on column stock_kline_1m.low is 'low price, 最低价, 单位 元';
+comment on column stock_kline_1m.close is 'close price, 收盘价, 单位 元';
+comment on column stock_kline_1m.volume is 'volume, 成交量, 单位 股';
+comment on column stock_kline_1m.amount is 'amount, 成交额, 单位 元';
+
+create table stock_snapshot (
+  ts datetime,
+  open double,
+  high double,
+  low double,
+  close double,
+  volume double,
+  amount double,
+  pre_close double
+) with (
+  chunkSize = 500,
+  chan = 'stock_kline_1d,stock_kline_1m:ts,changed_if(open, close),changed_if(high, close),changed_if(low, close),close,volume,amount'
+);
+
+
 
 create table stock_shares (
   ts datetime,

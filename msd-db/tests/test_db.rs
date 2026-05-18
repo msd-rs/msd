@@ -251,6 +251,33 @@ async fn test_create_db_kline() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_create_db_with_chan() -> Result<()> {
+  setup();
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+  let db = init_db(path, true, "kline1d", create_table()).await?;
+
+  let kline_schema = table!(
+    {name: "ts", kind: datetime},
+    {name: "open", kind: f64},
+    {name: "high", kind: f64},
+    {name: "low", kind: f64},
+    {name: "close", kind: f64},
+    {name: "volume", kind: f64},
+    {name: "amount", kind: f64},
+  );
+  let table = kline_schema.replace_metadata([("chan", v!("kline1d:ts,changed_if(open, close)"))]);
+
+  info!(?table, "Creating table with chan");
+
+  let req = MsdRequest::create_table("kline_chan", table);
+  db.request(req).await?;
+
+  //do_query(&db, "kline_chan", "SH600000").await?;
+
+  Ok(())
+}
+
+#[tokio::test]
 async fn test_delete() -> Result<()> {
   setup();
   let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;

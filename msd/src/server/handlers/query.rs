@@ -4,10 +4,7 @@
 use std::net::SocketAddr;
 
 use super::is_msd_client;
-use crate::{
-  app_config::MSD_TABLE_FORMAT,
-  server::AppStateRef,
-};
+use crate::{app_config::MSD_TABLE_FORMAT, server::AppStateRef};
 use axum::{
   Json,
   body::{Body, HttpBody},

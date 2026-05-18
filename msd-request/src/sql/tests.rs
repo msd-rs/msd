@@ -17,7 +17,8 @@ fn test_sql_parse_create_table() -> Result<()> {
  COMMENT 'daily kline'
  WITH (
    chunkSize = 10,
-   round = '1d'
+   round = '1d',
+   chan = "stock_kline_1m=ts,changed_if(open, close),changed_if(high, close),changed_if(low, close),close,volume,amount"
  ) 
  ; 
   "#;

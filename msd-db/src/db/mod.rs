@@ -136,7 +136,12 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       true => {
         match &req {
           MsdRequest::Broadcast(Broadcast::CreateTable(name, table)) => {
-            self.create_table(name, table)?;
+            match self.create_table(name, table) {
+              Ok(_) => {}
+              Err(e) => {
+                warn!(%e, "Failed to create table");
+              }
+            }
           }
           MsdRequest::Broadcast(Broadcast::DropTable(name)) => self.drop_table(name)?,
           _ => {}
