@@ -11,6 +11,7 @@
   - [Data Import](./201_data_import.md)
   - [Data Export](./202_data_export.md)
   - [Integrate with an exchange data feed](./203_integrate_with_an_exchange_data_feed.md)
+  - [Subscribe Data Change](./204_subscribe_data_change.md)
 - [Bindings](./300_bindings.md)
   - [Rust](./301_rust.md)
   - [Python](./302_python.md)
