@@ -98,6 +98,12 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
         if is_list_objects(&query_req) {
           return vec![SqlRequest::Query(query_req)];
         }
+        // KV tables: pass through without object expansion
+        if let Ok(schema) = state.db.get_schema(&query_req.table) {
+          if schema.is_kv() {
+            return vec![SqlRequest::Query(query_req)];
+          }
+        }
         let objects = if query_req
           .objects
           .as_ref()

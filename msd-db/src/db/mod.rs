@@ -12,9 +12,9 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use crate::serde::DbBinary;
-use msd_request::{DeleteRequest, Key, ListObjectsRequest};
+use msd_request::{DeleteRequest, InsertRequest, Key, ListObjectsRequest, QueryRequest};
 use msd_store::MsdStore;
-use msd_table::{DataType, Table, parse_unit, table};
+use msd_table::{DataType, Table, Variant, parse_unit, table};
 use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -38,7 +38,9 @@ pub struct MsdDbOptions {
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
   workers: Vec<mpsc::Sender<MsdRequest>>,
+  // all schemas in memory for quick access, key is table name
   schemas: Arc<RwLock<HashMap<String, Table>>>,
+  // all objects for each table in memory for quick access, key is table name, value is set of objects
   objects: Arc<RwLock<HashMap<String, HashSet<String>>>>,
   flusher: mpsc::Sender<Broadcast>,
 }
@@ -80,6 +82,9 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       ));
     }
 
+    // ensure schema table exists
+    store.new_table(SCHEMA_TABLE_NAME)?;
+
     info!("loading database schema");
     match db.load_schema() {
       Ok(schema_map) => {
@@ -87,6 +92,10 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         let mut objects_map = HashMap::new();
         for name in schema_map.keys() {
           let name = name.to_string();
+          // Skip objects loading for KV tables
+          if schema_map.get(&name).map(|t| t.is_kv()).unwrap_or(false) {
+            continue;
+          }
           match db.load_objects_for_table(&name) {
             Ok(objs) => {
               objects_map.insert(name.clone(), objs);
@@ -108,8 +117,8 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
         db.request(MsdRequest::update_schema(schema_map)).await?;
       }
-      Err(e) => {
-        warn!(%e, "Failed to load database schema");
+      Err(err) => {
+        warn!(?err, "Failed to load database schema");
       }
     }
 
@@ -136,12 +145,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       true => {
         match &req {
           MsdRequest::Broadcast(Broadcast::CreateTable(name, table)) => {
-            match self.create_table(name, table) {
-              Ok(_) => {}
-              Err(e) => {
-                warn!(%e, "Failed to create table");
-              }
-            }
+            self.create_table(name, table)?;
           }
           MsdRequest::Broadcast(Broadcast::DropTable(name)) => self.drop_table(name)?,
           _ => {}
@@ -168,23 +172,47 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           }
         }
         MsdRequest::Delete { req, resp_tx } => {
-          self.delete_objects(req, resp_tx)?;
+          if self.is_kv_table(&req.key.table) {
+            let result = self.handle_kv_delete(&req);
+            let _ = resp_tx.send(result);
+          } else {
+            self.delete_objects(req, resp_tx)?;
+          }
         }
         MsdRequest::Insert { req, resp_tx } => {
-          // Intercept
-          {
-            if let Ok(mut guard) = self.objects.write() {
-              if let Some(set) = guard.get_mut(&req.key.table) {
-                set.insert(req.key.obj.clone());
+          if self.is_kv_table(&req.key.table) {
+            let result = self.handle_kv_insert(req);
+            let _ = resp_tx.send(result);
+          } else {
+            {
+              if let Ok(mut guard) = self.objects.write() {
+                if let Some(set) = guard.get_mut(&req.key.table) {
+                  set.insert(req.key.obj.clone());
+                }
+              }
+            }
+            let req = MsdRequest::Insert { req, resp_tx };
+            let worker = self.get_worker(&req);
+            match worker.try_send(req) {
+              Ok(_) => {}
+              Err(e) => {
+                warn!("Failed to send request to worker: {}", e);
               }
             }
           }
-          let req = MsdRequest::Insert { req, resp_tx };
-          let worker = self.get_worker(&req);
-          match worker.try_send(req) {
-            Ok(_) => {}
-            Err(e) => {
-              warn!("Failed to send request to worker: {}", e);
+        }
+        MsdRequest::Query { req, resp_tx } => {
+          if self.is_kv_table(&req.key.table) {
+            let result = self.handle_kv_query(&req);
+            let _ = resp_tx.send(result);
+          } else {
+            let worker = self.get_worker(&req);
+            let req = MsdRequest::Query { req, resp_tx };
+            match worker.try_send(req) {
+              Ok(_) => {}
+              Err(e) => {
+                warn!("Failed to send request to worker: {}", e);
+              }
             }
           }
         }
@@ -193,7 +221,6 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         }
         _ => {
           let worker = self.get_worker(&req);
-          // send to worker without awaiting
           match worker.try_send(req) {
             Ok(_) => {}
             Err(e) => {
@@ -321,6 +348,33 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   }
 
   pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<HashSet<String>, DbError> {
+    // KV tables: enumerate keys from store directly
+    if self.is_kv_table(&req.table) {
+      let wildcard = if req.obj.is_empty() {
+        None
+      } else {
+        Some(Wildcard::new(req.obj.as_bytes()).map_err(|e| DbError::KeyPatternError(e))?)
+      };
+      let mut objects = HashSet::new();
+      self
+        .store
+        .prefix_with(b"", None, &req.table, false, |k, _v| {
+          let obj = String::from_utf8_lossy(k).to_string();
+          match &wildcard {
+            Some(wc) => {
+              if wc.is_match(obj.as_bytes()) {
+                objects.insert(obj);
+              }
+            }
+            None => {
+              objects.insert(obj);
+            }
+          }
+          true
+        })?;
+      return Ok(objects);
+    }
+
     let objects_cache = self.objects.clone();
     let result = (|| {
       let guard = objects_cache
@@ -385,8 +439,8 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           Ok(table) => {
             schema_map.insert(key, table);
           }
-          Err(e) => {
-            warn!(%e, "failed to deserialize table for schema entry");
+          Err(err) => {
+            warn!(key, ?v, %err, "failed to deserialize table for schema entry");
           }
         }
         true
@@ -404,79 +458,99 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         "table must have at least one column".to_string(),
       ));
     }
-    // primary key must be of type DateTime
-    match table.column_by_index(table.pk_column()) {
-      Some(pk_column) => {
-        if pk_column.kind != DataType::DateTime {
-          return Err(DbError::InvalidTableSchema(
-            "primary key must be of type datetime".to_string(),
-          ));
-        }
-      }
-      None => {
+
+    // KV table: must have exactly 2 columns, both String or Bytes
+    if table.is_kv() {
+      if table.column_count() != 2 {
         return Err(DbError::InvalidTableSchema(
-          "table must have a primary key".to_string(),
+          "KV table must have exactly 2 columns (key, value)".to_string(),
         ));
       }
-    }
-
-    // chunkSize should be UInt32 and greater than 0 if exists
-    if let Some(chunk_size) = table.get_table_meta("chunkSize") {
-      // if chunkSize metadata exists, it must be of type UInt32
-      let chunk_size = chunk_size.get_u32().ok_or(DbError::InvalidTableSchema(
-        "chunkSize metadata must be of type UInt32".to_string(),
-      ))?;
-      if *chunk_size == 0 {
-        return Err(DbError::InvalidTableSchema(
-          "chunkSize metadata must be greater than 0".to_string(),
-        ));
-      }
-    }
-
-    // round should be a valid time unit string if exists
-    if let Some(round) = table.get_table_meta("round") {
-      // if round metadata exists, it must be of type String
-      let round = round.get_str().ok_or(DbError::InvalidTableSchema(
-        "round metadata must be of type String".to_string(),
-      ))?;
-      // validate round unit
-      parse_unit(round).map_err(|_| {
-        DbError::InvalidTableSchema("round metadata has invalid time unit".to_string())
-      })?;
-    }
-
-    if let Some(chan) = table.get_table_meta("chan") {
-      // if chan metadata exists, it must be of type String
-      let chan = chan.get_str().ok_or(DbError::InvalidTableSchema(
-        "chan metadata must be of type String".to_string(),
-      ))?;
-      let targets = Chan::parse_targets(chan)?;
-      let (first_target, other_targets) = targets.split_first().ok_or(
-        DbError::InvalidTableSchema("chan metadata must have at least one target".to_string()),
-      )?;
-      let schema = self.schemas.read().unwrap();
-      let target = schema
-        .get(*first_target)
-        .ok_or(DbError::TableNotFound(first_target.to_string()))?;
-
-      // verify all targets exist and have same schema
-      for &target_name in other_targets {
-        let other_target = schema
-          .get(target_name)
-          .ok_or(DbError::TableNotFound(target_name.to_string()))?;
-        if !target.same_shape(other_target) {
+      for col in table.columns() {
+        if col.kind != DataType::String && col.kind != DataType::Bytes {
           return Err(DbError::InvalidTableSchema(format!(
-            "chan targets have different schema for '{}' and '{}'",
-            first_target, target_name
+            "KV table column '{}' must be String or Bytes, got {:?}",
+            col.name, col.kind
           )));
         }
       }
-      // verify all chan descriptions are valid
-      let chan = Chan::try_from(table)?;
-      if !chan.match_target(target) {
-        return Err(DbError::InvalidTableSchema(
-          "chan should have same number of columns as target".to_string(),
-        ));
+    } else {
+      // For non-KV tables, validate more schema rules
+
+      // primary key must be of type DateTime
+      match table.column_by_index(table.pk_column()) {
+        Some(pk_column) => {
+          if pk_column.kind != DataType::DateTime {
+            return Err(DbError::InvalidTableSchema(
+              "primary key must be of type datetime".to_string(),
+            ));
+          }
+        }
+        None => {
+          return Err(DbError::InvalidTableSchema(
+            "table must have a primary key".to_string(),
+          ));
+        }
+      }
+
+      // chunkSize should be UInt32 and greater than 0 if exists
+      if let Some(chunk_size) = table.get_table_meta("chunkSize") {
+        // if chunkSize metadata exists, it must be of type UInt32
+        let chunk_size = chunk_size.get_u32().ok_or(DbError::InvalidTableSchema(
+          "chunkSize metadata must be of type UInt32".to_string(),
+        ))?;
+        if *chunk_size == 0 {
+          return Err(DbError::InvalidTableSchema(
+            "chunkSize metadata must be greater than 0".to_string(),
+          ));
+        }
+      }
+
+      // round should be a valid time unit string if exists
+      if let Some(round) = table.get_table_meta("round") {
+        // if round metadata exists, it must be of type String
+        let round = round.get_str().ok_or(DbError::InvalidTableSchema(
+          "round metadata must be of type String".to_string(),
+        ))?;
+        // validate round unit
+        parse_unit(round).map_err(|_| {
+          DbError::InvalidTableSchema("round metadata has invalid time unit".to_string())
+        })?;
+      }
+
+      if let Some(chan) = table.get_table_meta("chan") {
+        // if chan metadata exists, it must be of type String
+        let chan = chan.get_str().ok_or(DbError::InvalidTableSchema(
+          "chan metadata must be of type String".to_string(),
+        ))?;
+        let targets = Chan::parse_targets(chan)?;
+        let (first_target, other_targets) = targets.split_first().ok_or(
+          DbError::InvalidTableSchema("chan metadata must have at least one target".to_string()),
+        )?;
+        let schema = self.schemas.read().unwrap();
+        let target = schema
+          .get(*first_target)
+          .ok_or(DbError::TableNotFound(first_target.to_string()))?;
+
+        // verify all targets exist and have same schema
+        for &target_name in other_targets {
+          let other_target = schema
+            .get(target_name)
+            .ok_or(DbError::TableNotFound(target_name.to_string()))?;
+          if !target.same_shape(other_target) {
+            return Err(DbError::InvalidTableSchema(format!(
+              "chan targets have different schema for '{}' and '{}'",
+              first_target, target_name
+            )));
+          }
+        }
+        // verify all chan descriptions are valid
+        let chan = Chan::try_from(table)?;
+        if !chan.match_target(target) {
+          return Err(DbError::InvalidTableSchema(
+            "chan should have same number of columns as target".to_string(),
+          ));
+        }
       }
     }
 
@@ -521,6 +595,148 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   }
 
   /// get the appropriate worker for a given hashable object
+  fn is_kv_table(&self, table_name: &str) -> bool {
+    self
+      .schemas
+      .read()
+      .ok()
+      .and_then(|guard| guard.get(table_name).map(|t| t.is_kv()))
+      .unwrap_or(false)
+  }
+
+  fn handle_kv_insert(&self, mut req: InsertRequest) -> Result<Table, DbError> {
+    let table = req.take_table().map_err(|e| DbError::from(e))?;
+    let value_col = table.column_by_index(1).ok_or(DbError::InternalError(
+      "KV table missing value column".into(),
+    ))?;
+    let value_bytes = {
+      let cell = value_col
+        .data
+        .get(0)
+        .ok_or(DbError::InternalError("KV table empty value".into()))?;
+      match cell.get_str() {
+        Some(s) => s.as_bytes().to_vec(),
+        None => match cell.get_bytes() {
+          Some(b) => b.to_vec(),
+          None => {
+            return Err(DbError::InternalError(
+              "KV value must be String or Bytes".into(),
+            ));
+          }
+        },
+      }
+    };
+    self
+      .store
+      .put(req.key.obj.as_bytes(), value_bytes, &req.key.table, None)?;
+    Ok(Table::default())
+  }
+
+  fn handle_kv_query(&self, req: &QueryRequest) -> Result<Table, DbError> {
+    let schema = self
+      .schemas
+      .read()
+      .map_err(|_| DbError::InternalError("Lock poisoned".into()))?
+      .get(&req.key.table)
+      .cloned()
+      .ok_or(DbError::TableNotFound(req.key.table.clone()))?;
+
+    let key_col = schema
+      .column_by_index(0)
+      .ok_or(DbError::InternalError("KV table missing key column".into()))?;
+    let value_col = schema.column_by_index(1).ok_or(DbError::InternalError(
+      "KV table missing value column".into(),
+    ))?;
+
+    let mut result = schema.to_empty();
+
+    if req.key.obj.is_empty() || req.key.obj.contains('*') || req.key.obj.contains('?') {
+      let prefix = if req.key.obj.is_empty() || req.key.obj == "*" {
+        b""
+      } else {
+        let end = req
+          .key
+          .obj
+          .find(|c| c == '*' || c == '?')
+          .unwrap_or(req.key.obj.len());
+        &req.key.obj.as_bytes()[..end]
+      };
+      let prefix_len = if prefix.is_empty() {
+        None
+      } else {
+        Some(prefix.len())
+      };
+      self
+        .store
+        .prefix_with(prefix, prefix_len, &req.key.table, false, |k, v| {
+          let obj_str = String::from_utf8_lossy(k);
+          let val_str = String::from_utf8_lossy(v);
+          let key_val = match key_col.kind {
+            DataType::Bytes => Variant::Bytes(obj_str.as_bytes().to_vec()),
+            _ => Variant::String(obj_str.to_string()),
+          };
+          let val = match value_col.kind {
+            DataType::Bytes => Variant::Bytes(val_str.as_bytes().to_vec()),
+            _ => Variant::String(val_str.to_string()),
+          };
+          let _ = result.push_row(vec![key_val, val]);
+          true
+        })?;
+    } else {
+      match self.store.get(req.key.obj.as_bytes(), &req.key.table)? {
+        Some(bytes) => {
+          let val_str = String::from_utf8_lossy(&bytes);
+          let key_val = match key_col.kind {
+            DataType::Bytes => Variant::Bytes(req.key.obj.as_bytes().to_vec()),
+            _ => Variant::String(req.key.obj.clone()),
+          };
+          let val = match value_col.kind {
+            DataType::Bytes => Variant::Bytes(val_str.as_bytes().to_vec()),
+            _ => Variant::String(val_str.to_string()),
+          };
+          result.push_row(vec![key_val, val])?;
+        }
+        None => {}
+      }
+    }
+
+    result = result.replace_metadata([("table", &req.key.table)]);
+    Ok(result)
+  }
+
+  fn handle_kv_delete(&self, req: &DeleteRequest) -> Result<Table, DbError> {
+    if req.key.obj.is_empty() || req.key.obj.contains('*') || req.key.obj.contains('?') {
+      let prefix = if req.key.obj.is_empty() || req.key.obj == "*" {
+        b""
+      } else {
+        let end = req
+          .key
+          .obj
+          .find(|c| c == '*' || c == '?')
+          .unwrap_or(req.key.obj.len());
+        &req.key.obj.as_bytes()[..end]
+      };
+      let prefix_len = if prefix.is_empty() {
+        None
+      } else {
+        Some(prefix.len())
+      };
+      let mut keys: Vec<Vec<u8>> = Vec::new();
+      self
+        .store
+        .prefix_with(prefix, prefix_len, &req.key.table, false, |k, _v| {
+          keys.push(k.to_vec());
+          true
+        })?;
+      for key in keys {
+        self.store.delete(key, &req.key.table)?;
+      }
+    } else {
+      self.store.delete(req.key.obj.as_bytes(), &req.key.table)?;
+    }
+    Ok(Table::default())
+  }
+
   fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<MsdRequest> {
     let mut hasher = FxHasher::default();
     key.hash(&mut hasher);

@@ -647,3 +647,139 @@ async fn test_drop_table() -> Result<()> {
 
   Ok(())
 }
+
+#[tokio::test]
+async fn test_kv_mode() -> Result<()> {
+  setup();
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+  let db = create_db(path).await?;
+
+  // 1. Create a KV table using SQL
+  let sql_create = "CREATE TABLE config (key STRING, value STRING) WITH (engine='kv');";
+  let requests = msd_db::request::sql_to_request(sql_create)?;
+  assert_eq!(requests.len(), 1);
+  match &requests[0] {
+    msd_db::request::SqlRequest::CreateTable(name, table) => {
+      assert_eq!(name, "config");
+      assert!(table.is_kv());
+      let req = MsdRequest::create_table(name.clone(), table.clone());
+      db.request(req).await?;
+    }
+    _ => panic!("Expected CreateTable request"),
+  }
+
+  // Verify get_schema
+  let schema = db.get_schema("config")?;
+  assert!(schema.is_kv());
+  assert_eq!(schema.column_count(), 2);
+
+  // 2. Insert KV pairs using SQL
+  let sql_insert = "INSERT INTO config VALUES ('host', 'localhost'), ('port', '8080');";
+  let requests = msd_db::request::sql_to_request(sql_insert)?;
+  // sql_to_request splits it by object, so we should have 2 requests: 'host' and 'port'
+  assert_eq!(requests.len(), 2);
+  
+  for req in requests {
+    match req {
+      msd_db::request::SqlRequest::Insert(insert_req) => {
+        let sub_reqs = insert_req.to_table(&schema)?;
+        assert_eq!(sub_reqs.len(), 1);
+        for sub_req in sub_reqs {
+          let (m_req, rx) = MsdRequest::insert(sub_req);
+          db.request(m_req).await?;
+          let _ = rx.await??;
+        }
+      }
+      _ => panic!("Expected Insert request"),
+    }
+  }
+
+  // 3. Query a single KV pair using SQL
+  let sql_query_host = "SELECT * FROM config WHERE obj='host';";
+  let requests = msd_db::request::sql_to_request(sql_query_host)?;
+  assert_eq!(requests.len(), 1);
+  match &requests[0] {
+    msd_db::request::SqlRequest::Query(query_req) => {
+      let (m_req, rx) = MsdRequest::query(query_req.clone());
+      db.request(m_req).await?;
+      let table = rx.await??;
+      assert_eq!(table.row_count(), 1);
+      assert_eq!(table.column_count(), 2);
+      assert_eq!(table.column("key").unwrap().data.get(0).unwrap().get_str().unwrap(), "host");
+      assert_eq!(table.column("value").unwrap().data.get(0).unwrap().get_str().unwrap(), "localhost");
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  // 4. Query all KV pairs using wildcard
+  let sql_query_all = "SELECT * FROM config WHERE obj='*';";
+  let requests = msd_db::request::sql_to_request(sql_query_all)?;
+  assert_eq!(requests.len(), 1);
+  match &requests[0] {
+    msd_db::request::SqlRequest::Query(query_req) => {
+      let (m_req, rx) = MsdRequest::query(query_req.clone());
+      db.request(m_req).await?;
+      let table = rx.await??;
+      assert_eq!(table.row_count(), 2);
+      
+      let keys = table.column("key").unwrap().data.get_string().unwrap();
+      let values = table.column("value").unwrap().data.get_string().unwrap();
+      assert_eq!(keys, &vec!["host".to_string(), "port".to_string()]);
+      assert_eq!(values, &vec!["localhost".to_string(), "8080".to_string()]);
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  // 5. Delete a KV pair
+  let sql_delete = "DELETE FROM config WHERE obj='port';";
+  let requests = msd_db::request::sql_to_request(sql_delete)?;
+  assert_eq!(requests.len(), 1);
+  match &requests[0] {
+    msd_db::request::SqlRequest::Delete(delete_req) => {
+      let (m_req, rx) = MsdRequest::delete(delete_req.clone());
+      db.request(m_req).await?;
+      let _ = rx.await??;
+    }
+    _ => panic!("Expected Delete request"),
+  }
+
+  // Query all again, should only have 'host'
+  let requests = msd_db::request::sql_to_request(sql_query_all)?;
+  match &requests[0] {
+    msd_db::request::SqlRequest::Query(query_req) => {
+      let (m_req, rx) = MsdRequest::query(query_req.clone());
+      db.request(m_req).await?;
+      let table = rx.await??;
+      assert_eq!(table.row_count(), 1);
+      assert_eq!(table.column("key").unwrap().data.get(0).unwrap().get_str().unwrap(), "host");
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  // 6. Delete all KV pairs using wildcard
+  let sql_delete_all = "DELETE FROM config WHERE obj='*';";
+  let requests = msd_db::request::sql_to_request(sql_delete_all)?;
+  assert_eq!(requests.len(), 1);
+  match &requests[0] {
+    msd_db::request::SqlRequest::Delete(delete_req) => {
+      let (m_req, rx) = MsdRequest::delete(delete_req.clone());
+      db.request(m_req).await?;
+      let _ = rx.await??;
+    }
+    _ => panic!("Expected Delete request"),
+  }
+
+  // Query all again, should be empty
+  let requests = msd_db::request::sql_to_request(sql_query_all)?;
+  match &requests[0] {
+    msd_db::request::SqlRequest::Query(query_req) => {
+      let (m_req, rx) = MsdRequest::query(query_req.clone());
+      db.request(m_req).await?;
+      let table = rx.await??;
+      assert_eq!(table.row_count(), 0);
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  Ok(())
+}

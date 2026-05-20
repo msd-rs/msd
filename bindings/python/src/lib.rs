@@ -100,7 +100,7 @@ mod _msd {
         kind: series.kind(),
       })
       .collect();
-    let table = TableRef::new(fields, Some(meta));
+    let table = TableRef::new(fields, Some(meta), false);
     let frame = pack_table_ref_frame(&table);
     Ok(frame)
   }

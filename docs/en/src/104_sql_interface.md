@@ -82,6 +82,12 @@ Please note that `h, m, s` can add a number to specify the interval.
 
 The associated table that should be updated when this table is updated. 
 
+#### engine
+
+Specifies the storage engine for the table.
+- `'ts'` (default): The time-series engine. The first column must be `ts` of type `DATETIME`.
+- `'kv'`: The key-value engine. See [Key-Value (KV) Table Engine](#key-value-kv-table-engine) below for more details.
+
 The format is :
 
 ```
@@ -141,6 +147,61 @@ CREATE TABLE kline1m (
   chan = 'kline1d: open, high, low, close, vol, amount'
 );
 ```
+
+## Key-Value (KV) Table Engine
+
+MSD-RS supports a Key-Value storage engine mode. A KV table behaves like a simple persistent map rather than a time-series store. It bypasses background workers, caching, and partitioning.
+
+### Schema Constraints
+When using the KV engine, the table schema must satisfy the following constraints:
+- Exactly 2 columns.
+- The column data types must be `STRING` or `BYTES`.
+- The first column acts as the key, and the second column acts as the value.
+
+### Creating a KV Table
+Use the `WITH (engine='kv')` table option:
+
+```sql
+CREATE TABLE config (
+  key STRING,
+  value STRING
+) WITH (
+  engine = 'kv'
+);
+```
+
+### Inserting Data
+Data can be inserted similarly to regular tables:
+
+```sql
+INSERT INTO config VALUES
+  ('host', 'localhost'),
+  ('port', '8080');
+```
+
+### Querying Data
+To query a key-value table, specify the key name using the `obj` field in the `WHERE` clause:
+
+- **Point Query**:
+  ```sql
+  SELECT * FROM config WHERE obj = 'host';
+  ```
+- **Wildcard Query** (retrieves all keys):
+  ```sql
+  SELECT * FROM config WHERE obj = '*';
+  ```
+
+### Deleting Data
+To delete key-value pairs, use the `WHERE obj` clause:
+
+- **Delete Single Key**:
+  ```sql
+  DELETE FROM config WHERE obj = 'port';
+  ```
+- **Delete All Keys**:
+  ```sql
+  DELETE FROM config WHERE obj = '*';
+  ```
 
 ## SELECT
 

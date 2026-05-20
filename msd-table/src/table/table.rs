@@ -18,6 +18,8 @@ pub struct Table {
   version: u32,
   columns: Vec<Field>,
   metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
+  #[serde(default)]
+  is_kv: bool,
 }
 
 impl Default for Table {
@@ -26,6 +28,7 @@ impl Default for Table {
       version: TABLE_VERSION_1,
       columns: Vec::new(),
       metadata: None,
+      is_kv: false,
     }
   }
 }
@@ -39,6 +42,7 @@ impl Table {
       version: TABLE_VERSION_1,
       columns,
       metadata: None,
+      is_kv: false,
     }
   }
 
@@ -48,6 +52,7 @@ impl Table {
       version: self.version,
       columns,
       metadata: self.metadata.clone(),
+      is_kv: self.is_kv,
     }
   }
 
@@ -414,6 +419,7 @@ impl Table {
       version: self.version,
       columns,
       metadata: self.metadata.clone(),
+      is_kv: self.is_kv,
     }
   }
 
@@ -459,6 +465,7 @@ impl Table {
         version: self.version,
         columns: new_columns,
         metadata: self.metadata.clone(),
+        is_kv: self.is_kv,
       };
 
       result.insert(key, table);
@@ -533,6 +540,16 @@ impl Table {
       .get(field_index)
       .and_then(|col| col.metadata.as_ref())
       .and_then(|meta| meta.get(key.as_ref()))
+  }
+}
+
+impl Table {
+  pub fn is_kv(&self) -> bool {
+    self.is_kv
+  }
+
+  pub fn set_is_kv(&mut self, is_kv: bool) {
+    self.is_kv = is_kv;
   }
 }
 

@@ -176,7 +176,10 @@ impl MsdStore for RocksDbStore {
             break;
           }
         }
-        Err(e) => return Err(StoreError::from(e)),
+        Err(e) => {
+          warn!(%e, "iterator error");
+          continue;
+        }
       }
     }
     Ok(())

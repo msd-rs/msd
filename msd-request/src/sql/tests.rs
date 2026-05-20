@@ -12,13 +12,15 @@ fn test_sql_parse_create_table() -> Result<()> {
    open FLOAT64 AGG_FIRST COMMENT 'open price',
    high DECIMAL64 AGG_MAX,
    low DECIMAL64 AGG_MIN,
-   close DECIMAL64
+   close DECIMAL64,
+   volume DOUBLE AGG_DIFF_FIRST,
+   amount DOUBLE AGG_DIFF_PREV
  ) 
  COMMENT 'daily kline'
  WITH (
    chunkSize = 10,
    round = '1d',
-   chan = "stock_kline_1m=ts,changed_if(open, close),changed_if(high, close),changed_if(low, close),close,volume,amount"
+   chan = "stock_kline_1m:ts,changed_if(open, close),changed_if(high, close),changed_if(low, close),close,volume,amount"
  ) 
  ; 
   "#;
@@ -29,7 +31,7 @@ fn test_sql_parse_create_table() -> Result<()> {
   match &req[0] {
     super::SqlRequest::CreateTable(table_name, table) => {
       assert_eq!(table_name, "kline1d");
-      assert_eq!(table.column_count(), 5);
+      assert_eq!(table.column_count(), 7);
       assert_eq!(table.column("ts").unwrap().kind, DataType::DateTime);
       assert_eq!(table.column("open").unwrap().kind, DataType::Float64);
       assert_eq!(table.column("high").unwrap().kind, DataType::Decimal64);
@@ -50,6 +52,15 @@ fn test_sql_parse_create_table() -> Result<()> {
 
       let agg_low = table.get_field_meta("low", "agg").cloned();
       assert_eq!(agg_low, Some(Variant::String("min".into())));
+
+      let agg_volume = table.get_field_meta("volume", "agg").cloned();
+      assert_eq!(agg_volume, Some(Variant::String("diff_first".into())));
+
+      let agg_amount = table.get_field_meta("amount", "agg").cloned();
+      assert_eq!(agg_amount, Some(Variant::String("diff_prev".into())));
+
+      let chan_meta = table.get_table_meta("chan").cloned();
+      assert_eq!(chan_meta, Some(Variant::String("stock_kline_1m:ts,changed_if(open, close),changed_if(high, close),changed_if(low, close),close,volume,amount".into())));
     }
     _ => panic!("Expected CreateTable request"),
   }

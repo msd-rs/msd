@@ -103,7 +103,7 @@ impl AggState {
       AggState::DiffFirst(first, diff_first) => {
         if first.is_null() {
           *first = value.clone();
-          *diff_first = value.clone();
+          *diff_first = value.zero_value();
         } else {
           *diff_first = value - first;
         }

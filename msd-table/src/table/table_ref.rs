@@ -38,14 +38,20 @@ pub struct TableRef<'a> {
   pub version: u32,
   pub columns: Vec<FieldRef<'a>>,
   pub metadata: Option<HashMap<String, Variant>>,
+  pub is_kv: bool,
 }
 
 impl<'a> TableRef<'a> {
-  pub fn new(columns: Vec<FieldRef<'a>>, metadata: Option<HashMap<String, Variant>>) -> Self {
+  pub fn new(
+    columns: Vec<FieldRef<'a>>,
+    metadata: Option<HashMap<String, Variant>>,
+    is_kv: bool,
+  ) -> Self {
     Self {
       version: super::table::TABLE_VERSION_1,
       columns,
       metadata,
+      is_kv,
     }
   }
 }

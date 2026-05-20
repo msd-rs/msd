@@ -22,6 +22,8 @@ const AGGREGATE_KEYWORDS: &[&str] = &[
   "AGG_COUNT",
   "AGG_AVG",
   "AGG_UNIQ_COUNT",
+  "AGG_DIFF_FIRST",
+  "AGG_DIFF_PREV",
 ];
 
 impl Dialect for MsdSqlDialect {

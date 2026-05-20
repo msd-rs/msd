@@ -453,6 +453,12 @@ fn parse_create_table(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> 
           if let Some((k, v_raw)) = kv.split_once('=') {
             let key = k.trim();
             let v_clean = v_raw.trim().trim_matches('"').trim_matches('\'');
+            if key.eq_ignore_ascii_case("engine") {
+              if v_clean.eq_ignore_ascii_case("kv") {
+                table.set_is_kv(true);
+              }
+              continue;
+            }
             let value = if key.eq_ignore_ascii_case("chunkSize") {
               Variant::UInt32(v_clean.parse::<u32>().unwrap_or_default())
             } else if let Ok(n) = v_clean.parse::<f64>() {
