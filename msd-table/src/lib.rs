@@ -18,6 +18,7 @@ pub use date::*;
 pub use errors::TableError;
 pub use rust_decimal::Decimal as D128;
 pub use serde::csv::*;
+pub use serde::opt;
 pub use table::{DataType, Field, FieldRef, RowsTable, Series, SeriesRef, Table, TableRef};
 pub use updater::*;
 pub use variant::{Variant, VariantMutRef, VariantRef};

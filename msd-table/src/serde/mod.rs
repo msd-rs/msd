@@ -3,3 +3,6 @@
 
 //! table serialization/deserialization from common formats
 pub mod csv;
+pub mod opt;
+
+pub use opt::*;

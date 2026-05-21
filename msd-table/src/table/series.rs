@@ -5,22 +5,33 @@ use std::{any::Any, cmp::Ordering, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::serde::{
+  d64_array_deserialize, d64_array_serialize, datetime_array_deserialize, datetime_array_serialize,
+};
 use crate::{D64, D128, DataType, TableError, Variant, VariantMutRef, VariantRef};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Series {
-  Null,                  // 0
-  DateTime(Vec<i64>),    // 1
-  Int64(Vec<i64>),       // 2
-  Float64(Vec<f64>),     // 3
-  Decimal64(Vec<D64>),   // 4
-  String(Vec<String>),   // 5
-  Bool(Vec<bool>),       // 6
-  Int32(Vec<i32>),       // 7
-  UInt32(Vec<u32>),      // 8
-  UInt64(Vec<u64>),      // 9
-  Float32(Vec<f32>),     // 10
-  Bytes(Vec<Vec<u8>>),   // 11
+  Null, // 0
+  #[serde(
+    serialize_with = "datetime_array_serialize",
+    deserialize_with = "datetime_array_deserialize"
+  )]
+  DateTime(Vec<i64>), // 1
+  Int64(Vec<i64>), // 2
+  Float64(Vec<f64>), // 3
+  #[serde(
+    serialize_with = "d64_array_serialize",
+    deserialize_with = "d64_array_deserialize"
+  )]
+  Decimal64(Vec<D64>), // 4
+  String(Vec<String>), // 5
+  Bool(Vec<bool>), // 6
+  Int32(Vec<i32>), // 7
+  UInt32(Vec<u32>), // 8
+  UInt64(Vec<u64>), // 9
+  Float32(Vec<f32>), // 10
+  Bytes(Vec<Vec<u8>>), // 11
   Decimal128(Vec<D128>), // 12
 }
 
