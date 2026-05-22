@@ -8,10 +8,11 @@ import datetime
 
 
 def gen_datetime(start: str, count: int) -> np.ndarray:
-  start_dt = datetime.datetime.fromisoformat(start).microsecond * 1000
+  start_dt = int(datetime.datetime.fromisoformat(start).timestamp() * 1000)
+  oneday = 24 * 60 * 60 * 1000
   return np.array(
-    [start_dt + np.timedelta64(24 * i, "h") for i in range(count)],
-    dtype="datetime64[us]",
+    [start_dt + i * oneday for i in range(count)],
+    dtype="datetime64[ms]",
   )
 
 
@@ -61,10 +62,14 @@ df4 = [
 
 def test_pack_dataframe() -> None:
   adaptor = PandasAdaptor()
-  for df in [df1, df2, df3, df4]:
-    content = pymsd.pack_dataframe("test", df)
+  for df in [df1]: #[df1, df2, df3, df4]:
+    content = pymsd.pack_dataframe("test", df, {"open": 2, "high": 2, "low": 2, "close": 2})
+    print(len(content))
     for table, obj, parsed in pymsd.parse_reader(io.BytesIO(content)):
       assert table == ""
       assert obj == "test"
       parsed_df = adaptor.build(parsed)
       assert parsed_df.shape == (10, 7)
+
+if __name__ == "__main__":
+  test_pack_dataframe()

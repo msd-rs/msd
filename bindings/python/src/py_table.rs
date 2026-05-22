@@ -1,7 +1,9 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use msd_table::{DataType, Field, Series, SeriesRef, Table, get_local_offset};
+use std::str::FromStr;
+
+use msd_table::{D64, D64_NAN, DataType, Field, Series, SeriesRef, Table, get_local_offset};
 use numpy::{
   PyArray1, PyArrayDescrMethods, PyArrayMethods, PyReadonlyArray1, PyUntypedArray,
   PyUntypedArrayMethods,
@@ -35,6 +37,7 @@ fn series_to_array<'py>(py: Python<'py>, series: Series, rows: usize) -> Bound<'
   match series {
     Series::Null => PyArray1::<bool>::zeros(py, [rows], true).into_any(),
     Series::DateTime(items) => {
+      print!("datetime items: {:?}", items);
       let offset = get_local_offset().whole_seconds() as i64 * 1_000_000;
       PyArray1::<Datetime<Microseconds>>::from_vec(
         py,
@@ -91,6 +94,7 @@ pub enum PyArrayTyped<'py> {
   Bool(PyReadonlyArray1<'py, bool>),
   DateTime(Vec<i64>),
   String(Vec<String>),
+  Decimal64(Vec<D64>),
 }
 
 impl<'py> PyArrayTyped<'py> {
@@ -103,6 +107,45 @@ impl<'py> PyArrayTyped<'py> {
       PyArrayTyped::Bool(_) => DataType::Bool,
       PyArrayTyped::DateTime(_) => DataType::DateTime,
       PyArrayTyped::String(_) => DataType::String,
+      PyArrayTyped::Decimal64(_) => DataType::Decimal64,
+    }
+  }
+
+  pub fn into_d64_series(&self, dec: usize) -> Option<Series> {
+    match self {
+      PyArrayTyped::Int64(arr) => Some(Series::Decimal64(
+        arr
+          .as_slice()
+          .unwrap()
+          .iter()
+          .map(|v| D64::from_i64(*v, dec))
+          .collect(),
+      )),
+      PyArrayTyped::Float64(arr) => Some(Series::Decimal64(
+        arr
+          .as_slice()
+          .unwrap()
+          .iter()
+          .map(|v| D64::from_f64(*v, dec))
+          .collect(),
+      )),
+      PyArrayTyped::Int32(arr) => Some(Series::Decimal64(
+        arr
+          .as_slice()
+          .unwrap()
+          .iter()
+          .map(|v| D64::from_i64(*v as i64, dec))
+          .collect(),
+      )),
+      PyArrayTyped::Float32(arr) => Some(Series::Decimal64(
+        arr
+          .as_slice()
+          .unwrap()
+          .iter()
+          .map(|v| D64::from_f64(*v as f64, dec))
+          .collect(),
+      )),
+      _ => None,
     }
   }
 }
@@ -117,23 +160,42 @@ impl<'py, 'a> Into<SeriesRef<'a>> for &'a PyArrayTyped<'py> {
       PyArrayTyped::Bool(array) => SeriesRef::Bool(array.as_slice().unwrap()),
       PyArrayTyped::DateTime(array) => SeriesRef::DateTime(&array),
       PyArrayTyped::String(array) => SeriesRef::String(&array),
+      PyArrayTyped::Decimal64(array) => SeriesRef::Decimal64(&array),
     }
   }
 }
 
-impl<'py> TryFrom<(Python<'py>, Bound<'py, PyAny>)> for PyArrayTyped<'py> {
+impl<'py> TryFrom<(Python<'py>, Bound<'py, PyAny>, Option<usize>)> for PyArrayTyped<'py> {
   type Error = PyErr;
 
   /// parse from a ndarray or list of strings
-  fn try_from((py, array): (Python<'py>, Bound<'py, PyAny>)) -> PyResult<Self> {
+  fn try_from(
+    (py, array, dec_num): (Python<'py>, Bound<'py, PyAny>, Option<usize>),
+  ) -> PyResult<Self> {
     let array_type = array.get_type().name()?;
     if array_type == "list" {
-      let array = array.cast::<PyList>()?;
-      let mut strings = Vec::with_capacity(array.len());
-      for i in 0..array.len() {
-        strings.push(array.get_item(i)?.extract::<String>()?);
+      if let Some(dec) = dec_num {
+        let array = array.cast::<PyList>()?;
+        let mut decimals = Vec::with_capacity(array.len());
+        for i in 0..array.len() {
+          let mut val = array
+            .get_item(i)?
+            .extract::<String>()
+            .ok()
+            .and_then(|s| D64::from_str(&s).ok())
+            .unwrap_or(D64_NAN);
+          val.set_decimal(dec);
+          decimals.push(val);
+        }
+        return Ok(PyArrayTyped::Decimal64(decimals));
+      } else {
+        let array = array.cast::<PyList>()?;
+        let mut strings = Vec::with_capacity(array.len());
+        for i in 0..array.len() {
+          strings.push(array.get_item(i)?.extract::<String>()?);
+        }
+        return Ok(PyArrayTyped::String(strings));
       }
-      return Ok(PyArrayTyped::String(strings));
     } else if array_type == "ndarray" {
       let array = array.cast::<PyUntypedArray>()?;
       let dt = array.dtype();
@@ -147,8 +209,17 @@ impl<'py> TryFrom<(Python<'py>, Bound<'py, PyAny>)> for PyArrayTyped<'py> {
         let array = array.cast::<PyArray1<f64>>()?;
         let r = array.readonly();
         // check if the array is contiguous
-        _ = r.as_slice()?;
-        Ok(PyArrayTyped::Float64(r))
+        if let Some(dec) = dec_num {
+          let mut decimals = Vec::with_capacity(r.len());
+          for v in r.as_slice()? {
+            let d = D64::from_f64(*v, dec);
+            decimals.push(d);
+          }
+          Ok(PyArrayTyped::Decimal64(decimals))
+        } else {
+          _ = r.as_slice()?;
+          Ok(PyArrayTyped::Float64(r))
+        }
       } else if dt.is_equiv_to(&dtype::<i32>(py)) {
         let array = array.cast::<PyArray1<i32>>()?;
         let r = array.readonly();
@@ -159,8 +230,17 @@ impl<'py> TryFrom<(Python<'py>, Bound<'py, PyAny>)> for PyArrayTyped<'py> {
         let array = array.cast::<PyArray1<f32>>()?;
         let r = array.readonly();
         // check if the array is contiguous
-        _ = r.as_slice()?;
-        Ok(PyArrayTyped::Float32(r))
+        if let Some(dec) = dec_num {
+          let mut decimals = Vec::with_capacity(r.len());
+          for v in r.as_slice()? {
+            let d = D64::from_f64(*v as f64, dec);
+            decimals.push(d);
+          }
+          Ok(PyArrayTyped::Decimal64(decimals))
+        } else {
+          _ = r.as_slice()?;
+          Ok(PyArrayTyped::Float32(r))
+        }
       } else if dt.is_equiv_to(&dtype::<bool>(py)) {
         let array = array.cast::<PyArray1<bool>>()?;
         let r = array.readonly();

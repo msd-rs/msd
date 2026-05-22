@@ -204,6 +204,18 @@ impl D64 {
     };
     self.v = (n << 8 | flag).to_be_bytes()
   }
+
+  pub fn set_decimal(&mut self, dec: usize) {
+    if dec == self.dec_num() || self.is_inf() || self.is_nan() {
+      return;
+    }
+    let v: i64 = i64::from(self as &D64);
+    if dec > self.dec_num() {
+      *self = D64::from_i64(v.pow((dec - self.dec_num()) as u32), dec);
+    } else {
+      *self = D64::from_i64(v / 1i64.pow((self.dec_num() - dec) as u32), dec);
+    }
+  }
 }
 
 impl Display for D64 {

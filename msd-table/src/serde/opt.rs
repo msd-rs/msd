@@ -24,11 +24,14 @@ fn gcd(a: i64, b: i64) -> i64 {
   a as i64
 }
 
-pub fn datetime_array_serialize<S>(value: &Vec<i64>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn datetime_array_serialize<A, S>(value: A, serializer: S) -> Result<S::Ok, S::Error>
 where
+  A: AsRef<[i64]>,
   S: Serializer,
 {
   use serde::ser::SerializeSeq;
+
+  let value = value.as_ref();
 
   if value.is_empty() {
     let seq = serializer.serialize_seq(Some(0))?;
@@ -111,11 +114,14 @@ where
 // 2. for each value, value[i] = (value[i].into::<i64> - value[i-1].into::<i64>()), first value is `value[0].into::<i64>()`
 // 3. serialize as `dec_num, values...`
 
-pub fn d64_array_serialize<S>(value: &Vec<D64>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn d64_array_serialize<A, S>(value: A, serializer: S) -> Result<S::Ok, S::Error>
 where
+  A: AsRef<[D64]>,
   S: Serializer,
 {
   use serde::ser::SerializeSeq;
+
+  let value = value.as_ref();
 
   if value.is_empty() {
     let seq = serializer.serialize_seq(Some(0))?;

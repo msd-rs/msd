@@ -1,7 +1,7 @@
 from typing import Tuple
 from .const import MsdTable
 
-def pack_table_frame(obj: str, table: MsdTable) -> bytes:
+def pack_table_frame(obj: str, table: MsdTable, decimal_fields: dict[str, int] | None = None) -> bytes:
   """
   Pack a table frame into a bytes stream.
   """

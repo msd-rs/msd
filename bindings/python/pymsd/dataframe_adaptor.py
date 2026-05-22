@@ -112,7 +112,7 @@ try:
       method: JoinMethod,
     ) -> pd.DataFrame:
       if method in ["backward", "forward", "nearest"]:
-        return pd.merge_asof(df1, df2, on=on, direction=method)
+        return pd.merge_asof(df1, df2, on=on, direction=method) # type: ignore
       elif method == "nan":
         return pd.merge(df1, df2, on=on, how="left")
       elif method == "zero":
@@ -212,7 +212,7 @@ try:
       method: JoinMethod,
     ) -> pl.DataFrame:
       if method in ["backward", "forward", "nearest"]:
-        return df1.join_asof(df2, on=on, strategy=method)
+        return df1.join_asof(df2, on=on, strategy=method) # type: ignore
       elif method == "nan":
         return df1.join(df2, on=on, how="left")
       elif method == "zero":
@@ -273,8 +273,9 @@ try:
         aligned_dfs.append(res_df)
         symbols.append(obj)
 
+      contacted = pl.concat(aligned_dfs)
       return {
-        col: df[col].to_numpy() for col in pl.concat(aligned_dfs).columns
+        col: contacted[col].to_numpy() for col in contacted.columns
       }, symbols
 
   ADAPTORS.append(PolarsAdaptor())

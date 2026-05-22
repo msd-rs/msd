@@ -13,7 +13,7 @@ mod updater;
 mod variant;
 
 pub use csv::*;
-pub use d64::D64;
+pub use d64::{D64, D64_INF, D64_NAN};
 pub use date::*;
 pub use errors::TableError;
 pub use rust_decimal::Decimal as D128;

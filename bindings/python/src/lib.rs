@@ -77,20 +77,26 @@ mod _msd {
   /// columns: a list of (column name, numpy array)
   /// Returns the packed table frame
   #[pyfunction]
-  #[pyo3(signature = (obj, columns, /))]
+  #[pyo3(signature = (obj, columns, decimal_fields = None, /))]
   fn pack_table_frame<'py>(
     py: Python<'py>,
     obj: String,
     columns: Bound<'py, PyList>,
+    decimal_fields: Option<HashMap<String, usize>>,
   ) -> PyResult<Vec<u8>> {
     let mut cols = Vec::new();
     for col in columns.iter() {
       let tuple = col.cast::<PyTuple>()?;
       let name = tuple.get_item(0)?.extract::<String>()?;
       let array = tuple.get_item(1)?;
-      cols.push((name, PyArrayTyped::try_from((py, array))?));
+      let dec = decimal_fields
+        .as_ref()
+        .and_then(|df| df.get(&name))
+        .copied();
+      cols.push((name, PyArrayTyped::try_from((py, array, dec))?));
     }
     let meta = HashMap::from([("obj".into(), obj.into())]);
+
     let fields = cols
       .iter()
       .map(|(name, series)| FieldRef {
