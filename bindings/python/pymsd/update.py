@@ -45,7 +45,7 @@ def import_csv(
 
 
 def import_dataframes(
-  baseURL: str, table_name: str, data: Iterator[MsdTableFrame]
+  baseURL: str, table_name: str, data: Iterator[MsdTableFrame], decimal_fields: dict|None = None
 ) -> dict:
   """
   Import data from a generator of (object name, data) to msd.
@@ -66,7 +66,7 @@ def import_dataframes(
   endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}"
   response = requests.put(
     endpoint,
-    data=map(lambda x: pack_dataframe(x[0], x[1]), data),
+    data=map(lambda x: pack_dataframe(x[0], x[1], decimal_fields), data),
     headers={
       "User-Agent": MSD_USER_AGENT,
       "Content-Type": "application/x-msd-table-frame",

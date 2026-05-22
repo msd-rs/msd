@@ -37,7 +37,6 @@ fn series_to_array<'py>(py: Python<'py>, series: Series, rows: usize) -> Bound<'
   match series {
     Series::Null => PyArray1::<bool>::zeros(py, [rows], true).into_any(),
     Series::DateTime(items) => {
-      print!("datetime items: {:?}", items);
       let offset = get_local_offset().whole_seconds() as i64 * 1_000_000;
       PyArray1::<Datetime<Microseconds>>::from_vec(
         py,
