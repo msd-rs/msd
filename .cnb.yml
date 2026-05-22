@@ -27,14 +27,9 @@ main:
           script: docker build -t $IMAGE_TAG .
         - name: push docker image
           script: docker push $IMAGE_TAG
-        - name: get build time
-          script: date +"%y%m%d%H%M%S"
-          exports:
-            info: BUILD_TIME
         - name: push python binding
           script:
             - export TWINE_USERNAME="cnb"
             - export TWINE_PASSWORD=$CNB_TOKEN
             - export TWINE_REPOSITORY_URL="https://pypi.cnb.cool/elsejj/pymsd/-/packages/simple"
-            - mv target/wheels/pymsd-${MSD_VERSION}-*.whl target/wheels/pymsd-${MSD_VERSION}.${BUILD_TIME}-*.whl
-            - twine upload target/wheels/pymsd-${MSD_VERSION}.${BUILD_TIME}-*.whl
+            - twine upload target/wheels/pymsd-${MSD_VERSION}-*.whl
