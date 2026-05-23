@@ -21,8 +21,8 @@ pub enum RequestError {
 
 #[derive(Debug, Error)]
 pub enum TableFrameError {
-  #[error("Invalid table frame")]
-  InvalidTableFrame,
+  #[error("Invalid table frame: {0}")]
+  InvalidTableFrame(String),
   #[error("Buffer too small, want {0} got {1}")]
   BufferTooSmall(usize, usize),
   #[error("Table frame CRC32 check failed")]

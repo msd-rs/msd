@@ -10,6 +10,7 @@ use crate::{DataType, Series, Variant};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Field {
   pub name: String,
+
   pub kind: DataType,
   pub metadata: Option<HashMap<String, Variant>>, // Optional field for additional metadata
   pub data: Series,

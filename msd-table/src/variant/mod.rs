@@ -19,6 +19,7 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[serde(untagged)]
 pub enum Variant {
   Null,             // 0
   DateTime(i64),    // 1

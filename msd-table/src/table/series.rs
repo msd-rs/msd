@@ -11,6 +11,7 @@ use crate::serde::{
 use crate::{D64, D128, DataType, TableError, Variant, VariantMutRef, VariantRef};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
 pub enum Series {
   Null, // 0
   #[serde(

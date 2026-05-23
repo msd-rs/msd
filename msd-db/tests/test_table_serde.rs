@@ -1,7 +1,6 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use bincode::de;
 use msd_db::DbBinary;
 use msd_table::{Series, Table, table};
 

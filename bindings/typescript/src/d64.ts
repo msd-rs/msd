@@ -8,7 +8,7 @@
  * @param {bigint | number | string} d64 - 64位整数，遵循D64格式规范
  * @returns {number} 转换后的浮点数
  */
-export function d64ToFloat(d64: bigint | number | string): string {
+export function d64ToFloatStr(d64: bigint | number | string): string {
   // 确保输入为BigInt类型
   if (typeof d64 === "number" || typeof d64 === "string") {
     d64 = BigInt(d64);
@@ -73,18 +73,18 @@ export function d64ToFloat(d64: bigint | number | string): string {
 // oxlint-disable-next-line no-unused-vars
 function testD64ToFloat() {
   // 123 << 8 | (2 << 4) = 31520
-  console.log(d64ToFloat("31520")); // 输出: "1.23"
+  console.log(d64ToFloatStr("31520")); // 输出: "1.23"
   // 123 << 8 | (2 << 4) | 1 = 31521
-  console.log(d64ToFloat("31521")); // 输出: "-1.23"
+  console.log(d64ToFloatStr("31521")); // 输出: "-1.23"
   // 1230 << 8 | (3 << 4) = 314928
-  console.log(d64ToFloat("314928")); // 输出: "1.230"
+  console.log(d64ToFloatStr("314928")); // 输出: "1.230"
   // 1230 << 8 | (3 << 4) | 1 = 314929
-  console.log(d64ToFloat("314929")); // 输出: "-1.230"
+  console.log(d64ToFloatStr("314929")); // 输出: "-1.230"
   // NaN
-  console.log(d64ToFloat("4")); // 输出: "NaN"
+  console.log(d64ToFloatStr("4")); // 输出: "NaN"
   // Infinity
-  console.log(d64ToFloat("2")); // 输出: "Infinity"
+  console.log(d64ToFloatStr("2")); // 输出: "Infinity"
   // -Infinity
-  console.log(d64ToFloat("3")); // 输出: "-Infinity"
-  console.log(d64ToFloat("0"));
+  console.log(d64ToFloatStr("3")); // 输出: "-Infinity"
+  console.log(d64ToFloatStr("0"));
 }

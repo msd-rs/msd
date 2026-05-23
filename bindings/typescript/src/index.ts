@@ -6,5 +6,6 @@
 
 import { parseMsdTable } from "./table";
 import { msdQuery } from "./query";
+import { parseTableBin } from "./table_bin";
 
-export { parseMsdTable, msdQuery };
+export { parseMsdTable, msdQuery, parseTableBin };

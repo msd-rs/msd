@@ -94,12 +94,18 @@ pub fn check_table_frame(buf: &[u8]) -> Result<(usize, usize), TableFrameError> 
 
   let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
   if magic != MAGIC {
-    return Err(TableFrameError::InvalidTableFrame);
+    return Err(TableFrameError::InvalidTableFrame(format!(
+      "Invalid magic: {}",
+      magic
+    )));
   }
 
   let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
   if version != VERSION {
-    return Err(TableFrameError::InvalidTableFrame);
+    return Err(TableFrameError::InvalidTableFrame(format!(
+      "Invalid version: {}",
+      version
+    )));
   }
 
   let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
@@ -127,12 +133,18 @@ pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableF
 
     let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
     if magic != MAGIC {
-      return Err(TableFrameError::InvalidTableFrame);
+      return Err(TableFrameError::InvalidTableFrame(format!(
+        "Invalid magic: {}",
+        magic
+      )));
     }
 
     let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
     if version != VERSION {
-      return Err(TableFrameError::InvalidTableFrame);
+      return Err(TableFrameError::InvalidTableFrame(format!(
+        "Invalid version: {}",
+        version
+      )));
     }
 
     let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
@@ -144,7 +156,9 @@ pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableF
 
   // TABLE_DATA + FOOTER (CRC)
   if content_and_footer.len() < 4 {
-    return Err(TableFrameError::InvalidTableFrame);
+    return Err(TableFrameError::InvalidTableFrame(
+      "Content and footer too short".to_string(),
+    ));
   }
   let (table_data, footer) = content_and_footer.split_at(content_and_footer.len() - 4);
 
@@ -159,7 +173,7 @@ pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableF
   let table_bytes = &table_data;
   let (table, _): (Table, usize) =
     bincode::serde::decode_from_slice(table_bytes, bincode::config::standard())
-      .map_err(|_| TableFrameError::InvalidTableFrame)?;
+      .map_err(|e| TableFrameError::InvalidTableFrame(format!("Failed to decode table: {}", e)))?;
 
   Ok(table)
 }
@@ -195,7 +209,7 @@ mod tests {
     packed[0] = 0x00; // Corrupt magic
     let err = unpack_table_frame(&packed, false).unwrap_err();
     match err {
-      TableFrameError::InvalidTableFrame => (),
+      TableFrameError::InvalidTableFrame(_) => (),
       _ => panic!("Expected InvalidTableFrame"),
     }
   }

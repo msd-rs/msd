@@ -33,7 +33,6 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     let txt = resp.text().await.unwrap_or_default();
     anyhow::bail!("Query failed: {} - {}", status, txt);
   }
-
   let handler: Box<dyn TableHandler> = if let Some(path) = &opts.output_file {
     let file = std::fs::OpenOptions::new()
       .append(true)

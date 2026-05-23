@@ -1,8 +1,6 @@
 {
   "include": ["src/**/*.ts"],
   "compilerOptions": {
-    "outDir": "dist",
-
     // Environment setup & latest features
     "lib": ["ESNext"],
     "target": "ESNext",
@@ -10,6 +8,8 @@
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
+
+    "types": ["bun"],
 
     // Bundler mode
     "moduleResolution": "bundler",
