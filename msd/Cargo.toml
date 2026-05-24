@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bincode.workspace = true
+bincode-next.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 axum-streams = { version = "0.24", features = ["json"] }
 clap.workspace = true
@@ -18,15 +18,27 @@ futures.workspace = true
 http-body = "1"
 http-body-util = "0.1"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
-memchr="2"
+memchr = "2"
 msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"] }
-rmcp = { version = "0.12", features = ["server", "transport-streamable-http-server", "transport-streamable-http-server-session", "schemars"] }
+reqwest = { version = "0.12", features = [
+  "json",
+  "stream",
+  "gzip",
+  "brotli",
+  "zstd",
+  "deflate",
+] }
+rmcp = { version = "0.12", features = [
+  "server",
+  "transport-streamable-http-server",
+  "transport-streamable-http-server-session",
+  "schemars",
+] }
 rustc-hash.workspace = true
-rustyline = {version="17", features=["derive"]}
+rustyline = { version = "17", features = ["derive"] }
 schemars = "1.0"
 serde.workspace = true
 serde_json.workspace = true
@@ -35,7 +47,11 @@ time.workspace = true
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
 tokio.workspace = true
-tower-http = {version="0.6", features=["compression-full", "cors", "decompression-full"]}
+tower-http = { version = "0.6", features = [
+  "compression-full",
+  "cors",
+  "decompression-full",
+] }
 tracing-appender = { version = "0.2" }
 tracing-subscriber.workspace = true
 tracing.workspace = true
@@ -44,4 +60,3 @@ tracing.workspace = true
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
 pprof = { version = "0.15", features = ["flamegraph"] }
-

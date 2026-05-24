@@ -29,12 +29,12 @@ fn test_ser_bincode() -> Result<()> {
 
   let t = t.replace_metadata([("a", v!(1i64)), ("b", v!("bbb"))]);
 
-  let body = bincode::serde::encode_to_vec(&t, bincode::config::standard())?;
+  let body = bincode_next::encode_to_vec(&t, bincode_next::config::standard())?;
 
   println!("bincode size: {}", body.len());
 
   let (t2, _): (Table, usize) =
-    bincode::serde::decode_from_slice(&body, bincode::config::standard())?;
+    bincode_next::decode_from_slice(&body, bincode_next::config::standard())?;
 
   println!("{:?}", t2);
 

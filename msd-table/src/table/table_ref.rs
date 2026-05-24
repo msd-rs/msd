@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::serde::{d64_array_serialize, datetime_array_serialize};
-use crate::{D64, D128, DataType, Series, Variant};
+use crate::{D64, DataType, Series, Variant};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, bincode_next::Encode)]
 pub enum SeriesRef<'a> {
   Null, // 0
   #[serde(serialize_with = "datetime_array_serialize")]
@@ -25,7 +25,7 @@ pub enum SeriesRef<'a> {
   UInt64(&'a [u64]), // 9
   Float32(&'a [f32]), // 10
   Bytes(&'a [Vec<u8>]), // 11
-  Decimal128(&'a [D128]), // 12
+        //Decimal128(&'a [D128]), // 12
 }
 
 impl<'a> From<&'a Series> for SeriesRef<'a> {
@@ -43,12 +43,12 @@ impl<'a> From<&'a Series> for SeriesRef<'a> {
       Series::UInt64(items) => SeriesRef::UInt64(items),
       Series::Float32(items) => SeriesRef::Float32(items),
       Series::Bytes(items) => SeriesRef::Bytes(items),
-      Series::Decimal128(decimals) => SeriesRef::Decimal128(decimals),
+      // Series::Decimal128(decimals) => SeriesRef::Decimal128(decimals),
     }
   }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, bincode_next::Encode)]
 pub struct FieldRef<'a> {
   pub name: &'a str,
   pub kind: DataType,
@@ -56,7 +56,7 @@ pub struct FieldRef<'a> {
   pub data: SeriesRef<'a>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, bincode_next::Encode)]
 pub struct TableRef<'a> {
   pub version: u32,
   pub columns: Vec<FieldRef<'a>>,

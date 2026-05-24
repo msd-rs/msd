@@ -62,7 +62,7 @@ async function parseBinaryResponse(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<MsdQueryResponse> {
   const result: MsdQueryResponse = {};
-  const buffer = new ArrayBuffer(0, { maxByteLength: 1024 * 1024 * 10 });
+  const buffer = new ArrayBuffer(0, { maxByteLength: 1024 * 1024 });
 
   while (true) {
     const { done, value } = await reader.read();
@@ -71,25 +71,21 @@ async function parseBinaryResponse(
     }
     appendBuffer(buffer, value);
 
+    let totalReadBytes = 0;
     while (true) {
-      let totalReadBytes = 0;
-      let b = buffer.slice(0);
+      let b = new DataView(buffer, totalReadBytes);
       const { table, readBytes } = tryReadTable(b);
       if (table) {
         const obj = table.getMetadata("obj");
         if (typeof obj === "string") {
           result[obj] = table;
         }
-        b = buffer.slice(readBytes);
         totalReadBytes += readBytes;
       } else {
         const v = new Uint8Array(buffer);
-        const remaining = v.slice(totalReadBytes);
+        const remaining = v.subarray(totalReadBytes);
         const remainingLen = remaining.length;
-        // Move the remaining data to the beginning of the buffer
-        const view = new Uint8Array(buffer);
-        view.set(remaining, 0);
-        // Update the buffer length to reflect the remaining data
+        v.set(v.subarray(totalReadBytes));
         buffer.resize(remainingLen);
         break;
       }
@@ -110,26 +106,24 @@ function appendBuffer(buffer: ArrayBuffer, data: Uint8Array): ArrayBuffer {
   }
 }
 
-function tryReadTable(buffer: ArrayBuffer): {
+function tryReadTable(view: DataView): {
   table: (MsdTableApi & MsdTable) | null;
   readBytes: number;
 } {
-  if (buffer.byteLength < 8) {
+  if (view.byteLength < 8) {
     // no enough data to read header
     return { table: null, readBytes: 0 };
   }
-  const dataView = new DataView(buffer);
-  const magic = dataView.getUint32(0, true);
-  if (magic !== 0x4d7c00001) {
+  const magic = view.getUint32(0, true);
+  if (magic !== 0x14d7c) {
     throw new Error("Invalid magic number in binary response");
   }
-  const tableLength = dataView.getUint32(4, true);
-  if (buffer.byteLength < 8 + tableLength) {
+  const tableLength = view.getUint32(4, true);
+  if (view.byteLength < 8 + tableLength) {
     // no enough data to read header
     return { table: null, readBytes: 0 };
   }
-  const tableBuffer = buffer.slice(8, 8 + tableLength - 4); // exclude the 4 bytes of CRC
-  return { table: parseTableBin(tableBuffer), readBytes: 8 + tableLength };
+  return { table: parseTableBin(view, 8), readBytes: 8 + tableLength };
 }
 
 async function parseTextResponse(

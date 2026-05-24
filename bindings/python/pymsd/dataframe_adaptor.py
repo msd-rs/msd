@@ -71,11 +71,27 @@ class DataFrameAdaptor(Generic[DF]):
     return p.endswith((".csv"))
 
   def concat(
-    self, dfs: dict[str, DF], base: str, join: JoinMethod
-  ) -> Tuple[dict[str, np.ndarray], list[str]]:
+    self, dfs: dict[str, DF], base: str, join: JoinMethod, on = "ts"
+  ) -> Tuple[DF | None, list[str]]:
     """
     Concatenate the result of load() to a long dataframe.
-    Return a dict of concatenated dataframes and sorted symbols. dict key is column name. first symbol is base then sorted by symbol.
+    Return concatenated dataframe and concatenated objects. Because each df will be join before concat, so the object will have same length of the base df.
+
+    For example, 
+    df_a = ts: [2023-01-01, 2023-01-02, 2023-01-03], val: [1, 2, 3]
+    df_b = ts: [2023-01-01, 2023-01-03], val: [4, 5]
+
+    concat([A: df_a, B: df_b], base="A", join="nan") will return:
+    ts: [2023-01-01, 2023-01-02, 2023-01-03, 2023-01-01, 2023-01-02, 2023-01-03]
+    val: [1, 2, 3, 4, NaN, 5]
+
+    None is returned if dfs is empty.
+    """
+    ...
+  
+  def to_numpy(self, df: DF) -> dict[str, np.ndarray]:
+    """
+    convert a DataFrame to a numpy array
     """
     ...
 
@@ -156,10 +172,11 @@ try:
       return table
 
     def concat(
-      self, dfs: dict[str, pd.DataFrame], base: str, join: JoinMethod
-    ) -> Tuple[dict[str, np.ndarray], list[str]]:
+      self, dfs: dict[str, pd.DataFrame], base: str, join: JoinMethod, on = "ts"
+    ) -> Tuple[pd.DataFrame | None, list[str]]:
       if not dfs:
-        return {}, []
+        return None, []
+
 
       base_obj = base if base in dfs else next(iter(dfs))
       base_df = dfs[base_obj]
@@ -170,12 +187,20 @@ try:
       for obj, df in sorted(dfs.items()):
         if obj == base_obj:
           continue
-        res_df = self.join_asof(base_df["ts"], df, "ts", join)
+        res_df = self.join_asof(base_df[on], df, on, join)
 
         aligned_dfs.append(res_df)
         symbols.append(obj)
       concat = pd.concat(aligned_dfs)
-      return {col: concat[col].to_numpy() for col in concat.columns}, symbols
+      return concat, symbols
+
+    def to_numpy(self, df: pd.DataFrame) -> dict[str, np.ndarray]:
+      result = {}
+      if hasattr(df, "index") and df.index.name is not None:
+        result[str(df.index.name)] = df.index.to_numpy()
+      for col in df.columns:
+        result[str(col)] = df[col].to_numpy()
+      return result
 
   ADAPTORS.append(PandasAdaptor())
 except ImportError:
@@ -254,10 +279,10 @@ try:
       return table
 
     def concat(
-      self, dfs: dict[str, pl.DataFrame], base: str, join: JoinMethod
-    ) -> Tuple[dict[str, np.ndarray], list[str]]:
+      self, dfs: dict[str, pl.DataFrame], base: str, join: JoinMethod, on = "ts"
+    ) -> Tuple[pl.DataFrame | None, list[str]]:
       if not dfs:
-        return {}, []
+        return None, []
 
       base_obj = base if base in dfs else next(iter(dfs))
       base_df = dfs[base_obj]
@@ -268,15 +293,16 @@ try:
       for obj, df in sorted(dfs.items()):
         if obj == base_obj:
           continue
-        res_df = self.join_asof(base_df.select("ts"), df, "ts", join)
+        res_df = self.join_asof(base_df.select(on), df, on, join)
 
         aligned_dfs.append(res_df)
         symbols.append(obj)
 
       contacted = pl.concat(aligned_dfs)
-      return {
-        col: contacted[col].to_numpy() for col in contacted.columns
-      }, symbols
+      return contacted, symbols
+    
+    def to_numpy(self, df: pl.DataFrame) -> dict[str, np.ndarray]:
+      return {str(col): df[col].to_numpy() for col in df.columns}
 
   ADAPTORS.append(PolarsAdaptor())
 except ImportError:

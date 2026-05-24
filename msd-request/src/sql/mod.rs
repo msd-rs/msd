@@ -688,9 +688,9 @@ fn sql_datatype_to_table(dt: &sqlparser::ast::DataType) -> Result<TableDataType,
     return Ok(TableDataType::DateTime);
   }
 
-  if dtype.contains("DECIMAL128") || dtype.contains("D128") {
-    return Ok(TableDataType::Decimal128);
-  }
+  // if dtype.contains("DECIMAL128") || dtype.contains("D128") {
+  //   return Ok(TableDataType::Decimal128);
+  // }
 
   if dtype.contains("DECIMAL64") || dtype.contains("D64") {
     return Ok(TableDataType::Decimal64);

@@ -7,7 +7,7 @@ BASE_URL = "http://localhost:50510"
 
 
 async def async_query_ok():
-  sql = "select * from kline where obj='SH600000' limit 10"
+  sql = "select * from stock_kline_1d where obj='SH600000' limit 10"
   n = 0
   adaptor = PandasAdaptor()
   async for table, obj, df in pymsd.async_query(BASE_URL, sql, adaptor.build):

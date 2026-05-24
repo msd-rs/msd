@@ -18,7 +18,10 @@ def test_pandas_concat():
 
   # Case 1: Concatenate with default join (nan)
   # Base is A (first one if not specified, or we specify "A")
-  res = adaptor.concat(dfs, base="A", join="nan")
+  res, objs  = adaptor.concat(dfs, base="A", join="nan")
+  assert isinstance(res, pd.DataFrame)
+  indexes = pd.Series(objs).repeat(len(res) // len(objs))
+  res.set_index(indexes, inplace=True)
 
   # Expected:
   # A: 2023-01-01, 2023-01-02, 2023-01-03
@@ -27,17 +30,16 @@ def test_pandas_concat():
   # 2023-01-02 matches (5)
   # 2023-01-03 no match in B (NaN)
 
-  assert isinstance(res, pd.DataFrame)
-  assert list(res.columns) == ["obj", "ts", "val"]
+  assert list(res.columns) == ["ts", "val"]
   assert len(res) == 6  # 3 for A + 3 for B
 
   # Check A
-  res_a = res[res["obj"] == "A"]
+  res_a = res[res.index == "A"]
   assert len(res_a) == 3
   assert res_a["val"].tolist() == [1, 2, 3]
 
   # Check B
-  res_b = res[res["obj"] == "B"]
+  res_b = res[res.index == "B"]
   assert len(res_b) == 3
   # First two should correspond to B's values
   assert res_b.iloc[0]["val"] == 4
@@ -60,8 +62,12 @@ def test_pandas_concat_join_methods():
   # 2023-01-01 -> backward search in B (<= 2023-01-01). None? B starts at 01-02.
   # 2023-01-03 -> backward search in B (<= 2023-01-03). Match 2023-01-02 (val 2).
 
-  res = adaptor.concat(dfs, base="A", join="backward")
-  res_b = res[res["obj"] == "B"]
+  res, objs = adaptor.concat(dfs, base="A", join="backward")
+  assert isinstance(res, pd.DataFrame)
+  indexes = pd.Series(objs).repeat(len(res) // len(objs))
+  res.set_index(indexes, inplace=True)
+  print(res)
+  res_b = res[res.index == "B"]
 
   # Depending on merge_asof behavior for "backward":
   # "selects the last row in the right DataFrame whose 'on' key is less than or equal to the left's key."
@@ -83,10 +89,15 @@ def test_polars_concat():
 
   dfs = {"A": df1, "B": df2}
 
-  res = adaptor.concat(dfs, base="A", join="nan")
+  res, objs = adaptor.concat(dfs, base="A", join="nan")
+  assert isinstance(res, pl.DataFrame)
+  indexes = pl.Series(objs).repeat_by(len(res) // len(objs)).list.explode()
+  res = res.with_columns(pl.Series("obj", indexes))
+
+  print(indexes)
 
   assert isinstance(res, pl.DataFrame)
-  assert res.columns[:2] == ["obj", "ts"]
+  assert res.columns == ["ts", "val", "obj"]
   assert res.height == 6
 
   res_a = res.filter(pl.col("obj") == "A")

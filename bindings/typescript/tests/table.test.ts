@@ -84,11 +84,13 @@ test("parse table and access cells", () => {
   expect(nullColumn).toBeNull();
 });
 
-const tableBuf = await Bun.file("tests/fixtures/test_table.bin").arrayBuffer();
+const tableBuf = await Bun.file(
+  "/home/jia/repo/msd-rs2/bindings/typescript/tests/fixtures/test_table.bin",
+).arrayBuffer();
 test("parse binary table and access cells", async () => {
   performance.mark("parse-start");
   for (let i = 0; i < 10000; i++) {
-    parseTableBin(tableBuf);
+    parseTableBin(new DataView(tableBuf));
   }
   performance.mark("parse-end");
 
@@ -96,7 +98,7 @@ test("parse binary table and access cells", async () => {
   const measurements = performance.getEntriesByName("parse");
   console.log(JSON.stringify(measurements, null, 2));
 
-  const msdTable = parseTableBin(tableBuf);
+  const msdTable = parseTableBin(new DataView(tableBuf));
 
   //console.log(JSON.stringify(msdTable, null, 2));
 
@@ -121,9 +123,11 @@ test("parse binary table and access cells", async () => {
   expect(msdTable.cell<number>(2, 1)).toBe(3.0);
 });
 
-const frameBuf = await Bun.file("tests/fixtures/test_frame.bin").arrayBuffer();
+const frameBuf = await Bun.file(
+  "/home/jia/repo/msd-rs2/bindings/typescript/tests/fixtures/test_frame.bin",
+).arrayBuffer();
 test("parse packed frame and access cells", async () => {
-  const msdTable = parseTableBin(frameBuf);
+  const msdTable = parseTableBin(new DataView(frameBuf));
 
   //console.log(JSON.stringify(msdTable, null, 2));
 

@@ -109,6 +109,67 @@ where
   deserializer.deserialize_seq(DatetimeVisitor)
 }
 
+pub fn datetime_array_bincode_encode<A, E>(
+  value: A,
+  encoder: &mut E,
+) -> Result<(), bincode_next::error::EncodeError>
+where
+  A: AsRef<[i64]>,
+  E: bincode_next::enc::Encoder,
+{
+  let value = value.as_ref();
+  if value.is_empty() {
+    encoder.encode_slice_len(0)?;
+    return Ok(());
+  }
+  let gcd = value
+    .iter()
+    .take(10)
+    .fold(value[0], |acc, &x| if acc == 0 { x } else { gcd(acc, x) });
+
+  encoder.encode_slice_len(value.len() + 1)?;
+
+  encoder.encode_i64(gcd)?;
+  encoder.encode_i64(value[0] / gcd)?;
+  for i in 1..value.len() {
+    let diff = (value[i] - value[i - 1]) / gcd;
+    encoder.encode_i64(diff)?;
+  }
+
+  Ok(())
+}
+
+pub fn datetime_array_bincode_decode<D>(
+  decoder: &mut D,
+) -> Result<Vec<i64>, bincode_next::error::DecodeError>
+where
+  D: bincode_next::de::Decoder,
+{
+  let len = decoder.decode_slice_len()?;
+  if len == 0 {
+    return Ok(Vec::new());
+  } else if len == 1 {
+    debug_assert!(
+      false,
+      "Invalid encoded datetime array: length is 1, expected at least 2 (gcd and first value)"
+    );
+    let _ = decoder.decode_i64()?;
+    return Ok(Vec::new());
+  }
+  let gcd = decoder.decode_i64()?;
+  let mut values = Vec::with_capacity(len - 1);
+  let mut prev = decoder.decode_i64()?;
+  values.push(prev * gcd);
+
+  for _ in 1..(len - 1) {
+    let diff = decoder.decode_i64()?;
+    values.push((prev + diff) * gcd);
+    prev += diff;
+  }
+
+  Ok(values)
+}
+
 // # D64 array optimize
 // 1. get first normal value (not nan or inf) decimal use it's `dec_num` method
 // 2. for each value, value[i] = (value[i].into::<i64> - value[i-1].into::<i64>()), first value is `value[0].into::<i64>()`
@@ -195,6 +256,72 @@ where
   }
 
   deserializer.deserialize_seq(D64ArrayVisitor)
+}
+
+pub fn d64_array_bincode_encode<A, E>(
+  value: A,
+  encoder: &mut E,
+) -> Result<(), bincode_next::error::EncodeError>
+where
+  A: AsRef<[D64]>,
+  E: bincode_next::enc::Encoder,
+{
+  let value = value.as_ref();
+  if value.is_empty() {
+    encoder.encode_slice_len(0)?;
+    return Ok(());
+  }
+
+  let dec_num = value
+    .iter()
+    .find(|v| !v.is_nan() && !v.is_inf())
+    .map(|v| v.dec_num())
+    .unwrap_or(0);
+
+  encoder.encode_slice_len(value.len() + 1)?;
+
+  encoder.encode_i64(dec_num as i64)?;
+
+  let mut prev = 0;
+  for i in 0..value.len() {
+    let curr = i64::from(&value[i]);
+    let diff = curr - prev;
+    encoder.encode_i64(diff)?;
+    prev = curr;
+  }
+  Ok(())
+}
+
+pub fn d64_array_bincode_decode<D>(
+  decoder: &mut D,
+) -> Result<Vec<D64>, bincode_next::error::DecodeError>
+where
+  D: bincode_next::de::Decoder,
+{
+  let len = decoder.decode_slice_len()?;
+  if len == 0 {
+    return Ok(Vec::new());
+  } else if len == 1 {
+    debug_assert!(
+      false,
+      "Invalid encoded D64 array: length is 1, expected at least 2 (dec_num and first value)"
+    );
+    let _ = decoder.decode_i64()?;
+    return Ok(Vec::new());
+  }
+
+  let dec_num = decoder.decode_i64()? as usize;
+
+  let mut result = Vec::with_capacity(len - 1);
+  let mut prev = decoder.decode_i64()?;
+  result.push(D64::from_i64(prev, dec_num));
+  for _ in 1..len - 1 {
+    let diff = decoder.decode_i64()?;
+    prev += diff;
+    result.push(D64::from_i64(prev, dec_num));
+  }
+
+  Ok(result)
 }
 
 #[cfg(test)]
@@ -286,6 +413,44 @@ mod tests {
 
     let deserialized: TestStruct = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized, s);
+  }
+
+  #[test]
+  fn test_datetime_bincode() {
+    let data = vec![100, 200, 300];
+    let mut buffer = Vec::new();
+    let mut encoder =
+      bincode_next::enc::EncoderImpl::new(&mut buffer, bincode_next::config::standard());
+    datetime_array_bincode_encode(&data, &mut encoder).unwrap();
+
+    assert_eq!(buffer, vec![4, 200, 2, 2, 2]);
+
+    let reader = bincode_next::de::read::SliceReader::new(&buffer);
+    let mut decoder =
+      bincode_next::de::DecoderImpl::new(reader, bincode_next::config::standard(), 0);
+    let decoded = datetime_array_bincode_decode(&mut decoder).unwrap();
+    assert_eq!(decoded, data);
+  }
+
+  #[test]
+  fn test_d64_bincode() {
+    let data = vec![
+      D64::from_f64(1.23, 2),
+      D64::from_f64(2.34, 2),
+      D64::from_f64(1.23, 2),
+    ];
+    let mut buffer = Vec::new();
+    let mut encoder =
+      bincode_next::enc::EncoderImpl::new(&mut buffer, bincode_next::config::standard());
+    d64_array_bincode_encode(&data, &mut encoder).unwrap();
+
+    println!("Encoded D64 array: {:?}", buffer);
+
+    let reader = bincode_next::de::read::SliceReader::new(&buffer);
+    let mut decoder =
+      bincode_next::de::DecoderImpl::new(reader, bincode_next::config::standard(), 0);
+    let decoded = d64_array_bincode_decode(&mut decoder).unwrap();
+    assert_eq!(decoded, data);
   }
 
   #[derive(Debug, PartialEq, Serialize, Deserialize)]

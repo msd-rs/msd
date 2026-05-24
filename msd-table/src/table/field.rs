@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DataType, Series, Variant};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, bincode_next::Encode, bincode_next::Decode)]
 pub struct Field {
   pub name: String,
 

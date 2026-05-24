@@ -62,7 +62,7 @@ const LEN: usize = 8;
 const FLAG: usize = 7;
 
 /// D64 实际的存储
-#[derive(Clone, Copy, Default, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Copy, Default, bincode_next::Encode, bincode_next::Decode)]
 pub struct D64 {
   /// 8 个 byte
   v: [u8; LEN],

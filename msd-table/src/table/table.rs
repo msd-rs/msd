@@ -13,7 +13,7 @@ pub const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 /// A table is a columnar data structure, where each column has the same data type.
 /// It's efficient for columnar data processing.
 /// It also provide some row orientation APIs for data processing.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, bincode_next::Encode, bincode_next::Decode)]
 pub struct Table {
   version: u32,
   columns: Vec<Field>,

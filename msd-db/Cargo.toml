@@ -15,7 +15,7 @@ msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
 msd-request = { path = "../msd-request" }
 tokio.workspace = true
-bincode.workspace = true
+bincode-next.workspace = true
 rustc-hash.workspace = true
 futures.workspace = true
 wildcard = { version = "0.3" }

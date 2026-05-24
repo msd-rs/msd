@@ -33,7 +33,7 @@ pub fn pack_table_frame(table: &Table) -> Vec<u8> {
   let mut table_data = Vec::new();
 
   // binary of Table
-  let table_bytes = bincode::serde::encode_to_vec(table, bincode::config::standard())
+  let table_bytes = bincode_next::encode_to_vec(table, bincode_next::config::standard())
     .expect("Failed to serialize table");
   table_data.extend_from_slice(&table_bytes);
 
@@ -57,7 +57,7 @@ pub fn pack_table_ref_frame(table: &TableRef) -> Vec<u8> {
   let mut table_data = Vec::new();
 
   // binary of Table
-  let table_bytes = bincode::serde::encode_to_vec(table, bincode::config::standard())
+  let table_bytes = bincode_next::encode_to_vec(table, bincode_next::config::standard())
     .expect("Failed to serialize table");
   table_data.extend_from_slice(&table_bytes);
 
@@ -172,7 +172,7 @@ pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableF
   // Parse Table
   let table_bytes = &table_data;
   let (table, _): (Table, usize) =
-    bincode::serde::decode_from_slice(table_bytes, bincode::config::standard())
+    bincode_next::decode_from_slice(table_bytes, bincode_next::config::standard())
       .map_err(|e| TableFrameError::InvalidTableFrame(format!("Failed to decode table: {}", e)))?;
 
   Ok(table)

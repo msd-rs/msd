@@ -9,7 +9,9 @@
 use msd_request::DateRange;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[derive(
+  Debug, Default, Clone, Copy, Serialize, Deserialize, bincode_next::Encode, bincode_next::Decode,
+)]
 pub struct IndexItem {
   /// start timestamp (inclusive)
   pub start: i64,

@@ -25,9 +25,9 @@ pub enum DbError {
   #[error("Store Error")]
   StoreError(#[from] msd_store::StoreError),
   #[error("Encode Error")]
-  BinaryEncodeError(#[from] bincode::error::EncodeError),
+  BinaryEncodeError(#[from] bincode_next::error::EncodeError),
   #[error("Decode Error")]
-  BinaryDecodeError(#[from] bincode::error::DecodeError),
+  BinaryDecodeError(#[from] bincode_next::error::DecodeError),
   #[error("Not found {0}")]
   NotFound(RequestKey),
   #[error("Chunk missing for {0} at seq {1}")]

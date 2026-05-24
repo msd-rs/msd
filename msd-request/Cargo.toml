@@ -11,8 +11,7 @@ msd-table = { path = "../msd-table" }
 serde.workspace = true
 sqlparser = { version = "0.60" }
 crc-fast = "1.8"
-bincode.workspace = true
+bincode-next.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
-

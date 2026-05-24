@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 use super::Variant;
-use crate::{D64, D128, DataType, TableError, parse_datetime};
+use crate::{D64, DataType, TableError, parse_datetime};
 
 macro_rules! impl_variant_from {
   ($name:ident, $type:ty) => {
@@ -30,7 +30,7 @@ impl_variant_from!(String, String);
 impl_variant_from!(Bytes, Vec<u8>);
 impl_variant_from!(Bool, bool);
 impl_variant_from!(Decimal64, D64);
-impl_variant_from!(Decimal128, D128);
+//impl_variant_from!(Decimal128, D128);
 
 impl From<&str> for Variant {
   fn from(value: &str) -> Self {
@@ -106,11 +106,11 @@ impl TryFrom<(&str, DataType)> for Variant {
         .parse()
         .map(|v| Variant::Float32(v))
         .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
-      DataType::Decimal128 => value
-        .0
-        .parse()
-        .map(|v| Variant::Decimal128(v))
-        .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
+      // DataType::Decimal128 => value
+      //   .0
+      //   .parse()
+      //   .map(|v| Variant::Decimal128(v))
+      //   .map_err(|_| TableError::VariantParseError(value.0.to_string(), value.1.to_string())),
     }
   }
 }

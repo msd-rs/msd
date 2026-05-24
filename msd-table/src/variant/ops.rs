@@ -16,7 +16,7 @@ macro_rules! impl_operators {
               (Variant::Float32(a), Variant::Float32(b)) => Variant::Float32(a $op b),
               (Variant::Float64(a), Variant::Float64(b)) => Variant::Float64(a $op b),
               (Variant::Decimal64(a), Variant::Decimal64(b)) => Variant::Decimal64(*a $op b),
-              (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
+              // (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
               _ => self
             }
           } else {
@@ -35,7 +35,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => Variant::Float32(a $op b),
             (Variant::Float64(a), Variant::Float64(b)) => Variant::Float64(a $op b),
             (Variant::Decimal64(a), Variant::Decimal64(b)) => Variant::Decimal64(*a $op b),
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
             _ => self
           }
         } else {
@@ -54,7 +54,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => Variant::Float32(a $op b),
             (Variant::Float64(a), Variant::Float64(b)) => Variant::Float64(a $op b),
             (Variant::Decimal64(a), Variant::Decimal64(b)) => Variant::Decimal64(*a $op b),
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
             _ => self.clone()
           }
         } else {
@@ -72,7 +72,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => *a = *a $op b,
             (Variant::Float64(a), Variant::Float64(b)) => *a = *a $op b,
             (Variant::Decimal64(a), Variant::Decimal64(b)) => *a = *a $op b,
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => *a = *a $op b,
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => *a = *a $op b,
             _ => {}
           }
         }
@@ -108,7 +108,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => Variant::Float32(a $op b),
             (Variant::Float64(a), Variant::Float64(b)) => Variant::Float64(a $op b),
             (Variant::Decimal64(a), Variant::Decimal64(b)) => Variant::Decimal64(*a $op b),
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
             (Variant::String(a), Variant::String(b)) => Variant::String(a.to_owned() $op b.as_str()),
             _ => self
           }
@@ -128,7 +128,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => Variant::Float32(a $op b),
             (Variant::Float64(a), Variant::Float64(b)) => Variant::Float64(a $op b),
             (Variant::Decimal64(a), Variant::Decimal64(b)) => Variant::Decimal64(*a $op b),
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => Variant::Decimal128(a $op b),
             (Variant::String(a), Variant::String(b)) => Variant::String(a.to_owned() $op b.as_str()),
             _ => self
           }
@@ -147,7 +147,7 @@ macro_rules! impl_operators {
             (Variant::Float32(a), Variant::Float32(b)) => *a = *a $op b,
             (Variant::Float64(a), Variant::Float64(b)) => *a = *a $op b,
             (Variant::Decimal64(a), Variant::Decimal64(b)) => *a = *a $op b,
-            (Variant::Decimal128(a), Variant::Decimal128(b)) => *a = *a $op b,
+            // (Variant::Decimal128(a), Variant::Decimal128(b)) => *a = *a $op b,
             _ => {}
           }
         }

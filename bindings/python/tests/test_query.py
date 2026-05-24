@@ -8,14 +8,14 @@ import polars as pl
 BASE_URL = "http://localhost:50510"
 RESULT_OBJECTS = 1789
 RESULT_ROWS = 6245835
-SQL_TO_TEST = "select * from kline where obj='SH60*'"
+SQL_TO_TEST = "select * from stock_kline_1d where obj='SH60*'"
 
 
 def test_query_ok():
   n = 0
   adaptor = PandasAdaptor()
   for table_name, obj, table in pymsd.query(
-    BASE_URL, "select * from kline where obj='SH600000' limit 10", adaptor.build
+    BASE_URL, "select * from stock_kline_1d where obj='SH600000' limit 10", adaptor.build
   ):
     assert table.shape[0] == 10
     assert n == 0

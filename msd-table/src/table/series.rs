@@ -5,10 +5,14 @@ use std::{any::Any, cmp::Ordering, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::opt::{
+  d64_array_bincode_decode, d64_array_bincode_encode, datetime_array_bincode_decode,
+  datetime_array_bincode_encode,
+};
 use crate::serde::{
   d64_array_deserialize, d64_array_serialize, datetime_array_deserialize, datetime_array_serialize,
 };
-use crate::{D64, D128, DataType, TableError, Variant, VariantMutRef, VariantRef};
+use crate::{D64, DataType, TableError, Variant, VariantMutRef, VariantRef};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -33,7 +37,7 @@ pub enum Series {
   UInt64(Vec<u64>), // 9
   Float32(Vec<f32>), // 10
   Bytes(Vec<Vec<u8>>), // 11
-  Decimal128(Vec<D128>), // 12
+        //Decimal128(Vec<D128>), // 12
 }
 
 impl Series {
@@ -49,7 +53,7 @@ impl Series {
       DataType::Float32 => Series::Float32(vec![0.0; rows]),
       DataType::Float64 => Series::Float64(vec![0.0; rows]),
       DataType::Decimal64 => Series::Decimal64(vec![D64::default(); rows]),
-      DataType::Decimal128 => Series::Decimal128(vec![D128::default(); rows]),
+      //DataType::Decimal128 => Series::Decimal128(vec![D128::default(); rows]),
       DataType::Bool => Series::Bool(vec![false; rows]),
       DataType::DateTime => Series::DateTime(vec![0; rows]),
     }
@@ -129,14 +133,14 @@ impl Series {
         }
         Ok(())
       }
-      (Series::Decimal128(v), Series::Decimal128(o)) => {
-        if rev {
-          v.extend(o.iter().rev().cloned());
-        } else {
-          v.extend_from_slice(o);
-        }
-        Ok(())
-      }
+      // (Series::Decimal128(v), Series::Decimal128(o)) => {
+      //   if rev {
+      //     v.extend(o.iter().rev().cloned());
+      //   } else {
+      //     v.extend_from_slice(o);
+      //   }
+      //   Ok(())
+      // }
       (Series::Bool(v), Series::Bool(o)) => {
         if rev {
           v.extend(o.iter().rev().cloned());
@@ -169,7 +173,7 @@ impl Series {
       Series::Float32(v) => v.reverse(),
       Series::Float64(v) => v.reverse(),
       Series::Decimal64(v) => v.reverse(),
-      Series::Decimal128(v) => v.reverse(),
+      //Series::Decimal128(v) => v.reverse(),
       Series::Bool(v) => v.reverse(),
       Series::DateTime(v) => v.reverse(),
     }
@@ -187,7 +191,7 @@ impl Series {
       Series::Float32(_) => DataType::Float32,
       Series::Float64(_) => DataType::Float64,
       Series::Decimal64(_) => DataType::Decimal64,
-      Series::Decimal128(_) => DataType::Decimal128,
+      //Series::Decimal128(_) => DataType::Decimal128,
       Series::Bool(_) => DataType::Bool,
       Series::DateTime(_) => DataType::DateTime,
     }
@@ -202,7 +206,7 @@ impl Series {
   getter!(Series, get_float32, Float32, Vec<f32>);
   getter!(Series, get_float64, Float64, Vec<f64>);
   getter!(Series, get_decimal64, Decimal64, Vec<D64>);
-  getter!(Series, get_decimal128, Decimal128, Vec<D128>);
+  //getter!(Series, get_decimal128, Decimal128, Vec<D128>);
   getter!(Series, get_bool, Bool, Vec<bool>);
   getter!(Series, get_datetime, DateTime, Vec<i64>);
 
@@ -215,7 +219,7 @@ impl Series {
   getter_mut!(Series, get_mut_float32, Float32, Vec<f32>);
   getter_mut!(Series, get_mut_float64, Float64, Vec<f64>);
   getter_mut!(Series, get_mut_decimal64, Decimal64, Vec<D64>);
-  getter_mut!(Series, get_mut_decimal128, Decimal128, Vec<D128>);
+  //getter_mut!(Series, get_mut_decimal128, Decimal128, Vec<D128>);
   getter_mut!(Series, get_mut_bool, Bool, Vec<bool>);
   getter_mut!(Series, get_mut_datetime, DateTime, Vec<i64>);
 
@@ -235,7 +239,7 @@ impl Series {
       Series::Float32(v) => v.len(),
       Series::Float64(v) => v.len(),
       Series::Decimal64(v) => v.len(),
-      Series::Decimal128(v) => v.len(),
+      //Series::Decimal128(v) => v.len(),
       Series::Bool(v) => v.len(),
       Series::DateTime(v) => v.len(),
     }
@@ -257,7 +261,7 @@ impl Series {
       Series::Float32(v) => v.get(index).map(|f| VariantRef::Float32(f)),
       Series::Float64(v) => v.get(index).map(|f| VariantRef::Float64(f)),
       Series::Decimal64(v) => v.get(index).map(|d| VariantRef::Decimal64(d)),
-      Series::Decimal128(v) => v.get(index).map(|d| VariantRef::Decimal128(d)),
+      //Series::Decimal128(v) => v.get(index).map(|d| VariantRef::Decimal128(d)),
       Series::Bool(v) => v.get(index).map(|b| VariantRef::Bool(b)),
       Series::DateTime(v) => v.get(index).map(|dt| VariantRef::DateTime(dt)),
     }
@@ -276,7 +280,7 @@ impl Series {
         Series::Float32(v) => VariantRef::Float32(v.get_unchecked(index)),
         Series::Float64(v) => VariantRef::Float64(v.get_unchecked(index)),
         Series::Decimal64(v) => VariantRef::Decimal64(v.get_unchecked(index)),
-        Series::Decimal128(v) => VariantRef::Decimal128(v.get_unchecked(index)),
+        //Series::Decimal128(v) => VariantRef::Decimal128(v.get_unchecked(index)),
         Series::Bool(v) => VariantRef::Bool(v.get_unchecked(index)),
         Series::DateTime(v) => VariantRef::DateTime(v.get_unchecked(index)),
       }
@@ -298,7 +302,7 @@ impl Series {
       Series::Float32(v) => v.get_mut(index).map(|f| VariantMutRef::Float32(f)),
       Series::Float64(v) => v.get_mut(index).map(|f| VariantMutRef::Float64(f)),
       Series::Decimal64(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal64(d)),
-      Series::Decimal128(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal128(d)),
+      //Series::Decimal128(v) => v.get_mut(index).map(|d| VariantMutRef::Decimal128(d)),
       Series::Bool(v) => v.get_mut(index).map(|b| VariantMutRef::Bool(b)),
       Series::DateTime(v) => v.get_mut(index).map(|dt| VariantMutRef::DateTime(dt)),
     }
@@ -317,7 +321,7 @@ impl Series {
         Series::Float32(v) => VariantMutRef::Float32(v.get_unchecked_mut(index)),
         Series::Float64(v) => VariantMutRef::Float64(v.get_unchecked_mut(index)),
         Series::Decimal64(v) => VariantMutRef::Decimal64(v.get_unchecked_mut(index)),
-        Series::Decimal128(v) => VariantMutRef::Decimal128(v.get_unchecked_mut(index)),
+        //Series::Decimal128(v) => VariantMutRef::Decimal128(v.get_unchecked_mut(index)),
         Series::Bool(v) => VariantMutRef::Bool(v.get_unchecked_mut(index)),
         Series::DateTime(v) => VariantMutRef::DateTime(v.get_unchecked_mut(index)),
       }
@@ -362,10 +366,10 @@ impl Series {
         v.push(d);
         Ok(())
       }
-      (Series::Decimal128(v), Variant::Decimal128(d)) => {
-        v.push(d);
-        Ok(())
-      }
+      // (Series::Decimal128(v), Variant::Decimal128(d)) => {
+      //   v.push(d);
+      //   Ok(())
+      // }
       (Series::Bool(v), Variant::Bool(b)) => {
         v.push(b);
         Ok(())
@@ -428,7 +432,7 @@ impl Series {
       Series::Float32(v) => Series::Float32(select_indices(v, indices)),
       Series::Float64(v) => Series::Float64(select_indices(v, indices)),
       Series::Decimal64(v) => Series::Decimal64(select_indices(v, indices)),
-      Series::Decimal128(v) => Series::Decimal128(select_indices(v, indices)),
+      //Series::Decimal128(v) => Series::Decimal128(select_indices(v, indices)),
       Series::Bool(v) => Series::Bool(select_indices(v, indices)),
       Series::DateTime(v) => Series::DateTime(select_indices(v, indices)),
     }
@@ -495,11 +499,11 @@ impl Series {
           groups.entry(Variant::Decimal64(*val)).or_default().push(i);
         }
       }
-      Series::Decimal128(v) => {
-        for (i, val) in v.iter().enumerate() {
-          groups.entry(Variant::Decimal128(*val)).or_default().push(i);
-        }
-      }
+      // Series::Decimal128(v) => {
+      //   for (i, val) in v.iter().enumerate() {
+      //     groups.entry(Variant::Decimal128(*val)).or_default().push(i);
+      //   }
+      // }
       Series::Bool(v) => {
         for (i, val) in v.iter().enumerate() {
           groups.entry(Variant::Bool(*val)).or_default().push(i);
@@ -585,7 +589,7 @@ impl Series {
       Series::Float32(v) => reorder_series(v, indices),
       Series::Float64(v) => reorder_series(v, indices),
       Series::Decimal64(v) => reorder_series(v, indices),
-      Series::Decimal128(v) => reorder_series(v, indices),
+      //Series::Decimal128(v) => reorder_series(v, indices),
       Series::Bool(v) => reorder_series(v, indices),
       Series::DateTime(v) => reorder_series(v, indices),
     }
@@ -604,7 +608,7 @@ impl Series {
       Series::Float32(v) => Series::Float32(split_off_front(v, at)),
       Series::Float64(v) => Series::Float64(split_off_front(v, at)),
       Series::Decimal64(v) => Series::Decimal64(split_off_front(v, at)),
-      Series::Decimal128(v) => Series::Decimal128(split_off_front(v, at)),
+      //Series::Decimal128(v) => Series::Decimal128(split_off_front(v, at)),
       Series::Bool(v) => Series::Bool(split_off_front(v, at)),
       Series::DateTime(v) => Series::DateTime(split_off_front(v, at)),
     }
@@ -796,23 +800,23 @@ impl From<D64> for Series {
   }
 }
 
-impl From<Vec<D128>> for Series {
-  fn from(v: Vec<D128>) -> Self {
-    Series::Decimal128(v)
-  }
-}
+// impl From<Vec<D128>> for Series {
+//   fn from(v: Vec<D128>) -> Self {
+//     Series::Decimal128(v)
+//   }
+// }
 
-impl From<&[D128]> for Series {
-  fn from(v: &[D128]) -> Self {
-    Series::Decimal128(v.to_vec())
-  }
-}
+// impl From<&[D128]> for Series {
+//   fn from(v: &[D128]) -> Self {
+//     Series::Decimal128(v.to_vec())
+//   }
+// }
 
-impl From<D128> for Series {
-  fn from(v: D128) -> Self {
-    Series::Decimal128(vec![v])
-  }
-}
+// impl From<D128> for Series {
+//   fn from(v: D128) -> Self {
+//     Series::Decimal128(vec![v])
+//   }
+// }
 
 impl From<Vec<bool>> for Series {
   fn from(v: Vec<bool>) -> Self {
@@ -873,9 +877,9 @@ impl From<Vec<Variant>> for Series {
         DataType::Decimal64 => {
           Series::Decimal64(a.iter().filter_map(|v| v.get_d64()).map(|i| *i).collect())
         }
-        DataType::Decimal128 => {
-          Series::Decimal128(a.iter().filter_map(|v| v.get_d128()).map(|i| *i).collect())
-        }
+        // DataType::Decimal128 => {
+        //   Series::Decimal128(a.iter().filter_map(|v| v.get_d128()).map(|i| *i).collect())
+        // }
         DataType::Bool => Series::Bool(a.iter().filter_map(|v| v.get_bool()).map(|i| *i).collect()),
         DataType::DateTime => Series::DateTime(
           a.iter()
@@ -884,6 +888,264 @@ impl From<Vec<Variant>> for Series {
             .collect(),
         ),
       }
+    }
+  }
+}
+
+impl ::bincode_next::Encode for Series {
+  #[inline]
+  #[inline(always)]
+  fn encode<__E: ::bincode_next::enc::Encoder>(
+    &self,
+    encoder: &mut __E,
+  ) -> core::result::Result<(), ::bincode_next::error::EncodeError> {
+    match self {
+      Self::Null => {
+        <u32 as ::bincode_next::Encode>::encode(&(0u32), encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::DateTime(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(1u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        //::bincode_next::Encode::encode(field_0, encoder)?;
+        datetime_array_bincode_encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Int64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(2u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Float64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(3u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Decimal64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(4u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        //::bincode_next::Encode::encode(field_0, encoder)?;
+        d64_array_bincode_encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::String(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(5u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Bool(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(6u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Int32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(7u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::UInt32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(8u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::UInt64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(9u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Float32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(10u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Bytes(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(11u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+    }
+  }
+}
+
+// Recursive expansion of bincode_next::Decode macro
+// ==================================================
+
+impl<__Context> ::bincode_next::Decode<__Context> for Series {
+  #[inline]
+  fn decode<__D: ::bincode_next::de::Decoder<Context = __Context>>(
+    decoder: &mut __D,
+  ) -> core::result::Result<Self, ::bincode_next::error::DecodeError> {
+    let variant_index = <u32 as ::bincode_next::Decode<__D::Context>>::decode(decoder)?;
+    match variant_index {
+      0u32 => core::result::Result::Ok(Self::Null {}),
+      1u32 => {
+        decoder.decode_struct_header(1)?;
+
+        Ok(Self::DateTime(datetime_array_bincode_decode(decoder)?))
+
+        // core::result::Result::Ok(Self::DateTime {
+        //   0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        // })
+      }
+      2u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Int64 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      3u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Float64 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      4u32 => {
+        decoder.decode_struct_header(1)?;
+        Ok(Self::Decimal64(d64_array_bincode_decode(decoder)?))
+        // core::result::Result::Ok(Self::Decimal64 {
+        //   0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        // })
+      }
+      5u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::String {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      6u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Bool {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      7u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Int32 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      8u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::UInt32 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      9u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::UInt64 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      10u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Float32 {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      11u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Bytes {
+          0: ::bincode_next::Decode::<__D::Context>::decode(decoder)?,
+        })
+      }
+      variant => ::bincode_next::error::cold_decode_error_unexpected_variant(
+        "Series",
+        &::bincode_next::error::AllowedEnumVariants::Range { min: 0, max: 11 },
+        variant,
+      ),
+    }
+  }
+}
+
+impl<'__de, __Context> ::bincode_next::BorrowDecode<'__de, __Context> for Series {
+  #[inline]
+  #[inline(always)]
+  fn borrow_decode<__D: ::bincode_next::de::BorrowDecoder<'__de, Context = __Context>>(
+    decoder: &mut __D,
+  ) -> core::result::Result<Self, ::bincode_next::error::DecodeError> {
+    let variant_index = <u32 as ::bincode_next::Decode<__D::Context>>::decode(decoder)?;
+    match variant_index {
+      0u32 => core::result::Result::Ok(Self::Null {}),
+      1u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::DateTime {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      2u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Int64 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      3u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Float64 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      4u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Decimal64 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      5u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::String {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      6u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Bool {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      7u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Int32 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      8u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::UInt32 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      9u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::UInt64 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      10u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Float32 {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      11u32 => {
+        decoder.decode_struct_header(1)?;
+        core::result::Result::Ok(Self::Bytes {
+          0: ::bincode_next::BorrowDecode::<__D::Context>::borrow_decode(decoder)?,
+        })
+      }
+      variant => ::bincode_next::error::cold_decode_error_unexpected_variant(
+        "Series",
+        &::bincode_next::error::AllowedEnumVariants::Range { min: 0, max: 11 },
+        variant,
+      ),
     }
   }
 }

@@ -14,26 +14,28 @@ use serde::{Deserialize, Serialize};
 use time::UtcOffset;
 
 use crate::{
-  D64, D128, DataType, TableError, date::parse_datetime, get_local_offset, parse_datetime_with_tz,
+  D64, DataType, TableError, date::parse_datetime, get_local_offset, parse_datetime_with_tz,
   to_datetime_str,
 };
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(
+  Serialize, Deserialize, Clone, PartialEq, PartialOrd, bincode_next::Encode, bincode_next::Decode,
+)]
 #[serde(untagged)]
 pub enum Variant {
-  Null,             // 0
-  DateTime(i64),    // 1
-  Int64(i64),       // 2
-  Float64(f64),     // 3
-  Decimal64(D64),   // 4
-  String(String),   // 5
-  Bool(bool),       // 6
-  Int32(i32),       // 7
-  UInt32(u32),      // 8
-  UInt64(u64),      // 9
-  Float32(f32),     // 10
-  Bytes(Vec<u8>),   // 11
-  Decimal128(D128), // 12
+  Null,           // 0
+  DateTime(i64),  // 1
+  Int64(i64),     // 2
+  Float64(f64),   // 3
+  Decimal64(D64), // 4
+  String(String), // 5
+  Bool(bool),     // 6
+  Int32(i32),     // 7
+  UInt32(u32),    // 8
+  UInt64(u64),    // 9
+  Float32(f32),   // 10
+  Bytes(Vec<u8>), // 11
+                  //Decimal128(D128), // 12
 }
 
 impl Debug for Variant {
@@ -50,7 +52,7 @@ impl Debug for Variant {
       Variant::Bytes(v) => write!(f, "Bytes({:?})", v),
       Variant::Bool(v) => write!(f, "Bool({})", v),
       Variant::Decimal64(v) => write!(f, "Decimal64({})", v),
-      Variant::Decimal128(v) => write!(f, "Decimal128({})", v),
+      //Variant::Decimal128(v) => write!(f, "Decimal128({})", v),
       Variant::DateTime(v) => write!(f, "DateTime({})", v),
     }
   }
@@ -104,10 +106,10 @@ impl Hash for Variant {
         10u8.hash(state);
         v.hash(state);
       }
-      Variant::Decimal128(v) => {
-        11u8.hash(state);
-        v.hash(state);
-      }
+      // Variant::Decimal128(v) => {
+      //   11u8.hash(state);
+      //   v.hash(state);
+      // }
       Variant::DateTime(v) => {
         12u8.hash(state);
         v.hash(state);
@@ -173,9 +175,9 @@ impl Variant {
       DataType::Decimal64 => D64::from_str(s)
         .map(Variant::Decimal64)
         .map_err(|_| TableError::UnknownDataType(s.to_string())),
-      DataType::Decimal128 => D128::from_str(s)
-        .map(Variant::Decimal128)
-        .map_err(|_| TableError::UnknownDataType(s.to_string())),
+      // DataType::Decimal128 => D128::from_str(s)
+      //   .map(Variant::Decimal128)
+      //   .map_err(|_| TableError::UnknownDataType(s.to_string())),
       DataType::DateTime => parse_datetime_with_tz(s, tz).map(Variant::DateTime),
     }
   }
@@ -197,7 +199,7 @@ impl Variant {
       Variant::Bytes(_) => Variant::Bytes(Vec::new()),
       Variant::Bool(_) => Variant::Bool(false),
       Variant::Decimal64(_) => Variant::Decimal64(D64::default()),
-      Variant::Decimal128(_) => Variant::Decimal128(D128::ZERO),
+      //Variant::Decimal128(_) => Variant::Decimal128(D128::ZERO),
       Variant::DateTime(_) => Variant::DateTime(0),
     }
   }
@@ -215,7 +217,7 @@ impl Variant {
       DataType::Bytes => Variant::Bytes(Vec::new()),
       DataType::Bool => Variant::Bool(false),
       DataType::Decimal64 => Variant::Decimal64(D64::default()),
-      DataType::Decimal128 => Variant::Decimal128(D128::ZERO),
+      //DataType::Decimal128 => Variant::Decimal128(D128::ZERO),
       DataType::DateTime => Variant::DateTime(0),
     }
   }
@@ -233,7 +235,7 @@ impl Variant {
       Variant::Bytes(_) => DataType::Bytes,
       Variant::Bool(_) => DataType::Bool,
       Variant::Decimal64(_) => DataType::Decimal64,
-      Variant::Decimal128(_) => DataType::Decimal128,
+      // Variant::Decimal128(_) => DataType::Decimal128,
       Variant::DateTime(_) => DataType::DateTime,
     }
   }
@@ -251,7 +253,7 @@ impl Variant {
       Variant::Bytes(v) => VariantRef::Bytes(v),
       Variant::Bool(v) => VariantRef::Bool(v),
       Variant::Decimal64(v) => VariantRef::Decimal64(v),
-      Variant::Decimal128(v) => VariantRef::Decimal128(v),
+      // Variant::Decimal128(v) => VariantRef::Decimal128(v),
       Variant::DateTime(v) => VariantRef::DateTime(v),
     }
   }
@@ -269,7 +271,7 @@ impl Variant {
       Variant::Bytes(v) => VariantMutRef::Bytes(v),
       Variant::Bool(v) => VariantMutRef::Bool(v),
       Variant::Decimal64(v) => VariantMutRef::Decimal64(v),
-      Variant::Decimal128(v) => VariantMutRef::Decimal128(v),
+      // Variant::Decimal128(v) => VariantMutRef::Decimal128(v),
       Variant::DateTime(v) => VariantMutRef::DateTime(v),
     }
   }
@@ -285,7 +287,7 @@ impl Variant {
   getter!(Variant, get_f32, Float32, f32);
   getter!(Variant, get_f64, Float64, f64);
   getter!(Variant, get_d64, Decimal64, D64);
-  getter!(Variant, get_d128, Decimal128, D128);
+  //getter!(Variant, get_d128, Decimal128, D128);
   getter!(Variant, get_bool, Bool, bool);
   getter!(Variant, get_datetime, DateTime, i64);
 
@@ -298,7 +300,7 @@ impl Variant {
   getter_mut!(Variant, get_mut_f32, Float32, f32);
   getter_mut!(Variant, get_mut_f64, Float64, f64);
   getter_mut!(Variant, get_mut_d64, Decimal64, D64);
-  getter_mut!(Variant, get_mut_d128, Decimal128, D128);
+  //getter_mut!(Variant, get_mut_d128, Decimal128, D128);
   getter_mut!(Variant, get_mut_bool, Bool, bool);
   getter_mut!(Variant, get_mut_datetime, DateTime, i64);
 }
@@ -362,7 +364,7 @@ pub enum VariantRef<'a> {
   Float32(&'a f32),
   Float64(&'a f64),
   Decimal64(&'a D64),
-  Decimal128(&'a D128),
+  // Decimal128(&'a D128),
   Bool(&'a bool),
   DateTime(&'a i64),
 }
@@ -380,7 +382,7 @@ impl From<VariantRef<'_>> for Variant {
       VariantRef::Float32(v) => Variant::Float32(*v),
       VariantRef::Float64(v) => Variant::Float64(*v),
       VariantRef::Decimal64(v) => Variant::Decimal64(*v),
-      VariantRef::Decimal128(v) => Variant::Decimal128(*v),
+      // VariantRef::Decimal128(v) => Variant::Decimal128(*v),
       VariantRef::Bool(v) => Variant::Bool(*v),
       VariantRef::DateTime(v) => Variant::DateTime(*v),
     }
@@ -400,7 +402,7 @@ impl VariantRef<'_> {
       VariantRef::Float32(_) => DataType::Float32,
       VariantRef::Float64(_) => DataType::Float64,
       VariantRef::Decimal64(_) => DataType::Decimal64,
-      VariantRef::Decimal128(_) => DataType::Decimal128,
+      // VariantRef::Decimal128(_) => DataType::Decimal128,
       VariantRef::Bool(_) => DataType::Bool,
       VariantRef::DateTime(_) => DataType::DateTime,
     }
@@ -431,7 +433,7 @@ impl VariantRef<'_> {
   getter!(VariantRef, get_f32, Float32, f32);
   getter!(VariantRef, get_f64, Float64, f64);
   getter!(VariantRef, get_d64, Decimal64, D64);
-  getter!(VariantRef, get_d128, Decimal128, D128);
+  // getter!(VariantRef, get_d128, Decimal128, D128);
   getter!(VariantRef, get_bool, Bool, bool);
   getter!(VariantRef, get_datetime, DateTime, i64);
 }
@@ -448,7 +450,7 @@ pub enum VariantMutRef<'a> {
   Float32(&'a mut f32),
   Float64(&'a mut f64),
   Decimal64(&'a mut D64),
-  Decimal128(&'a mut D128),
+  // Decimal128(&'a mut D128),
   Bool(&'a mut bool),
   DateTime(&'a mut i64),
 }
@@ -466,7 +468,7 @@ impl From<&VariantMutRef<'_>> for Variant {
       VariantMutRef::Float32(v) => Variant::Float32(**v),
       VariantMutRef::Float64(v) => Variant::Float64(**v),
       VariantMutRef::Decimal64(v) => Variant::Decimal64(**v),
-      VariantMutRef::Decimal128(v) => Variant::Decimal128(**v),
+      // VariantMutRef::Decimal128(v) => Variant::Decimal128(**v),
       VariantMutRef::Bool(v) => Variant::Bool(**v),
       VariantMutRef::DateTime(v) => Variant::DateTime(**v),
     }
@@ -486,7 +488,7 @@ impl VariantMutRef<'_> {
       VariantMutRef::Float32(_) => DataType::Float32,
       VariantMutRef::Float64(_) => DataType::Float64,
       VariantMutRef::Decimal64(_) => DataType::Decimal64,
-      VariantMutRef::Decimal128(_) => DataType::Decimal128,
+      // VariantMutRef::Decimal128(_) => DataType::Decimal128,
       VariantMutRef::Bool(_) => DataType::Bool,
       VariantMutRef::DateTime(_) => DataType::DateTime,
     }
@@ -501,7 +503,7 @@ impl VariantMutRef<'_> {
   getter_mut!(VariantMutRef, get_f32, Float32, f32);
   getter_mut!(VariantMutRef, get_f64, Float64, f64);
   getter_mut!(VariantMutRef, get_d64, Decimal64, D64);
-  getter_mut!(VariantMutRef, get_d128, Decimal128, D128);
+  // getter_mut!(VariantMutRef, get_d128, Decimal128, D128);
   getter_mut!(VariantMutRef, get_bool, Bool, bool);
   getter_mut!(VariantMutRef, get_datetime, DateTime, i64);
 
@@ -551,10 +553,10 @@ impl VariantMutRef<'_> {
         *v = val;
         Ok(())
       }
-      (VariantMutRef::Decimal128(v), Variant::Decimal128(val)) => {
-        *v = val;
-        Ok(())
-      }
+      // (VariantMutRef::Decimal128(v), Variant::Decimal128(val)) => {
+      //   *v = val;
+      //   Ok(())
+      // }
       (VariantMutRef::DateTime(v), Variant::DateTime(val)) => {
         *v = val;
         Ok(())
@@ -578,7 +580,7 @@ impl Display for Variant {
       Variant::Bytes(v) => write!(f, "{:?}", v),
       Variant::Bool(v) => write!(f, "{}", v),
       Variant::Decimal64(v) => write!(f, "{}", v),
-      Variant::Decimal128(v) => write!(f, "{}", v),
+      // Variant::Decimal128(v) => write!(f, "{}", v),
       Variant::DateTime(v) => write!(f, "{}", v),
     }
   }
@@ -598,7 +600,7 @@ impl Display for VariantRef<'_> {
       VariantRef::Bytes(v) => write!(f, "{:?}", v),
       VariantRef::Bool(v) => write!(f, "{}", v),
       VariantRef::Decimal64(v) => write!(f, "{}", v),
-      VariantRef::Decimal128(v) => write!(f, "{}", v),
+      // VariantRef::Decimal128(v) => write!(f, "{}", v),
       VariantRef::DateTime(v) => write!(f, "{}", to_datetime_str(**v)),
     }
   }
@@ -618,7 +620,7 @@ impl Display for VariantMutRef<'_> {
       VariantMutRef::Bytes(v) => write!(f, "{:?}", v),
       VariantMutRef::Bool(v) => write!(f, "{}", v),
       VariantMutRef::Decimal64(v) => write!(f, "{}", v),
-      VariantMutRef::Decimal128(v) => write!(f, "{}", v),
+      // VariantMutRef::Decimal128(v) => write!(f, "{}", v),
       VariantMutRef::DateTime(v) => write!(f, "{}", v),
     }
   }

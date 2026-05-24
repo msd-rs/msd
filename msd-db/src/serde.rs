@@ -8,7 +8,6 @@
 use std::io::{Read, Write};
 
 use msd_table::Table;
-use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{errors::DbError, index::IndexItem};
 
@@ -16,34 +15,34 @@ use crate::{errors::DbError, index::IndexItem};
 pub trait DbBinary<'a> {
   fn to_bytes(&self) -> Result<Vec<u8>, DbError>
   where
-    Self: Sized + Serialize,
+    Self: Sized + bincode_next::Encode,
   {
-    bincode::serde::encode_to_vec(self, bincode::config::standard())
+    bincode_next::encode_to_vec(self, bincode_next::config::standard())
       .map_err(DbError::BinaryEncodeError)
   }
 
   fn to_writer<W: Write>(&self, writer: &mut W) -> Result<usize, DbError>
   where
-    Self: Sized + Serialize,
+    Self: Sized + bincode_next::Encode,
   {
-    bincode::serde::encode_into_std_write(self, writer, bincode::config::standard())
+    bincode_next::encode_into_std_write(self, writer, bincode_next::config::standard())
       .map_err(DbError::BinaryEncodeError)
   }
 
   fn from_bytes(data: &'a [u8]) -> Result<Self, DbError>
   where
-    Self: Sized + DeserializeOwned,
+    Self: Sized + bincode_next::Decode<()>,
   {
-    bincode::serde::decode_from_slice(data, bincode::config::standard())
+    bincode_next::decode_from_slice(data, bincode_next::config::standard())
       .map(|v| v.0)
       .map_err(DbError::BinaryDecodeError)
   }
 
   fn from_reader<R: Read>(reader: &mut R) -> Result<Self, DbError>
   where
-    Self: Sized + DeserializeOwned,
+    Self: Sized + bincode_next::Decode<()>,
   {
-    bincode::serde::decode_from_std_read(reader, bincode::config::standard())
+    bincode_next::decode_from_std_read(reader, bincode_next::config::standard())
       .map_err(DbError::BinaryDecodeError)
   }
 }

@@ -6,7 +6,7 @@ import pymsd
 import os
 
 BASE_URL = "http://localhost:50510"
-TEST_TABLE = "kline"
+TEST_TABLE = "stock_kline_1d"
 
 
 def test_easy_query():

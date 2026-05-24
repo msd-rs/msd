@@ -1,8 +1,8 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use msd_table::{table, Variant, D64};
-use std::fs::{create_dir_all, File};
+use msd_table::{D64, Variant, table};
+use std::fs::{File, create_dir_all};
 use std::io::Write;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   table = table.replace_metadata([("obj".to_string(), Variant::String("SH600000".to_string()))]);
 
   // 1. Serialize as raw bincode Table
-  let table_bytes = bincode::serde::encode_to_vec(&table, bincode::config::standard())?;
+  let table_bytes = bincode_next::encode_to_vec(&table, bincode_next::config::standard())?;
   let mut raw_file = File::create("bindings/typescript/tests/fixtures/test_table.bin")?;
   raw_file.write_all(&table_bytes)?;
 

@@ -73,14 +73,14 @@ fn series_to_array<'py>(py: Python<'py>, series: Series, rows: usize) -> Bound<'
         .collect(),
     )
     .into_any(),
-    Series::Decimal128(decimals) => PyArray1::<f64>::from_vec(
-      py,
-      decimals
-        .into_iter()
-        .map(|d| d.to_string().as_str().parse().unwrap())
-        .collect(),
-    )
-    .into_any(),
+    // Series::Decimal128(decimals) => PyArray1::<f64>::from_vec(
+    //   py,
+    //   decimals
+    //     .into_iter()
+    //     .map(|d| d.to_string().as_str().parse().unwrap())
+    //     .collect(),
+    // )
+    // .into_any(),
   }
 }
 

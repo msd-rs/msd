@@ -2,10 +2,10 @@
 
 create table stock_kline_1d (
   ts datetime,
-  open double AGG_FIRST,
-  high double AGG_MAX,
-  low double AGG_MIN,
-  close double ,
+  open d64 AGG_FIRST,
+  high d64 AGG_MAX,
+  low d64 AGG_MIN,
+  close d64 ,
   volume double AGG_DIFF_FIRST,
   amount double AGG_DIFF_FIRST
 ) with (

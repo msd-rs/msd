@@ -9,13 +9,9 @@ class BincodeReader {
   private view: DataView;
   private offset: number;
 
-  constructor(buffer: ArrayBuffer | Uint8Array) {
-    const arrayBuffer = buffer instanceof Uint8Array ? buffer.buffer : buffer;
-    const byteOffset = buffer instanceof Uint8Array ? buffer.byteOffset : 0;
-    const byteLength =
-      buffer instanceof Uint8Array ? buffer.byteLength : buffer.byteLength;
-    this.view = new DataView(arrayBuffer, byteOffset, byteLength);
-    this.offset = 0;
+  constructor(view: DataView, offset: number = 0) {
+    this.view = view;
+    this.offset = offset;
   }
 
   // Read raw bytes
@@ -381,27 +377,15 @@ function parseField(reader: BincodeReader): any {
   };
 }
 
-export function parseTableBin(buff: ArrayBuffer): MsdTable & MsdTableApi {
-  let tableBuffer = buff;
-
-  // Auto-detect TABLE_FRAME header
-  // Magic = 0x4d7c (little-endian: 0x7c, 0x4d)
-  // Version = 0x0001 (little-endian: 0x01, 0x00)
-  if (buff.byteLength >= 8) {
-    const view = new DataView(buff);
-    const m0 = view.getUint8(0);
-    const m1 = view.getUint8(1);
-    const v0 = view.getUint8(2);
-    const v1 = view.getUint8(3);
-    if (m0 === 0x7c && m1 === 0x4d && v0 === 0x01 && v1 === 0x00) {
-      const frame_size = view.getUint32(4, true);
-      // tableBuffer payload size is frame_size - 4 (excluding CRC32 footer)
-      tableBuffer = buff.slice(8, 8 + frame_size - 4);
-    }
-  }
-
-  const reader = new BincodeReader(tableBuffer);
+export function parseTableBin(
+  view: DataView,
+  offset: number = 0,
+): MsdTable & MsdTableApi {
+  const reader = new BincodeReader(view, offset);
   const version = reader.readU32();
+  if (version !== 1299972097) {
+    throw new Error(`Unsupported table binary version: ${version}`);
+  }
   const columns = reader.readList(() => parseField(reader));
   const metadata = reader.readOption(() => parseMetadata(reader));
   const is_kv = reader.readBool();
