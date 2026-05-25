@@ -273,50 +273,58 @@ function parseSeries(reader: BincodeReader): any {
       // DateTime
       const len = Number(reader.readVarInt());
       if (len === 0) {
-        return { kind: "DateTime", data: [] };
+        return { kind: "DateTime", data: new Float64Array(0) };
       }
       const gcd = Number(reader.readI64()) / 1000;
       const diffs: number[] = [];
       for (let i = 0; i < len - 1; i++) {
         diffs.push(reader.readI64() as number);
       }
-      const values: number[] = [];
+      const values = new Float64Array(len - 1);
       if (diffs.length > 0) {
-        values.push(diffs[0]! * gcd);
+        values[0] = diffs[0]! * gcd;
         for (let i = 1; i < diffs.length; i++) {
-          values.push(values[i - 1]! + diffs[i]! * gcd);
+          values[i] = values[i - 1]! + diffs[i]! * gcd;
         }
       }
       return { kind: "DateTime", data: values };
     }
     case 2: {
       // Int64
-      const values = reader.readList(() => Number(reader.readI64()));
+      const len = Number(reader.readVarInt());
+      const values = new BigInt64Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = BigInt(reader.readI64());
+      }
       return { kind: "Int64", data: values };
     }
     case 3: {
       // Float64
-      const values = reader.readList(() => reader.readF64());
+      const len = Number(reader.readVarInt());
+      const values = new Float64Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = reader.readF64();
+      }
       return { kind: "Float64", data: values };
     }
     case 4: {
       // Decimal64
       const len = Number(reader.readVarInt());
       if (len === 0) {
-        return { kind: "Decimal64", data: [] };
+        return { kind: "Decimal64", data: new Float64Array(0) };
       }
       const dec_num = Number(reader.readI64());
       const diffs: number[] = [];
       for (let i = 0; i < len - 1; i++) {
         diffs.push(Number(reader.readI64()));
       }
-      const values: number[] = [];
+      const values = new Float64Array(len - 1);
       if (diffs.length > 0) {
         let current = diffs[0]!;
-        values.push(d64FromI64(current, dec_num));
+        values[0] = d64FromI64(current, dec_num);
         for (let i = 1; i < diffs.length; i++) {
           current += diffs[i]!;
-          values.push(d64FromI64(current, dec_num));
+          values[i] = d64FromI64(current, dec_num);
         }
       }
       return { kind: "Decimal64", data: values };
@@ -333,27 +341,43 @@ function parseSeries(reader: BincodeReader): any {
     }
     case 7: {
       // Int32
-      const values = reader.readList(() => reader.readI32());
+      const len = Number(reader.readVarInt());
+      const values = new Int32Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = reader.readI32();
+      }
       return { kind: "Int32", data: values };
     }
     case 8: {
       // UInt32
-      const values = reader.readList(() => reader.readU32());
+      const len = Number(reader.readVarInt());
+      const values = new Uint32Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = reader.readU32();
+      }
       return { kind: "UInt32", data: values };
     }
     case 9: {
       // UInt64
-      const values = reader.readList(() => Number(reader.readU64()));
+      const len = Number(reader.readVarInt());
+      const values = new BigUint64Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = BigInt(reader.readU64());
+      }
       return { kind: "UInt64", data: values };
     }
     case 10: {
       // Float32
-      const values = reader.readList(() => reader.readF32());
+      const len = Number(reader.readVarInt());
+      const values = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        values[i] = reader.readF32();
+      }
       return { kind: "Float32", data: values };
     }
     case 11: {
       // Bytes
-      const values = reader.readList(() => reader.readByteSeq());
+      const values = reader.readList(() => new Uint8Array(reader.readByteSeq()));
       return { kind: "Bytes", data: values };
     }
     case 12:
@@ -381,6 +405,15 @@ export function parseTableBin(
   view: DataView,
   offset: number = 0,
 ): MsdTable & MsdTableApi {
+  if (view.byteLength - offset >= 8) {
+    const m0 = view.getUint8(offset);
+    const m1 = view.getUint8(offset + 1);
+    const v0 = view.getUint8(offset + 2);
+    const v1 = view.getUint8(offset + 3);
+    if (m0 === 0x7c && m1 === 0x4d && v0 === 0x01 && v1 === 0x00) {
+      offset += 8;
+    }
+  }
   const reader = new BincodeReader(view, offset);
   const version = reader.readU32();
   if (version !== 1299972097) {

@@ -7,7 +7,6 @@ test("msdQuery", async () => {
   const query =
     "SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000', 'SZ000001')";
   const result = await msdQuery(query, { baseURL, binary: true });
-  console.log(JSON.stringify(result, null, 2));
   expect(result).toBeDefined();
   expect(typeof result).toBe("object");
   expect(Object.keys(result).length).toBe(2);

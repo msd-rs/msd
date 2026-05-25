@@ -46,7 +46,7 @@ export async function msdQuery(
     throw new Error("Response body is null");
   }
 
-  const reader = response.body!.getReader();
+  const reader = response.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>;
 
   const isBinaryResponse =
     response.headers.get("Content-Type") === "application/x-msd-table-frame";

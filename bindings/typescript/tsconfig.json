@@ -1,6 +1,8 @@
 {
   "include": ["src/**/*.ts"],
   "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
     // Environment setup & latest features
     "lib": ["ESNext"],
     "target": "ESNext",
@@ -9,7 +11,7 @@
     "jsx": "react-jsx",
     "allowJs": true,
 
-    "types": ["bun"],
+    "types": ["node"],
 
     // Bundler mode
     "moduleResolution": "bundler",

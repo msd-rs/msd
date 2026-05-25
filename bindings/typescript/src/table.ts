@@ -3,20 +3,18 @@
  * SPDX-License-Identifier: agpl-3.0-only
  */
 
-import { d64ToFloatStr } from "./d64";
-
 type SeriesTypes = {
   String: string[];
-  Bytes: number[][];
-  Int32: number[];
-  UInt32: number[];
-  Int64: number[];
-  UInt64: number[];
-  Float32: number[];
-  Float64: number[];
-  Decimal64: number[];
+  Bytes: Uint8Array[];
+  Int32: Int32Array;
+  UInt32: Uint32Array;
+  Int64: BigInt64Array;
+  UInt64: BigUint64Array;
+  Float32: Float32Array;
+  Float64: Float64Array;
+  Decimal64: Float64Array;
   Bool: boolean[];
-  DateTime: number[];
+  DateTime: Float64Array;
   Null: null;
 };
 
@@ -122,8 +120,8 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
 
   apiObj.getRowsCount = function (): number {
     for (const col of this.columns) {
-      if (col.kind !== "Null" && Array.isArray(col.data)) {
-        return col.data.length;
+      if (col.kind !== "Null" && col.data && typeof (col.data as any).length === "number") {
+        return (col.data as any).length;
       }
     }
     return 0;
@@ -156,25 +154,26 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
       case "String":
         return ((col.data[row] as string) ?? null) as T;
       case "Bytes":
-        return new Uint8Array(col.data[row] ?? []) as T;
+        return (col.data[row] ?? null) as T;
       case "Int32":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as Int32Array)[row] ?? null) as T;
       case "UInt32":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as Uint32Array)[row] ?? null) as T;
       case "Int64":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as BigInt64Array)[row] ?? null) as T;
       case "UInt64":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as BigUint64Array)[row] ?? null) as T;
       case "Float32":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as Float32Array)[row] ?? null) as T;
       case "Float64":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as Float64Array)[row] ?? null) as T;
       case "Decimal64":
-        return ((col.data[row] as number) ?? null) as T;
+        return ((col.data as Float64Array)[row] ?? null) as T;
       case "Bool":
         return ((col.data[row] as boolean) ?? null) as T;
       case "DateTime":
-        return (col.data[row] ? new Date(col.data[row]) : null) as T;
+        const ts = (col.data as Float64Array)[row];
+        return (ts ? new Date(ts) : null) as T;
     }
   };
 
@@ -243,6 +242,40 @@ export function parseMsdTable(data: string): MsdTable & MsdTableApi {
   const obj = JSON.parse(data);
   if (!checkMsdTable(obj)) {
     throw new Error("Invalid MsdTable");
+  }
+  for (const col of obj.columns) {
+    if (col.data === null) {
+      continue;
+    }
+    switch (col.kind) {
+      case "Int32":
+        col.data = new Int32Array(col.data);
+        break;
+      case "UInt32":
+        col.data = new Uint32Array(col.data);
+        break;
+      case "Int64":
+        col.data = new BigInt64Array(col.data.map((v: any) => BigInt(v)));
+        break;
+      case "UInt64":
+        col.data = new BigUint64Array(col.data.map((v: any) => BigInt(v)));
+        break;
+      case "Float32":
+        col.data = new Float32Array(col.data);
+        break;
+      case "Float64":
+        col.data = new Float64Array(col.data);
+        break;
+      case "Decimal64":
+        col.data = new Float64Array(col.data);
+        break;
+      case "DateTime":
+        col.data = new Float64Array(col.data);
+        break;
+      case "Bytes":
+        col.data = col.data.map((v: any) => new Uint8Array(v));
+        break;
+    }
   }
   return wrapMsdTable(obj);
 }
