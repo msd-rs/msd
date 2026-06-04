@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: agpl-3.0-only
  */
 
-import { type MsdTable, type MsdTableApi, wrapMsdTable } from "./table";
+import type { MsdQueryOptions } from "./query";
+import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type SeriesType } from "./table";
 
 class BincodeReader {
   private view: DataView;
@@ -264,7 +265,62 @@ function parseVariant(reader: BincodeReader): any {
   }
 }
 
-function parseSeries(reader: BincodeReader): any {
+function newTypedArray<K extends keyof SeriesTypes>(type: K, len: number, options?: MsdQueryOptions): SeriesType<K> {
+  const shared = options?.shared ?? false;
+  const arrayOptions = options?.resizable ? {maxByteLength: 524288} : {};
+  
+
+  const newBuffer = (size: number) => {
+    if (shared) {
+      return new SharedArrayBuffer(size, arrayOptions);
+    } else {
+      return new ArrayBuffer(size, arrayOptions);
+    }
+  }
+
+  let result: any;
+  switch (type) {
+    case "String":
+      result = [];
+      break;
+    case "Bytes":
+      result = [];
+      break;
+    case "Int32":
+      result = new Int32Array(newBuffer(len * 4));
+      break;
+    case "UInt32":
+      result = new Uint32Array(newBuffer(len * 4));
+      break;
+    case "Int64":
+      result = new BigInt64Array(newBuffer(len * 8));
+      break;
+    case "UInt64":
+      result = new BigUint64Array(newBuffer(len * 8));
+      break;
+    case "Float32":
+      result = new Float32Array(newBuffer(len * 4));
+      break;
+    case "Float64":
+      result = new Float64Array(newBuffer(len * 8));
+      break;
+    case "Decimal64":
+      result = new Float64Array(newBuffer(len * 8));
+      break;
+    case "Bool":
+      result = [];
+      break;
+    case "DateTime":
+      result = new Float64Array(newBuffer(len * 8));
+      break;
+    case "Null":
+      result = null;
+      break;
+  }
+  return result;
+}
+
+function parseSeries(reader: BincodeReader, options?: MsdQueryOptions): any {
   const index = Number(reader.readVarInt());
   switch (index) {
     case 0: // Null
@@ -280,7 +336,7 @@ function parseSeries(reader: BincodeReader): any {
       for (let i = 0; i < len - 1; i++) {
         diffs.push(reader.readI64() as number);
       }
-      const values = new Float64Array(len - 1);
+      const values = newTypedArray("DateTime", len - 1, options);
       if (diffs.length > 0) {
         values[0] = diffs[0]! * gcd;
         for (let i = 1; i < diffs.length; i++) {
@@ -292,7 +348,7 @@ function parseSeries(reader: BincodeReader): any {
     case 2: {
       // Int64
       const len = Number(reader.readVarInt());
-      const values = new BigInt64Array(len);
+      const values = newTypedArray("Int64", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = BigInt(reader.readI64());
       }
@@ -301,7 +357,7 @@ function parseSeries(reader: BincodeReader): any {
     case 3: {
       // Float64
       const len = Number(reader.readVarInt());
-      const values = new Float64Array(len);
+      const values = newTypedArray("Float64", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = reader.readF64();
       }
@@ -318,7 +374,7 @@ function parseSeries(reader: BincodeReader): any {
       for (let i = 0; i < len - 1; i++) {
         diffs.push(Number(reader.readI64()));
       }
-      const values = new Float64Array(len - 1);
+      const values = newTypedArray("Decimal64", len - 1, options);
       if (diffs.length > 0) {
         let current = diffs[0]!;
         values[0] = d64FromI64(current, dec_num);
@@ -342,7 +398,7 @@ function parseSeries(reader: BincodeReader): any {
     case 7: {
       // Int32
       const len = Number(reader.readVarInt());
-      const values = new Int32Array(len);
+      const values = newTypedArray("Int32", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = reader.readI32();
       }
@@ -351,7 +407,7 @@ function parseSeries(reader: BincodeReader): any {
     case 8: {
       // UInt32
       const len = Number(reader.readVarInt());
-      const values = new Uint32Array(len);
+      const values = newTypedArray("UInt32", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = reader.readU32();
       }
@@ -360,7 +416,7 @@ function parseSeries(reader: BincodeReader): any {
     case 9: {
       // UInt64
       const len = Number(reader.readVarInt());
-      const values = new BigUint64Array(len);
+      const values = newTypedArray("UInt64", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = BigInt(reader.readU64());
       }
@@ -369,7 +425,7 @@ function parseSeries(reader: BincodeReader): any {
     case 10: {
       // Float32
       const len = Number(reader.readVarInt());
-      const values = new Float32Array(len);
+      const values = newTypedArray("Float32", len, options);
       for (let i = 0; i < len; i++) {
         values[i] = reader.readF32();
       }
@@ -387,11 +443,12 @@ function parseSeries(reader: BincodeReader): any {
   }
 }
 
-function parseField(reader: BincodeReader): any {
+
+function parseField(reader: BincodeReader, options?: MsdQueryOptions): any {
   const name = reader.readString();
   const kind = parseDataType(reader);
   const metadata = reader.readOption(() => parseMetadata(reader));
-  const seriesInfo = parseSeries(reader);
+  const seriesInfo = parseSeries(reader, options);
 
   return {
     name,
@@ -404,6 +461,7 @@ function parseField(reader: BincodeReader): any {
 export function parseTableBin(
   view: DataView,
   offset: number = 0,
+  options?: MsdQueryOptions
 ): MsdTable & MsdTableApi {
   if (view.byteLength - offset >= 8) {
     const m0 = view.getUint8(offset);
@@ -419,7 +477,7 @@ export function parseTableBin(
   if (version !== 1299972097) {
     throw new Error(`Unsupported table binary version: ${version}`);
   }
-  const columns = reader.readList(() => parseField(reader));
+  const columns = reader.readList(() => parseField(reader, options));
   const metadata = reader.readOption(() => parseMetadata(reader));
   const is_kv = reader.readBool();
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: agpl-3.0-only
  */
 
-type SeriesTypes = {
+export type SeriesTypes = {
   String: string[];
   Bytes: Uint8Array[];
   Int32: Int32Array;
@@ -18,6 +18,11 @@ type SeriesTypes = {
   Null: null;
 };
 
+export type SeriesType<T extends keyof SeriesTypes> = SeriesTypes[T];
+
+
+
+
 type Field = {
   name: string;
   metadata: Record<string, any> | null;
@@ -27,6 +32,7 @@ type Field = {
     data: SeriesTypes[K];
   };
 }[keyof SeriesTypes];
+
 
 export type MsdTable = {
   columns: Field[];

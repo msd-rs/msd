@@ -15,11 +15,19 @@ pub use ws::{Broker, handle_ws};
 use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT};
 
 fn is_msd_client(headers: &axum::http::HeaderMap) -> bool {
-  headers
+  let ua = headers
     .get(axum::http::header::USER_AGENT)
     .and_then(|accept| accept.to_str().ok())
     .map(|accept| accept.contains(MSD_USER_AGENT))
-    .unwrap_or(false)
+    .unwrap_or(false);
+  if !ua {
+    headers
+      .get("x-msd-client")
+      .map(|v| !v.is_empty())
+      .unwrap_or(false)
+  } else {
+    true
+  }
 }
 
 fn is_msd_table_format(headers: &axum::http::HeaderMap) -> bool {

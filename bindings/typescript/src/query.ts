@@ -11,12 +11,28 @@ import { parseTableBin } from "./table_bin";
  * Query options for msdQuery function.
  */
 export type MsdQueryOptions = {
-  /// The base URL of the MSD-RS server, e.g., "http://localhost:50510"
+  /**
+   * The base URL of the MSD-RS server, e.g., "http://localhost:50510"
+   */
   baseURL: string;
-  /// Custom fetch function, defaults to global fetch
+  /**
+   * Custom fetch function, defaults to global fetch
+   */
   fetch?: typeof fetch;
-  /// Whether to use binary format for the response
+  /**
+   * Whether to use binary format for the response
+   */
   binary?: boolean;
+
+  /**
+   * use shared array buffer for table column data.
+   */
+  shared?: boolean;
+
+  /**
+   * does column data can be reisze
+   */
+  resizable?: boolean;
 };
 
 export type MsdQueryResponse = {
@@ -29,15 +45,20 @@ export async function msdQuery(
 ): Promise<MsdQueryResponse> {
   const { baseURL, fetch = globalThis.fetch, binary = false } = options;
   const url = `${baseURL}/query`;
-  const userAgent = binary ? "msd-client" : navigator.userAgent;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (binary) {
+    headers["x-msd-client"] = "1";
+  }
+
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": userAgent,
-    },
+    headers,
     body: JSON.stringify({ query }),
   });
+
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
@@ -52,17 +73,20 @@ export async function msdQuery(
     response.headers.get("Content-Type") === "application/x-msd-table-frame";
 
   if (isBinaryResponse) {
-    return await parseBinaryResponse(reader);
+    const result = await parseBinaryResponse(reader, options);
+    return result;
   } else {
-    return await parseTextResponse(reader);
+    const result = await parseTextResponse(reader);
+    return result;
   }
 }
 
 async function parseBinaryResponse(
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  options: MsdQueryOptions,
 ): Promise<MsdQueryResponse> {
   const result: MsdQueryResponse = {};
-  const buffer = new ArrayBuffer(0, { maxByteLength: 1024 * 1024 });
+  const buffer = new ArrayBuffer(0, { maxByteLength: 1024 * 1024 * 4 });
 
   while (true) {
     const { done, value } = await reader.read();
@@ -74,7 +98,7 @@ async function parseBinaryResponse(
     let totalReadBytes = 0;
     while (true) {
       let b = new DataView(buffer, totalReadBytes);
-      const { table, readBytes } = tryReadTable(b);
+      const { table, readBytes } = tryReadTable(b, options);
       if (table) {
         const obj = table.getMetadata("obj");
         if (typeof obj === "string") {
@@ -106,7 +130,7 @@ function appendBuffer(buffer: ArrayBuffer, data: Uint8Array): ArrayBuffer {
   }
 }
 
-function tryReadTable(view: DataView): {
+function tryReadTable(view: DataView, options: MsdQueryOptions): {
   table: (MsdTableApi & MsdTable) | null;
   readBytes: number;
 } {
@@ -123,7 +147,7 @@ function tryReadTable(view: DataView): {
     // no enough data to read header
     return { table: null, readBytes: 0 };
   }
-  return { table: parseTableBin(view, 8), readBytes: 8 + tableLength };
+  return { table: parseTableBin(view, 8, options), readBytes: 8 + tableLength };
 }
 
 async function parseTextResponse(
