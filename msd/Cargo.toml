@@ -9,7 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 bincode-next.workspace = true
 axum = { version = "0.8", features = ["ws"] }
-axum-streams = { version = "0.24", features = ["json"] }
+axum-streams = { version = "0.25", features = ["json"] }
 clap.workspace = true
 colored = "3"
 csv.workspace = true
@@ -23,7 +23,7 @@ msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
 msd-store = { path = "../msd-store", features = ["rocksdb"] }
 msd-table = { path = "../msd-table" }
-reqwest = { version = "0.12", features = [
+reqwest = { version = "0.13", features = [
   "json",
   "stream",
   "gzip",
@@ -31,18 +31,18 @@ reqwest = { version = "0.12", features = [
   "zstd",
   "deflate",
 ] }
-rmcp = { version = "0.12", features = [
+rmcp = { version = "1.7", features = [
   "server",
   "transport-streamable-http-server",
   "transport-streamable-http-server-session",
   "schemars",
 ] }
 rustc-hash.workspace = true
-rustyline = { version = "17", features = ["derive"] }
+rustyline = { version = "18", features = ["derive"] }
 schemars = "1.0"
 serde.workspace = true
 serde_json.workspace = true
-simd-csv = "0.10"
+simd-csv = "0.13"
 time.workspace = true
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }

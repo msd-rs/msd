@@ -117,11 +117,12 @@ fn test_sql_parse_insert() -> Result<()> {
 #[test]
 fn test_sql_parse_copy() -> Result<()> {
   let sql = r#"
-COPY kline1d FROM STDIN WITH (FORMAT CSV, HEADER TRUE);
+COPY kline1d FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
 'SH600000','2023-01-01',100.0,110.0,90.0,105.0
 'SH600000','2023-01-02',105.0,115.0,95.0,110.0
 'SH600001','2023-01-01',100.0,110.0,90.0,105.0
 'SH600001','2023-01-02',105.0,115.0,95.0,110.0
+;
   "#;
 
   let req = super::sql_to_request(sql)?;

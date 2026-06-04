@@ -2,8 +2,8 @@ use rmcp::{
   ErrorData as McpError, Json, RoleServer, ServerHandler,
   handler::server::{router::prompt::PromptRouter, tool::ToolRouter, wrapper::Parameters},
   model::{
-    GetPromptRequestParam, GetPromptResult, Implementation, ListPromptsResult,
-    PaginatedRequestParam, PromptMessage, PromptMessageRole, ServerCapabilities, ServerInfo,
+    GetPromptRequestParams, GetPromptResult, Implementation, ListPromptsResult,
+    PaginatedRequestParams, PromptMessage, PromptMessageRole, ServerCapabilities, ServerInfo,
   },
   prompt, prompt_handler, prompt_router,
   schemars::JsonSchema,
@@ -22,7 +22,9 @@ use crate::server::AppStateRef;
 pub struct MsdMcp {
   #[allow(dead_code)]
   state: AppStateRef,
+  #[allow(dead_code)]
   tool_router: ToolRouter<MsdMcp>,
+  #[allow(dead_code)]
   prompt_router: PromptRouter<MsdMcp>,
 }
 
@@ -107,34 +109,33 @@ impl MsdMcp {
 #[prompt_handler]
 impl ServerHandler for MsdMcp {
   fn get_info(&self) -> ServerInfo {
-    ServerInfo {
-      instructions: Some(
-        "MSD tables schema list and description help you to understand the database schema".into(),
-      ),
-      capabilities: ServerCapabilities::builder().enable_tools().build(),
-      server_info: Implementation {
-        name: "msd".into(),
-        title: Some("msd database information".into()),
-        version: crate::server::VERSION.into(),
-        icons: None,
-        website_url: None,
-      },
-      ..Default::default()
-    }
+    let capabilities = ServerCapabilities::builder()
+      .enable_tools()
+      .enable_prompts()
+      .build();
+
+    ServerInfo::new(capabilities)
+      .with_instructions(
+        "MSD tables schema list and description help you to understand the database schema",
+      )
+      .with_server_info(
+        Implementation::new("msd", crate::server::VERSION)
+          .with_title("msd database information")
+          .with_description("msd database information"),
+      )
   }
 }
 
 pub fn mcp_service(
   db: AppStateRef,
   cancellation_token: CancellationToken,
-) -> StreamableHttpService<MsdMcp> {
+) -> StreamableHttpService<MsdMcp, LocalSessionManager> {
   let service = StreamableHttpService::new(
     move || Ok(MsdMcp::new(db.clone())),
     LocalSessionManager::default().into(),
-    StreamableHttpServerConfig {
-      cancellation_token,
-      ..Default::default()
-    },
+    StreamableHttpServerConfig::default()
+      .with_cancellation_token(cancellation_token)
+      .disable_allowed_hosts(),
   );
   service
 }

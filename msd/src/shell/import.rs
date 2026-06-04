@@ -16,11 +16,13 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str, skip: us
   let body = Body::wrap_stream(stream);
 
   let client = reqwest::Client::new();
-  let url = format!("{}{}{}", opts.server_url, TABLE_PUT_PATH, table);
+  let url = format!(
+    "{}{}{}?skip={}",
+    opts.server_url, TABLE_PUT_PATH, table, skip
+  );
 
   let resp = client
     .put(&url)
-    .query(&[("skip", skip.to_string())])
     .header(reqwest::header::CONTENT_TYPE, "text/csv")
     .body(body)
     .send()

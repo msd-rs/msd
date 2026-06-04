@@ -9,7 +9,7 @@ license.workspace = true
 thiserror.workspace = true
 msd-table = { path = "../msd-table" }
 serde.workspace = true
-sqlparser = { version = "0.60" }
+sqlparser = { version = "0.62" }
 crc-fast = "1.8"
 bincode-next.workspace = true
 

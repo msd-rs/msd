@@ -98,7 +98,9 @@ pub fn sql_to_request(text: &str) -> Result<Vec<SqlRequest>, RequestError> {
           }
           // next non-empty token is table name
           requests.extend(parse_copy(token, rest)?);
+          break;
         }
+        continue;
       }
     }
 
@@ -228,7 +230,13 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
       let source = insert.source.ok_or(RequestError::UnsupportedSqlStatement)?;
       let obj_idx = columns
         .iter()
-        .position(|c| c.value.eq_ignore_ascii_case("obj"))
+        .position(|c| {
+          c.0.iter().all(|x| {
+            x.as_ident()
+              .map(|ident| ident.value.eq_ignore_ascii_case("obj"))
+              .unwrap_or(false)
+          })
+        })
         .unwrap_or(0);
 
       let mut rows: Vec<SqlRequest> = Vec::new();
@@ -239,12 +247,18 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
           for row in values.rows {
             let mut obj = String::new();
             let mut parsed_row = Vec::with_capacity(row.len());
-            for (idx, expr) in row.into_iter().enumerate() {
+            for (idx, expr) in row.iter().enumerate() {
               if idx == obj_idx {
                 obj = expr_to_string(expr)?;
                 continue;
               }
-              parsed_row.push(expr_to_variant(expr, columns.get(idx))?);
+              parsed_row.push(expr_to_variant(
+                expr,
+                columns
+                  .get(idx)
+                  .and_then(|c| c.0.last())
+                  .and_then(|x| x.as_ident()),
+              )?);
             }
             if parsed_row.is_empty() {
               continue;
@@ -571,10 +585,10 @@ fn parse_filter_common(
       Ok(())
     }
     Expr::InList { expr, list, .. } => {
-      let expr = expr_to_string(*expr)?;
+      let expr = expr_to_string(&expr)?;
       if expr == "obj" {
         for item in list {
-          let item = expr_to_string(item)?;
+          let item = expr_to_string(&item)?;
           objects.insert(item);
         }
       }
@@ -594,7 +608,7 @@ fn apply_predicate_common(
   let name = ident.value;
   match name.to_ascii_lowercase().as_str() {
     "obj" if op == BinaryOperator::Eq => {
-      *obj = expr_to_string(value_expr)?;
+      *obj = expr_to_string(&value_expr)?;
     }
     "ts" => {
       let ts = expr_to_datetime(value_expr)?;
@@ -623,26 +637,30 @@ fn parse_order_by(order_by: Option<&sqlparser::ast::OrderBy>) -> Option<bool> {
   }
 }
 
-fn expr_to_variant(expr: Expr, col: Option<&Ident>) -> Result<Variant, RequestError> {
+fn expr_to_variant(expr: &Expr, col: Option<&Ident>) -> Result<Variant, RequestError> {
   match expr {
-    Expr::Value(v) => value_to_variant(v.value, col),
+    Expr::Value(v) => value_to_variant(v.value.clone(), col),
     _ => Ok(Variant::Null),
   }
 }
 
-fn expr_to_string(expr: Expr) -> Result<String, RequestError> {
+fn expr_to_string(expr: &Expr) -> Result<String, RequestError> {
   match expr {
-    Expr::Value(v) => match v.value {
-      Value::Number(s, _) => Ok(s),
-      _ => v.into_string().ok_or(RequestError::UnsupportedSqlStatement),
+    Expr::Value(v) => match &v.value {
+      Value::Number(s, _) => Ok(s.to_string()),
+      _ => v
+        .value
+        .clone()
+        .into_string()
+        .ok_or(RequestError::UnsupportedSqlStatement),
     },
-    Expr::Identifier(ident) => Ok(ident.value),
+    Expr::Identifier(ident) => Ok(ident.value.clone()),
     _ => Err(RequestError::UnsupportedSqlStatement),
   }
 }
 
 fn expr_to_datetime(expr: Expr) -> Result<i64, RequestError> {
-  let s = expr_to_string(expr)?;
+  let s = expr_to_string(&expr)?;
   msd_table::parse_datetime(&s).map_err(RequestError::from)
 }
 
