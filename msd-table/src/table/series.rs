@@ -894,7 +894,6 @@ impl From<Vec<Variant>> for Series {
 
 impl ::bincode_next::Encode for Series {
   #[inline]
-  #[inline(always)]
   fn encode<__E: ::bincode_next::enc::Encoder>(
     &self,
     encoder: &mut __E,
@@ -1068,7 +1067,6 @@ impl<__Context> ::bincode_next::Decode<__Context> for Series {
 
 impl<'__de, __Context> ::bincode_next::BorrowDecode<'__de, __Context> for Series {
   #[inline]
-  #[inline(always)]
   fn borrow_decode<__D: ::bincode_next::de::BorrowDecoder<'__de, Context = __Context>>(
     decoder: &mut __D,
   ) -> core::result::Result<Self, ::bincode_next::error::DecodeError> {
