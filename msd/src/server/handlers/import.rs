@@ -70,6 +70,7 @@ impl TableResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportQuery {
   pub skip: Option<usize>,
+  pub delimiter: Option<String>,
 }
 
 use crate::server::handlers::permission::Permission;
@@ -92,7 +93,18 @@ pub async fn handle_table(
   if is_msd_table_format(&headers) {
     handle_table_binary(state.clone(), table_name, body).await
   } else {
-    handle_table_csv(state.clone(), table_name, body, q.skip.unwrap_or_default()).await
+    let delimiter = q
+      .delimiter
+      .and_then(|s| s.parse::<u8>().ok())
+      .unwrap_or(b',');
+    handle_table_csv(
+      state.clone(),
+      table_name,
+      body,
+      q.skip.unwrap_or_default(),
+      delimiter,
+    )
+    .await
   }
 }
 
@@ -102,6 +114,7 @@ fn spawn_csv_workers(
   db: AppStateRef,
   table_name: String,
   parse_schema: Table,
+  delimiter: u8,
 ) -> mpsc::Sender<Vec<u8>> {
   let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
 
@@ -113,7 +126,7 @@ fn spawn_csv_workers(
       if line.starts_with(b"#exit") {
         break;
       }
-      match process_csv_block_simd(&line, &parse_schema) {
+      match process_csv_block_simd(&line, &parse_schema, delimiter) {
         Ok((obj, table)) => {
           if obj.is_empty() || table.row_count() == 0 {
             continue;
@@ -189,6 +202,7 @@ async fn handle_table_csv(
   table_name: String,
   body: Body,
   skip: usize,
+  delimiter: u8,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
 
@@ -243,7 +257,7 @@ async fn handle_table_csv(
           continue;
         }
 
-        let first_col_pos = match memchr(b',', line) {
+        let first_col_pos = match memchr(delimiter, line) {
           Some(pos) => pos,
           None => continue,
         };
@@ -265,6 +279,7 @@ async fn handle_table_csv(
               state.clone(),
               table_name.clone(),
               parse_schema.clone(),
+              delimiter,
             ));
           }
           debug!(
@@ -302,6 +317,7 @@ async fn handle_table_csv(
             state.clone(),
             table_name.clone(),
             parse_schema.clone(),
+            delimiter,
           ));
         }
         senders[worker_idx]
@@ -323,7 +339,7 @@ async fn handle_table_csv(
     let line_bytes = buffer;
     let end = line_bytes
       .iter()
-      .position(|&b| b == b',')
+      .position(|&b| b == delimiter)
       .unwrap_or(line_bytes.len());
     let key = &line_bytes[..end];
     let mut hasher = FxHasher::default();
@@ -337,6 +353,7 @@ async fn handle_table_csv(
         state.clone(),
         table_name.clone(),
         parse_schema.clone(),
+        delimiter,
       ));
     }
 
@@ -546,9 +563,14 @@ fn process_csv_block(lines: &[u8], parse_schema: &Table) -> Result<(String, Tabl
   Ok((obj, table))
 }
 
-fn process_csv_block_simd(lines: &[u8], parse_schema: &Table) -> Result<(String, Table), String> {
+fn process_csv_block_simd(
+  lines: &[u8],
+  parse_schema: &Table,
+  delimiter: u8,
+) -> Result<(String, Table), String> {
   let mut rdr = simd_csv::ZeroCopyReaderBuilder::new()
     .has_headers(false)
+    .delimiter(delimiter)
     .from_reader(lines);
 
   let mut table = parse_schema.clone();
