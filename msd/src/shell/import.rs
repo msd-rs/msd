@@ -8,7 +8,13 @@ use reqwest::Body;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
-pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str, skip: usize) -> Result<()> {
+pub async fn execute(
+  opts: &ShellOptions,
+  table: &str,
+  file_path: &str,
+  skip: usize,
+  delimiter: u8,
+) -> Result<()> {
   let file = File::open(file_path)
     .await
     .context(format!("Failed to open file: {}", file_path))?;
@@ -17,8 +23,8 @@ pub async fn execute(opts: &ShellOptions, table: &str, file_path: &str, skip: us
 
   let client = reqwest::Client::new();
   let url = format!(
-    "{}{}{}?skip={}",
-    opts.server_url, TABLE_PUT_PATH, table, skip
+    "{}{}{}?skip={}&delimiter={}",
+    opts.server_url, TABLE_PUT_PATH, table, skip, delimiter
   );
 
   let resp = client

@@ -41,3 +41,10 @@ create table stock_snapshot (
   stock_kline_1d:ts,open,changed_if(high, close),changed_if(low, close),close,volume,amount
   '
 );
+
+create table stock_f10 (
+  obj string,
+  val string
+) WITH (
+  engine = 'kv'
+);

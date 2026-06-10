@@ -230,7 +230,21 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
       .get(2)
       .map(|s| s.trim().parse::<usize>().unwrap_or(0))
       .unwrap_or(0);
-    return import::execute(opts, table, file_path, skip).await;
+    let delimiter = params
+      .get(3)
+      .and_then(|s| {
+        let s = s.trim();
+        if s.is_empty() {
+          return None;
+        }
+        if s.len() == 1 {
+          return Some(s.as_bytes()[0]);
+        }
+        s.parse::<u8>().ok()
+      })
+      .unwrap_or(b',');
+
+    return import::execute(opts, table, file_path, skip, delimiter).await;
   }
 
   if cmd.starts_with(SCHEMA_COMMAND) {

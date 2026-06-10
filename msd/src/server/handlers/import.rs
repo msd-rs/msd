@@ -135,7 +135,7 @@ fn spawn_csv_workers(
           let _ = flush_table(&db, &table_name, &obj, table).await;
         }
         Err(e) => {
-          error!(%e, id = worker_idx, line = %String::from_utf8_lossy(&line), "process line failed");
+          error!(%e, id = worker_idx, "process line failed");
         }
       }
     }
@@ -579,13 +579,6 @@ fn process_csv_block_simd(
     if record.is_empty() {
       continue;
     }
-    if record.len() != parse_schema.column_count() + 1 {
-      return Err(format!(
-        "Column count mismatch: expected {}, got {}",
-        parse_schema.column_count() + 1,
-        record.len()
-      ));
-    }
 
     if obj.is_empty() {
       obj = record
@@ -594,21 +587,45 @@ fn process_csv_block_simd(
         .unwrap_or_default();
     }
 
-    let tz = get_local_offset();
-    let mut row = Vec::with_capacity(parse_schema.column_count());
-    for (i, field) in parse_schema.columns().iter().enumerate() {
-      let val_str = record
-        .get(i + 1)
-        .map(|s| String::from_utf8_lossy(s))
-        .unwrap_or_default();
-      let variant =
-        Variant::from_str_with_tz(&val_str, field.kind, tz).map_err(|e| e.to_string())?;
-      row.push(variant);
-    }
-    match table.push_row(row) {
-      Ok(_) => {} // Ignore Ok result
-      Err(e) => {
-        error!(%e, "push row failed");
+    if parse_schema.is_kv() {
+      if record.len() != 2 {
+        return Err(format!(
+          "Column count mismatch: expected {}, got {}",
+          2,
+          record.len()
+        ));
+      }
+
+      let row = record
+        .iter()
+        .map(|f| Variant::String(String::from_utf8_lossy(f).to_string()))
+        .collect::<Vec<_>>();
+      table.push_row(row).ok();
+    } else {
+      if record.len() != parse_schema.column_count() + 1 {
+        return Err(format!(
+          "Column count mismatch: expected {}, got {}",
+          parse_schema.column_count() + 1,
+          record.len()
+        ));
+      }
+
+      let tz = get_local_offset();
+      let mut row = Vec::with_capacity(parse_schema.column_count());
+      for (i, field) in parse_schema.columns().iter().enumerate() {
+        let val_str = record
+          .get(i + 1)
+          .map(|s| String::from_utf8_lossy(s))
+          .unwrap_or_default();
+        let variant =
+          Variant::from_str_with_tz(&val_str, field.kind, tz).map_err(|e| e.to_string())?;
+        row.push(variant);
+      }
+      match table.push_row(row) {
+        Ok(_) => {} // Ignore Ok result
+        Err(e) => {
+          error!(%e, "push row failed");
+        }
       }
     }
   }
