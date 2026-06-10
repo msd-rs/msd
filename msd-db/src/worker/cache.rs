@@ -13,7 +13,7 @@ pub struct CacheValue {
   pub cached: Table,
   pub index: Vec<IndexItem>,
   pub state: Vec<Option<AggState>>,
-  pub chan: Option<Chan>,
+  pub chan: Option<Vec<Chan>>,
   pub last_changed: i64,
 }
 

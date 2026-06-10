@@ -41,7 +41,7 @@ impl<S: MsdStore> Worker<S> {
   fn on_insert_existing(
     &mut self,
     mut req: InsertRequest,
-  ) -> Result<(InsertResponse, Option<Table>), DbError> {
+  ) -> Result<(InsertResponse, Option<Vec<Option<Table>>>), DbError> {
     // Get schema for this table
     let schema = self
       .schema
@@ -73,7 +73,7 @@ impl<S: MsdStore> Worker<S> {
       index: vec![IndexItem::default()],
       cached: schema.to_empty(),
       state: AggState::table_states(schema),
-      chan: Chan::try_from(schema).ok(),
+      chan: Chan::parse_from_table(schema),
       last_changed: 0,
     });
 
@@ -89,12 +89,15 @@ impl<S: MsdStore> Worker<S> {
     // Track new chunks to flush
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
 
-    let mut chan_table = cache
-      .chan
-      .as_ref()
-      .and_then(|chan| chan.table())
-      .and_then(|name| self.schema.get(name))
-      .map(|schema| schema.to_empty());
+    let mut chan_table = cache.chan.as_ref().map(|a| {
+      a.iter()
+        .map(|c| {
+          c.table()
+            .and_then(|name| self.schema.get(name))
+            .map(|schema| schema.to_empty())
+        })
+        .collect::<Vec<_>>()
+    });
 
     // Process each incoming row
     let mut incoming_iter = incoming.rows(false);
@@ -196,15 +199,24 @@ impl<S: MsdStore> Worker<S> {
           .chan
           .as_mut()
           .zip(chan_table.as_mut())
-          .map(|(chan, table)| match table.push_row(chan.apply(&new_row)) {
-            Ok(_) => {}
-            Err(err) => {
-              debug!(
-                key = ?req.key,
-                %err,
-                "Failed to push row to chan table"
-              );
-            }
+          .map(|(chans, tables)| {
+            chans
+              .iter_mut()
+              .zip(tables.iter_mut())
+              .for_each(|(chan, table)| {
+                if let Some(table) = table {
+                  match table.push_row(chan.apply(&new_row)) {
+                    Ok(_) => {}
+                    Err(err) => {
+                      debug!(
+                        key = ?req.key,
+                        %err,
+                        "Failed to push row to chan table"
+                      );
+                    }
+                  }
+                }
+              })
           });
 
         cache.cached.push_row(new_row).map_err(DbError::from)?;
@@ -227,37 +239,68 @@ impl<S: MsdStore> Worker<S> {
     Ok((Table::default(), chan_table))
   }
 
-  fn on_insert_chan(&mut self, key: &RequestKey, chan_table: Table) -> Result<(), DbError> {
-    match self
-      .cache
-      .get(key)
-      .and_then(|cache| cache.chan.as_ref())
-      .map(|chan| chan.tables())
-    {
-      Some(tables) => {
-        for table in tables {
-          let chan_request = InsertRequest {
-            key: RequestKey {
-              table: table.clone(),
-              obj: key.obj.clone(),
-            },
-            data: msd_request::InsertData::Table(chan_table.clone()),
-          };
+  fn on_insert_chan(
+    &mut self,
+    key: &RequestKey,
+    chan_tables: Vec<Option<Table>>,
+  ) -> Result<(), DbError> {
+    if let Some(chans) = self.cache.get(key).and_then(|cache| cache.chan.as_ref()) {
+      for (chan, chan_table) in chans.iter().zip(chan_tables.iter()) {
+        if let Some(chan_table) = chan_table {
+          for table in chan.tables() {
+            let chan_request = InsertRequest {
+              key: RequestKey {
+                table: table.clone(),
+                obj: key.obj.clone(),
+              },
+              data: msd_request::InsertData::Table(chan_table.clone()),
+            };
 
-          let (chan_request, _rx) = MsdRequest::insert(chan_request);
+            let (chan_request, _rx) = MsdRequest::insert(chan_request);
 
-          match self.tx.try_send(chan_request) {
-            Ok(_) => {
-              debug!(from=%key, to=table, "Sent chan insert request");
-            }
-            Err(e) => {
-              warn!("Failed to send chan insert request: {}", e);
+            match self.tx.send(chan_request) {
+              Ok(_) => {
+                debug!(from=%key, to=table, "Sent chan insert request");
+              }
+              Err(e) => {
+                warn!("Failed to send chan insert request: {}", e);
+              }
             }
           }
         }
       }
-      None => {}
     }
+
+    // match self
+    //   .cache
+    //   .get(key)
+    //   .and_then(|cache| cache.chan.as_ref())
+    //   .map(|chan| chan.tables())
+    // {
+    //   Some(tables) => {
+    //     for table in tables {
+    //       let chan_request = InsertRequest {
+    //         key: RequestKey {
+    //           table: table.clone(),
+    //           obj: key.obj.clone(),
+    //         },
+    //         data: msd_request::InsertData::Table(chan_table.clone()),
+    //       };
+
+    //       let (chan_request, _rx) = MsdRequest::insert(chan_request);
+
+    //       match self.tx.try_send(chan_request) {
+    //         Ok(_) => {
+    //           debug!(from=%key, to=table, "Sent chan insert request");
+    //         }
+    //         Err(e) => {
+    //           warn!("Failed to send chan insert request: {}", e);
+    //         }
+    //       }
+    //     }
+    //   }
+    //   None => {}
+    // }
     Ok(())
   }
 }

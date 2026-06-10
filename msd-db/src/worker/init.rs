@@ -43,7 +43,7 @@ impl<S: MsdStore> Worker<S> {
       .ok_or(DbError::ChunkMissing(key.clone(), last_seq))?;
     let table: Table = DbBinary::from_bytes(&data)?;
     let state = AggState::table_states(&table);
-    let chan = Chan::try_from(&table).ok();
+    let chan = Chan::parse_from_table(&table);
     let last_saved = now();
     self.cache.insert(
       key.clone(),

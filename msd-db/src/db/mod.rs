@@ -7,7 +7,6 @@
 mod flusher;
 
 use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
@@ -15,15 +14,14 @@ use crate::serde::DbBinary;
 use msd_request::{DeleteRequest, InsertRequest, Key, ListObjectsRequest, QueryRequest};
 use msd_store::MsdStore;
 use msd_table::{DataType, Table, Variant, parse_unit, table};
-use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 use wildcard::Wildcard;
 
 use crate::errors::DbError;
-use crate::request::{Broadcast, MsdRequest, RequestKey};
-use crate::worker::{Chan, Worker};
+use crate::request::{Broadcast, MsdRequest};
+use crate::worker::{Chan, WorkSender, Worker};
 
 const SCHEMA_TABLE_NAME: &'static str = "__SCHEMA__";
 const TABLE_SCHEMA_KEY_PREFIX: &'static str = "table.";
@@ -37,7 +35,7 @@ pub struct MsdDbOptions {
 /// MSD Database
 pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
-  workers: Vec<mpsc::Sender<MsdRequest>>,
+  workers: Arc<WorkSender>,
   // all schemas in memory for quick access, key is table name
   schemas: Arc<RwLock<HashMap<String, Table>>>,
   // all objects for each table in memory for quick access, key is table name, value is set of objects
@@ -51,14 +49,21 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   pub async fn new(store: S, options: MsdDbOptions) -> Result<Self, DbError> {
     let store = Arc::new(store);
     let mut workers = Vec::with_capacity(options.worker_count);
-    let mut flash_workers = Vec::with_capacity(options.worker_count);
+    let mut flush_workers = Vec::with_capacity(options.worker_count);
 
     info!(workers = options.worker_count, "database workers starting");
-    for i in 0..options.worker_count {
+    let mut workers_rx = Vec::with_capacity(options.worker_count);
+    for _ in 0..options.worker_count {
       let (tx, rx) = mpsc::channel(200_000);
       workers.push(tx.clone());
-      flash_workers.push(tx.clone());
-      let worker = Worker::new(i, store.clone(), tx, options.refresh_interval);
+      workers_rx.push(rx);
+      flush_workers.push(tx.clone());
+    }
+
+    let workers = Arc::new(WorkSender::new(workers));
+
+    for (i, rx) in workers_rx.into_iter().enumerate() {
+      let worker = Worker::new(i, store.clone(), workers.clone(), options.refresh_interval);
       tokio::spawn(worker.run(rx));
     }
 
@@ -77,7 +82,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     if options.refresh_interval > 0 {
       let _ = tokio::spawn(flusher::bg_flush(
         options.refresh_interval,
-        flash_workers,
+        flush_workers,
         flusher_rx,
       ));
     }
@@ -128,14 +133,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   pub async fn shutdown(&self) {
     info!("database workers stopping");
     let _ = self.flusher.send(Broadcast::Shutdown).await;
-    let tasks = self
-      .workers
-      .iter()
-      .map(|worker| worker.send(MsdRequest::Broadcast(Broadcast::Shutdown)));
-    futures::future::join_all(tasks).await;
-    for worker in &self.workers {
-      worker.closed().await;
-    }
+    self.workers.close().await;
     info!("database workers stopped");
   }
 
@@ -150,14 +148,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           MsdRequest::Broadcast(Broadcast::DropTable(name)) => self.drop_table(name)?,
           _ => {}
         }
-        for worker in &self.workers {
-          match worker.send(req.clone()).await {
-            Ok(_) => {}
-            Err(e) => {
-              warn!("Failed to send broadcast to worker: {}", e);
-            }
-          }
-        }
+        self.workers.broadcast(req)?;
       }
       false => match req {
         MsdRequest::ListObjects { req, resp_tx } => {
@@ -192,13 +183,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
               }
             }
             let req = MsdRequest::Insert { req, resp_tx };
-            let worker = self.get_worker(&req);
-            match worker.try_send(req) {
-              Ok(_) => {}
-              Err(e) => {
-                warn!("Failed to send request to worker: {}", e);
-              }
-            }
+            self.workers.send(req)?;
           }
         }
         MsdRequest::Query { req, resp_tx } => {
@@ -206,28 +191,14 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
             let result = self.handle_kv_query(&req);
             let _ = resp_tx.send(result);
           } else {
-            let worker = self.get_worker(&req);
             let req = MsdRequest::Query { req, resp_tx };
-            match worker.try_send(req) {
-              Ok(_) => {}
-              Err(e) => {
-                warn!("Failed to send request to worker: {}", e);
-              }
-            }
+            self.workers.send(req)?;
           }
         }
         MsdRequest::Comment { table, field, desc } => {
-          self.update_schema_desc(table, field, desc)?
+          self.update_schema_desc(table, field, desc)?;
         }
-        _ => {
-          let worker = self.get_worker(&req);
-          match worker.try_send(req) {
-            Ok(_) => {}
-            Err(e) => {
-              warn!("Failed to send request to worker: {}", e);
-            }
-          }
-        }
+        _ => self.workers.send(req)?,
       },
     }
     Ok(())
@@ -257,7 +228,6 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       for obj in objects {
         let mut sub_req = req.clone();
         sub_req.key.obj = obj;
-        let worker = self.get_worker(&sub_req);
         // We don't have response channel for sub-requests, so we just send to worker as "fire and forget"
         // by wrapping in MsdRequest::Delete but we can't easily because we need a channel.
         // Actually we can create a new channel and ignore it, or just not wait.
@@ -268,7 +238,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           req: sub_req,
           resp_tx: tx,
         };
-        let _ = worker.try_send(wrapper);
+        self.workers.send(wrapper)?;
       }
 
       // restore the table
@@ -302,13 +272,12 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           for obj in objs {
             let mut sub_req = req.clone();
             sub_req.key.obj = obj;
-            let worker = self.get_worker(&sub_req);
             let (tx, _rx) = tokio::sync::oneshot::channel();
             let wrapper = MsdRequest::Delete {
               req: sub_req,
               resp_tx: tx,
             };
-            let _ = worker.try_send(wrapper);
+            self.workers.send(wrapper)?;
           }
           let _ = resp_tx.send(Ok(msd_table::Table::default()));
         }
@@ -520,36 +489,28 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
       if let Some(chan) = table.get_table_meta("chan") {
         // if chan metadata exists, it must be of type String
-        let chan = chan.get_str().ok_or(DbError::InvalidTableSchema(
+        let _chan = chan.get_str().ok_or(DbError::InvalidTableSchema(
           "chan metadata must be of type String".to_string(),
         ))?;
-        let targets = Chan::parse_targets(chan)?;
-        let (first_target, other_targets) = targets.split_first().ok_or(
-          DbError::InvalidTableSchema("chan metadata must have at least one target".to_string()),
-        )?;
-        let schema = self.schemas.read().unwrap();
-        let target = schema
-          .get(*first_target)
-          .ok_or(DbError::TableNotFound(first_target.to_string()))?;
 
-        // verify all targets exist and have same schema
-        for &target_name in other_targets {
-          let other_target = schema
-            .get(target_name)
-            .ok_or(DbError::TableNotFound(target_name.to_string()))?;
-          if !target.same_shape(other_target) {
-            return Err(DbError::InvalidTableSchema(format!(
-              "chan targets have different schema for '{}' and '{}'",
-              first_target, target_name
-            )));
+        let chans = Chan::parse_from_table(table);
+
+        if let Some(chans) = chans {
+          for chan in chans {
+            for target in chan.tables() {
+              let scheam = self.schemas.read().unwrap();
+              let target_table = scheam
+                .get(target)
+                .ok_or(DbError::TableNotFound(target.to_string()))?;
+
+              if !chan.match_target(target_table) {
+                return Err(DbError::InvalidTableSchema(format!(
+                  "chan targets have different schema for '{}' and '{}'",
+                  target, name
+                )));
+              }
+            }
           }
-        }
-        // verify all chan descriptions are valid
-        let chan = Chan::try_from(table)?;
-        if !chan.match_target(target) {
-          return Err(DbError::InvalidTableSchema(
-            "chan should have same number of columns as target".to_string(),
-          ));
         }
       }
     }
@@ -735,14 +696,6 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       self.store.delete(req.key.obj.as_bytes(), &req.key.table)?;
     }
     Ok(Table::default())
-  }
-
-  fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<MsdRequest> {
-    let mut hasher = FxHasher::default();
-    key.hash(&mut hasher);
-    let hash = hasher.finish();
-    let index = (hash as usize) % self.workers.len();
-    &self.workers[index]
   }
 
   /// update the schema description

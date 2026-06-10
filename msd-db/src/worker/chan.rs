@@ -184,25 +184,41 @@ impl Chan {
   }
 }
 
-impl TryFrom<&Table> for Chan {
-  type Error = DbError;
-
-  fn try_from(table: &Table) -> Result<Self, Self::Error> {
+impl Chan {
+  pub fn parse_from_table(table: &Table) -> Option<Vec<Chan>> {
     let chan_str = table
       .get_table_meta("chan")
       .and_then(|v| v.get_str())
       .unwrap_or_default();
     if chan_str.is_empty() {
-      return Ok(Chan::default());
+      return None;
     }
 
-    let fields = table
-      .columns()
-      .iter()
-      .map(|f| f.name.as_str())
+    let chans = chan_str
+      .split('\n')
+      .filter_map(|s| {
+        let s = s.trim();
+        if s.is_empty() {
+          return None;
+        }
+
+        let fields = table
+          .columns()
+          .iter()
+          .map(|f| f.name.as_str())
+          .collect::<Vec<_>>();
+
+        match Chan::parse(s, &fields) {
+          Ok(ch) => Some(ch),
+          Err(err) => {
+            tracing::warn!(chan = s, ?err, "parse chan failed");
+            None
+          }
+        }
+      })
       .collect::<Vec<_>>();
 
-    Chan::parse(chan_str, &fields)
+    if chans.is_empty() { None } else { Some(chans) }
   }
 }
 

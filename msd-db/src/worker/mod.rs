@@ -27,8 +27,10 @@ mod delete;
 mod init;
 mod insert;
 mod query;
+mod sender;
 
 pub use chan::Chan;
+pub use sender::WorkSender;
 
 /// Database worker that processes requests.
 pub struct Worker<S: MsdStore> {
@@ -36,18 +38,13 @@ pub struct Worker<S: MsdStore> {
   pub store: Arc<S>,
   pub cache: CacheMap,
   pub schema: HashMap<String, Table>,
-  pub tx: mpsc::Sender<MsdRequest>,
+  pub tx: Arc<WorkSender>,
   pub refresh_interval: i64,
 }
 
 /// # management functions for Worker
 impl<S: MsdStore> Worker<S> {
-  pub fn new(
-    id: usize,
-    store: Arc<S>,
-    tx: mpsc::Sender<MsdRequest>,
-    refresh_interval: i64,
-  ) -> Self {
+  pub fn new(id: usize, store: Arc<S>, tx: Arc<WorkSender>, refresh_interval: i64) -> Self {
     Self {
       id,
       store,
