@@ -710,7 +710,7 @@ fn sql_datatype_to_table(dt: &sqlparser::ast::DataType) -> Result<TableDataType,
   //   return Ok(TableDataType::Decimal128);
   // }
 
-  if dtype.contains("DECIMAL64") || dtype.contains("D64") {
+  if dtype.contains("DECIMAL64") || dtype.contains("D64") || dtype.contains("DECIMAL") {
     return Ok(TableDataType::Decimal64);
   }
 
