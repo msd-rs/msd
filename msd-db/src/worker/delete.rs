@@ -23,19 +23,9 @@ impl<S: MsdStore> Worker<S> {
 
     if req.obj.is_empty() {
       // remove the all objects in the table, also remove the store entries when the store table exists
-      let table_exits = self
-        .store
-        .list_tables()
-        .map(|cfs| cfs.contains(&req.table))
-        .unwrap_or(true);
-      self.cache.retain(|k, item| {
-        let should_remove = k.table == req.table;
-        if should_remove && table_exits {
-          // should remove store item
-          let _ = Self::delete_cache_item(&self.store, k, item);
-        }
-        !should_remove
-      });
+      self.cache.retain(|k, _| k.table != req.table);
+      self.store.drop_table(&req.table).ok();
+      self.store.new_table(&req.table).ok();
     } else {
       match self.cache.remove(&req.key) {
         Some(item) => {
