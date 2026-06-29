@@ -23,7 +23,7 @@ impl<S: MsdStore> Worker<S> {
     debug!(?req, id = self.id, "Handling query request");
     let exist = self.ensure_cache_initialized(&req)?;
     if !exist {
-      return Err(DbError::NotFound(req.deref().clone()));
+      return self.empty_table(&req);
     }
 
     let cache = self
@@ -177,6 +177,17 @@ impl<S: MsdStore> Worker<S> {
       }
       None => {}
     }
+  }
+
+  fn empty_table(&self, req: &QueryRequest) -> Result<Table, DbError> {
+    let schema = self
+      .schema
+      .get(&req.key.table)
+      .ok_or_else(|| DbError::TableNotFound(req.key.table.clone()))?;
+
+    let mut table = schema.to_empty();
+    Self::filter_table_columns(&mut table, req);
+    Ok(table.replace_metadata([("obj", &req.key.obj), ("table", &req.key.table)]))
   }
 }
 
