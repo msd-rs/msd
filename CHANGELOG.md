@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-07-10
+
+### Added
+
+- Support for multiple channel workers/senders to improve message processing throughput.
+- Custom delimiter configuration option when importing CSV files.
+- Support for `Decimal` type in SQL parsing.
+
+### Changed
+
+- Query worker now returns an empty table instead of an error when the requested object is not found.
+- Optimized performance of clearing/deleting table contents.
+- Upgraded workspace crate dependencies (including `axum`, `sqlparser`, and others).
+- Fixed compiler and binding warnings in Python and TypeScript bindings.
+
+### Fixed
+
+- Fixed import failure for Key-Value (KV) engine tables.
+
 ## [0.1.12] - 2026-05-21
 
 ### Added
