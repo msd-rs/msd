@@ -138,7 +138,7 @@ class BincodeReader {
     const len = Number(this.readVarInt());
     const bytes = this.readBytes(len);
     const decoder = new TextDecoder();
-    return decoder.decode(bytes);
+    return decoder.decode(new Uint8Array(bytes));
   }
 
   // Read Option

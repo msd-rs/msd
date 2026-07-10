@@ -174,7 +174,7 @@ class MsdClient(Generic[DF]):
 
   def concat(
     self, dfs: dict[str, DF], /, base: str = "", join: JoinMethod = "nan"
-  ) -> Tuple[dict[str, np.ndarray], list[str]]:
+  ) -> Tuple[DF | None, list[str]]:
     """
     Concatenate the result of load() to a long dataframe
 
