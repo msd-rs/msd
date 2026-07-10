@@ -4,6 +4,8 @@ ADD ./target/release/msd /usr/bin/msd
 
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+RUN apt update && apt install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 
 ENV MSD_DB_PATH=/opt/msd
 ENV MSD_WORKERS=8
