@@ -6,10 +6,11 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::opt::{d64_array_bincode_encode, datetime_array_bincode_encode};
 use crate::serde::{d64_array_serialize, datetime_array_serialize};
 use crate::{D64, DataType, Series, Variant};
 
-#[derive(Debug, Clone, Serialize, bincode_next::Encode)]
+#[derive(Debug, Clone, Serialize)]
 pub enum SeriesRef<'a> {
   Null, // 0
   #[serde(serialize_with = "datetime_array_serialize")]
@@ -75,6 +76,89 @@ impl<'a> TableRef<'a> {
       columns,
       metadata,
       is_kv,
+    }
+  }
+}
+
+impl<'a> ::bincode_next::Encode for SeriesRef<'a> {
+  #[inline]
+  fn encode<__E: ::bincode_next::enc::Encoder>(
+    &self,
+    encoder: &mut __E,
+  ) -> core::result::Result<(), ::bincode_next::error::EncodeError> {
+    match self {
+      Self::Null => {
+        <u32 as ::bincode_next::Encode>::encode(&(0u32), encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::DateTime(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(1u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        //::bincode_next::Encode::encode(field_0, encoder)?;
+        datetime_array_bincode_encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Int64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(2u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Float64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(3u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Decimal64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(4u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        //::bincode_next::Encode::encode(field_0, encoder)?;
+        d64_array_bincode_encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::String(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(5u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Bool(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(6u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Int32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(7u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::UInt32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(8u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::UInt64(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(9u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Float32(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(10u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
+      Self::Bytes(field_0) => {
+        <u32 as ::bincode_next::Encode>::encode(&(11u32), encoder)?;
+        encoder.encode_struct_header(1)?;
+        ::bincode_next::Encode::encode(field_0, encoder)?;
+        core::result::Result::Ok(())
+      }
     }
   }
 }
