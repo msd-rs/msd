@@ -10,8 +10,8 @@ use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 use msd_table::{DataType as TableDataType, Field, RowsTable, Table, Variant};
 use sqlparser::ast::{
   BinaryOperator, ColumnOption, CommentObject, CreateTableOptions, Expr, FromTable, Ident,
-  LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, Value,
-  ValueWithSpan,
+  LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor,
+  UnaryOperator, Value, ValueWithSpan,
 };
 use sqlparser::parser::{Parser, ParserError};
 
@@ -396,13 +396,13 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
   if let Some(limit) = limit_clause {
     if let LimitClause::LimitOffset { limit, offset, .. } = limit {
       if let Some(limit_expr) = limit {
-        if let Some(limit_value) = expr_to_usize(&limit_expr)? {
+        if let Some(limit_value) = expr_to_i32(&limit_expr)? {
           req.limit = Some(limit_value);
         }
       }
 
       if let Some(off) = offset {
-        if let Some(off_val) = expr_to_usize(&off.value)? {
+        if let Some(off_val) = expr_to_i32(&off.value)? {
           req.limit = req.limit.map(|l| l + off_val).or(Some(off_val));
         }
       }
@@ -664,12 +664,17 @@ fn expr_to_datetime(expr: Expr) -> Result<i64, RequestError> {
   msd_table::parse_datetime(&s).map_err(RequestError::from)
 }
 
-fn expr_to_usize(expr: &Expr) -> Result<Option<usize>, RequestError> {
+fn expr_to_i32(expr: &Expr) -> Result<Option<i32>, RequestError> {
   match expr {
     Expr::Value(ValueWithSpan {
       value: Value::Number(s, _),
       ..
-    }) => Ok(s.parse::<usize>().ok()),
+    }) => Ok(s.parse::<i32>().ok()),
+    Expr::UnaryOp { op, expr } => match op {
+      UnaryOperator::Minus => expr_to_i32(expr).map(|v| v.map(|x| -x)),
+      UnaryOperator::Plus => expr_to_i32(expr),
+      _ => Ok(None),
+    },
     _ => Ok(None),
   }
 }

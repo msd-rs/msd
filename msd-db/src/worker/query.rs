@@ -34,8 +34,16 @@ impl<S: MsdStore> Worker<S> {
     let index = &cache.index;
 
     // setup condition with defaults
-    let descending = !req.ascending.unwrap_or(true);
-    let limit = req.limit.unwrap_or(usize::MAX);
+    let limit = req
+      .limit
+      .map(|n| if n >= 0 { n as usize } else { -n as usize })
+      .unwrap_or(usize::MAX);
+    let is_last_mode = req.limit.map(|n| n < 0).unwrap_or(false);
+    let descending = if is_last_mode {
+      !(!req.ascending.unwrap_or(true))
+    } else {
+      !req.ascending.unwrap_or(true)
+    };
 
     // Collect chunk seq from index that overlap with query range
     let (first_query_seq, last_query_seq) = index
@@ -164,6 +172,9 @@ impl<S: MsdStore> Worker<S> {
 
     if let Some(e) = inner_err {
       return Err(e);
+    }
+    if is_last_mode {
+      result.sort_by_pk(!descending);
     }
     result = result.replace_metadata([("obj", &req.key.obj), ("table", &req.key.table)]);
     debug!(id = self.id, rows = result.row_count(), "Query completed");

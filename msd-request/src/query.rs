@@ -18,7 +18,7 @@ pub struct QueryRequest {
   /// whether to sort ascendancy
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
-  pub limit: Option<usize>,
+  pub limit: Option<i32>,
   /// objects to query, replace obj in key with this
   pub objects: Option<Vec<String>>,
 }
