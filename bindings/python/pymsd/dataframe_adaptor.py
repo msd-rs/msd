@@ -40,9 +40,30 @@ class DataFrameAdaptor(Generic[DF]):
     df2: DF,
     on: str,
     method: JoinMethod,
+    by: str | None = None,
   ) -> DF:
     """
     join two DataFrames asof
+    """
+    ...
+
+  def sort(
+    self,
+    df: DF,
+    by: str,
+  ) -> DF:
+    """
+    sort DataFrame by a column
+    """
+    ...
+
+  def partition(
+    self,
+    df: DF,
+    by: str,
+  ) -> dict[str, DF]:
+    """
+    partition DataFrame by a column
     """
     ...
 
@@ -126,20 +147,42 @@ try:
       df2: pd.DataFrame | pd.Series,
       on: str,
       method: JoinMethod,
+      by: str | None = None,
     ) -> pd.DataFrame:
       if method in ["backward", "forward", "nearest"]:
-        return pd.merge_asof(df1, df2, on=on, direction=method) # type: ignore
+        return pd.merge_asof(df1, df2, on=on, by=by, direction=method) # type: ignore
       elif method == "nan":
-        return pd.merge(df1, df2, on=on, how="left")
+        if by is not None:
+          return pd.merge(df1, df2, on=[on, by], how="left")
+        else:
+          return pd.merge(df1, df2, on=on, how="left")
       elif method == "zero":
         df2_columns = df2.columns
-        df = pd.merge(df1, df2, on=on, how="left")
+        if by is not None:
+          df = pd.merge(df1, df2, on=[on, by], how="left")
+        else:
+          df = pd.merge(df1, df2, on=on, how="left")
         for col in df2_columns:
-          if col != on:
+          if col != on and col != by:
             df[col] = df[col].fillna(0)
         return df
       else:
         raise ValueError(f"Unsupported method: {method}")
+
+    def sort(
+      self,
+      df: pd.DataFrame,
+      by: str,
+    ) -> pd.DataFrame:
+      return df.sort_values(by)
+
+    def partition(
+      self,
+      df: pd.DataFrame,
+      by: str,
+    ) -> dict[str, pd.DataFrame]:
+      grouped = df.groupby(by)
+      return {str(name): group.drop(columns=[by]) for name, group in grouped}
 
     def fields(self, df: pd.DataFrame) -> list[tuple[str, str]]:
       return [(str(col), self.dtype_to_sql(df[col].dtype.kind)) for col in df.columns]
@@ -235,20 +278,49 @@ try:
       df2: pl.DataFrame,
       on: str,
       method: JoinMethod,
+      by: str | None = None,
     ) -> pl.DataFrame:
       if method in ["backward", "forward", "nearest"]:
-        return df1.join_asof(df2, on=on, strategy=method) # type: ignore
+        import warnings
+        with warnings.catch_warnings():
+          warnings.filterwarnings(
+            "ignore",
+            category=UserWarning,
+            message="Sortedness of columns cannot be checked",
+          )
+          return df1.join_asof(df2, on=on, by=by, strategy=method) # type: ignore
       elif method == "nan":
-        return df1.join(df2, on=on, how="left")
+        if by is not None:
+          return df1.join(df2, on=[on, by], how="left")
+        else:
+          return df1.join(df2, on=on, how="left")
       elif method == "zero":
         df2_columns = df2.columns
-        df = df1.join(df2, on=on, how="left")
+        if by is not None:
+          df = df1.join(df2, on=[on, by], how="left")
+        else:
+          df = df1.join(df2, on=on, how="left")
         for col in df2_columns:
-          if col != on:
-            df[col] = df[col].fill_nan(0)
+          if col != on and col != by:
+            df = df.with_columns(pl.col(col).fill_nan(0))
         return df
       else:
         raise ValueError(f"Unsupported method: {method}")
+
+    def sort(
+      self,
+      df: pl.DataFrame,
+      by: str,
+    ) -> pl.DataFrame:
+      return df.sort(by)
+
+    def partition(
+      self,
+      df: pl.DataFrame,
+      by: str,
+    ) -> dict[str, pl.DataFrame]:
+      parts = df.partition_by(by, as_dict=True, include_key=False)
+      return {str(k[0]): v for k, v in parts.items()}
 
     def fields(self, df: pl.DataFrame) -> list[tuple[str, str]]:
       return [(col, self.dtype_to_sql(df[col].dtype)) for col in df.columns]

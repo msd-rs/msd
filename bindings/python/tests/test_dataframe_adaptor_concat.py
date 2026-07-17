@@ -108,3 +108,73 @@ def test_polars_concat():
   assert vals[0] == 4
   assert vals[1] == 5
   assert vals[2] is None  # Polars None for missing
+
+
+def test_pandas_sort_partition_join_by():
+  adaptor = PandasAdaptor()
+  # df1: sorted within groups, but not globally
+  df1 = pd.DataFrame({
+    "ts": pd.to_datetime(["2023-01-01", "2023-01-03", "2023-01-02", "2023-01-04"]),
+    "obj": ["A", "A", "B", "B"],
+    "val1": [10, 30, 20, 40]
+  })
+  # df2:
+  df2 = pd.DataFrame({
+    "ts": pd.to_datetime(["2023-01-01", "2023-01-03", "2023-01-02", "2023-01-04"]),
+    "obj": ["A", "A", "B", "B"],
+    "val2": [100, 300, 200, 400]
+  })
+
+  # test sort
+  df1_sorted = adaptor.sort(df1, "ts")
+  assert df1_sorted["ts"].iloc[0] == pd.to_datetime("2023-01-01")
+  assert df1_sorted["ts"].iloc[1] == pd.to_datetime("2023-01-02")
+
+  df2_sorted = adaptor.sort(df2, "ts")
+
+  # test join_asof with by
+  joined = adaptor.join_asof(df1_sorted, df2_sorted, on="ts", method="backward", by="obj")
+  assert list(joined.columns) == ["ts", "obj", "val1", "val2"]
+  assert len(joined) == 4
+
+  # test partition
+  parts = adaptor.partition(joined, "obj")
+  assert "A" in parts and "B" in parts
+  assert list(parts["A"].columns) == ["ts", "val1", "val2"]
+  assert parts["A"]["val2"].tolist() == [100, 300]
+  assert parts["B"]["val2"].tolist() == [200, 400]
+
+
+def test_polars_sort_partition_join_by():
+  adaptor = PolarsAdaptor()
+  # df1
+  df1 = pl.DataFrame({
+    "ts": [1, 3, 2, 4],
+    "obj": ["A", "A", "B", "B"],
+    "val1": [10, 30, 20, 40]
+  })
+  # df2
+  df2 = pl.DataFrame({
+    "ts": [1, 3, 2, 4],
+    "obj": ["A", "A", "B", "B"],
+    "val2": [100, 300, 200, 400]
+  })
+
+  # test sort
+  df1_sorted = adaptor.sort(df1, "ts")
+  assert df1_sorted["ts"][0] == 1
+  assert df1_sorted["ts"][1] == 2
+
+  df2_sorted = adaptor.sort(df2, "ts")
+
+  # test join_asof with by
+  joined = adaptor.join_asof(df1_sorted, df2_sorted, on="ts", method="backward", by="obj")
+  assert joined.columns == ["ts", "obj", "val1", "val2"]
+  assert joined.height == 4
+
+  # test partition
+  parts = adaptor.partition(joined, "obj")
+  assert "A" in parts and "B" in parts
+  assert parts["A"].columns == ["ts", "val1", "val2"]
+  assert parts["A"]["val2"].to_list() == [100, 300]
+  assert parts["B"]["val2"].to_list() == [200, 400]

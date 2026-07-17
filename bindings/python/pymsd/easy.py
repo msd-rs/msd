@@ -24,6 +24,7 @@ logger = logging.getLogger("MSD")
 
 DF = TypeVar("DF")
 
+type RangeType = str | datetime.datetime | int
 
 class MsdClient(Generic[DF]):
   """
@@ -43,7 +44,7 @@ class MsdClient(Generic[DF]):
     objs: list[str] | str,
     tables: list[str] | str,
     join: JoinMethod | dict[str, JoinMethod],
-    start: str | datetime.datetime | None = None,
+    start: RangeType | list[RangeType] | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
     pre_join_hook: Callable[[str, DF], DF] | None = None,
@@ -59,7 +60,7 @@ class MsdClient(Generic[DF]):
     objs: list[str] | str,
     tables: list[str] | str,
     join: None = None,
-    start: str | datetime.datetime | None = None,
+    start: RangeType | list[RangeType] | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
     pre_join_hook: Callable[[str, DF], DF] | None = None,
@@ -74,7 +75,7 @@ class MsdClient(Generic[DF]):
     objs: list[str] | str,
     tables: list[str] | str,
     join: JoinMethod | dict[str, JoinMethod] | None = None,
-    start: str | datetime.datetime | None = None,
+    start: RangeType | list[RangeType] | None = None,
     end: str | datetime.datetime | None = None,
     fields: dict[str, list[str]] | list[str] | None = None,
     pre_join_hook: Callable[[str, DF], DF] | None = None,
@@ -111,7 +112,15 @@ class MsdClient(Generic[DF]):
     fields = (
       {tables[0]: fields} if isinstance(fields, list) and len(tables) == 1 else fields
     )
-    for table in tables:
+    starts = []
+    if start is None:
+      starts = [None] * len(tables)
+    elif not isinstance(start, list):
+      starts = [start] * len(tables)
+    else:
+      starts = start
+
+    for table, start in zip(tables, starts):
       table_fields = []
       if fields is None:
         table_fields = ["*"]
@@ -127,50 +136,157 @@ class MsdClient(Generic[DF]):
             table_fields.insert(0, "ts")
       ts_where = []
       # only filter date on the first table
-      if start is not None and table == tables[0]:
+      if start is not None and not isinstance(start, int):
         ts_where.append(f"ts >= '{start}'")
-      if end is not None and table == tables[0]:
+      if end is not None:
         ts_where.append(f"ts < '{end}'")
       if len(ts_where) > 0:
         ts_where = "and " + " and ".join(ts_where)
       else:
         ts_where = ""
       obj_where = ", ".join([f"'{o}'" for o in objs])
+      limit = ""
+      if isinstance(start, int):
+        limit = f"limit -{start}"
       sql.append(
-        f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where};"
+        f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where} {limit};"
       )
 
     sql = "\n".join(sql)
     logger.debug(sql)
-    result: dict[str, dict[str, DF]] = defaultdict(dict)
-    for table, obj, df in query(self.baseURL, sql, self.adaptor.build):
-      if pre_join_hook is not None:
-        df = pre_join_hook(table, df)
-      result[obj][table] = df
+    if join is not None and pre_join_hook is None:
+      # Fast path: vectorized join
+      raw_results = defaultdict(dict)
+      for table_name, obj, msd_table in query(self.baseURL, sql):
+        raw_results[obj][table_name] = msd_table
 
-    if join is not None:
+      # Group objects by their start table index
+      groups = defaultdict(list)
+      for obj, obj_tables in raw_results.items():
+        for idx, table_name in enumerate(tables):
+          if table_name in obj_tables:
+            groups[idx].append(obj)
+            break
+
       joined_result: dict[str, DF] = {}
-      for obj, obj_tables in result.items():
-        joined_df: DF | None = None
-        for table_name in tables:
-          df = obj_tables.get(table_name)
-          if df is None:
+
+      def build_combined_df(table_name: str, group_objs: list[str]) -> DF | None:
+        combined_columns = defaultdict(list)
+        obj_arrays = []
+        schema_cols = []
+
+        for obj in group_objs:
+          msd_table = raw_results[obj].get(table_name)
+          if msd_table is None:
             continue
-          if joined_df is None:
-            joined_df = df
+          if not schema_cols:
+            schema_cols = [col_name for col_name, _ in msd_table]
+
+          length = len(msd_table[0][1]) if msd_table else 0
+          if length == 0:
+            continue
+
+          obj_arrays.append(np.repeat(obj, length))
+          for col_name, array in msd_table:
+            combined_columns[col_name].append(array)
+
+        if not obj_arrays:
+          return None
+
+        concat_obj = np.concatenate(obj_arrays)
+        concat_msd_table = []
+        for col_name in schema_cols:
+          arrays = combined_columns[col_name]
+          if arrays:
+            concat_msd_table.append((col_name, np.concatenate(arrays)))
+        concat_msd_table.append(("obj", concat_obj))
+        return self.adaptor.build(concat_msd_table)
+
+      for start_idx, group_objs in groups.items():
+        base_table_name = tables[start_idx]
+        joined_df = build_combined_df(base_table_name, group_objs)
+        if joined_df is None:
+          continue
+
+        joined_df = self.adaptor.sort(joined_df, "ts")
+
+        for table_name in tables[start_idx+1:]:
+          other_df = build_combined_df(table_name, group_objs)
+          if other_df is None:
+            continue
+
+          other_df = self.adaptor.sort(other_df, "ts")
+
+          if isinstance(join, dict):
+            join_method = join.get(table_name, join.get("*", "nan"))
+          elif isinstance(join, str):
+            join_method = join
           else:
-            if isinstance(join, dict):
-              join_method = join.get(table_name, join.get("*", "nan"))
-            elif isinstance(join, str):
-              join_method = join
+            raise ValueError("join must be a string or a dict of strings")
+
+          joined_df = self.adaptor.join_asof(joined_df, other_df, "ts", join_method, by="obj")
+
+        # Partition joined_df back by "obj"
+        partitioned = self.adaptor.partition(joined_df, "obj")
+        for obj, df in partitioned.items():
+          joined_result[obj] = df
+
+      # Handle any objects that were completely empty across all tables
+      missing_objs = [obj for obj in raw_results if obj not in joined_result]
+      if missing_objs:
+        for obj in missing_objs:
+          obj_tables = raw_results[obj]
+          joined_df = None
+          for table_name in tables:
+            msd_table = obj_tables.get(table_name)
+            if msd_table is None:
+              continue
+            df = self.adaptor.build(msd_table)
+            if joined_df is None:
+              joined_df = df
             else:
-              raise ValueError("join must be a string or a dict of strings")
-            joined_df = self.adaptor.join_asof(joined_df, df, "ts", join_method)
-        if joined_df is not None:
-          joined_result[obj] = joined_df
+              if isinstance(join, dict):
+                join_method = join.get(table_name, join.get("*", "nan"))
+              elif isinstance(join, str):
+                join_method = join
+              else:
+                raise ValueError("join must be a string or a dict of strings")
+              joined_df = self.adaptor.join_asof(joined_df, df, "ts", join_method)
+          if joined_df is not None:
+            joined_result[obj] = joined_df
+
       return joined_result
     else:
-      return result
+      # Fallback path: sequential join
+      result: dict[str, dict[str, DF]] = defaultdict(dict)
+      for table, obj, df in query(self.baseURL, sql, self.adaptor.build):
+        if pre_join_hook is not None:
+          df = pre_join_hook(table, df)
+        result[obj][table] = df
+
+      if join is not None:
+        joined_result: dict[str, DF] = {}
+        for obj, obj_tables in result.items():
+          joined_df: DF | None = None
+          for table_name in tables:
+            df = obj_tables.get(table_name)
+            if df is None:
+              continue
+            if joined_df is None:
+              joined_df = df
+            else:
+              if isinstance(join, dict):
+                join_method = join.get(table_name, join.get("*", "nan"))
+              elif isinstance(join, str):
+                join_method = join
+              else:
+                raise ValueError("join must be a string or a dict of strings")
+              joined_df = self.adaptor.join_asof(joined_df, df, "ts", join_method)
+          if joined_df is not None:
+            joined_result[obj] = joined_df
+        return joined_result
+      else:
+        return result
 
   def concat(
     self, dfs: dict[str, DF], /, base: str = "", join: JoinMethod = "nan"
