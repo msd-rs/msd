@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.15] - 
+
+### Added
+
+- `limit` in SQL Query now support negative number, which return last n rows instead top n rows for positive number, the common SQL 
+``` sql
+SELECT * FROM (
+    SELECT * 
+    FROM your_table 
+    ORDER BY ts DESC 
+    LIMIT 10
+) AS subquery
+ORDER BY ts ASC;
+```
+can be simplify to 
+``` sql
+SELECT * FROM your_table ORDER BY ts ASC LIMIT -10;
+```
+
+### Fix
+
+- Fix performance regression of large object query.
+
+
+
+
 ## [0.1.14] - 2026-07-15
 
 ### Fix
