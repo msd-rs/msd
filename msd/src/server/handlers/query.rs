@@ -94,7 +94,7 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
   requests
     .into_iter()
     .flat_map(|r| match r {
-      SqlRequest::Query(query_req) => {
+      SqlRequest::Query(mut query_req) => {
         if is_list_objects(&query_req) {
           return vec![SqlRequest::Query(query_req)];
         }
@@ -104,22 +104,24 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
             return vec![SqlRequest::Query(query_req)];
           }
         }
-        let objects = if query_req
-          .objects
-          .as_ref()
-          .map(|s| s.is_empty())
-          .unwrap_or(true)
-        {
+
+        let objects = query_req.objects.take().unwrap_or_default();
+
+        let cap = objects.len();
+        let objects = if cap == 0 {
           // if no specific objects, use obj in key
           matched_objects(state.clone(), &query_req.table, &query_req.obj)
         } else {
-          // if specific objects, use them
-          let objects = query_req.objects.as_ref().unwrap();
           objects
-            .iter()
-            .map(|obj| matched_objects(state.clone(), &query_req.table, &obj))
-            .flatten()
-            .collect()
+            .into_iter()
+            .fold(Vec::with_capacity(cap), |mut acc, obj| {
+              if obj.is_empty() || obj.contains('*') || obj.contains('?') {
+                acc.extend(matched_objects(state.clone(), &query_req.table, &obj));
+              } else {
+                acc.push(obj);
+              }
+              acc
+            })
         };
         if objects.is_empty() {
           return vec![];
