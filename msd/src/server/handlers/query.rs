@@ -96,7 +96,25 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
     .flat_map(|r| match r {
       SqlRequest::Query(mut query_req) => {
         if is_list_objects(&query_req) {
-          return vec![SqlRequest::Query(query_req)];
+          let table = query_req.table.clone();
+          let fields = query_req.fields.clone();
+          let mut objs = query_req.objects.unwrap_or_default();
+          if !query_req.key.obj.is_empty() {
+            objs.push(query_req.key.obj);
+          }
+          return objs
+            .into_iter()
+            .map(|obj| {
+              SqlRequest::Query(QueryRequest {
+                key: RequestKey {
+                  table: table.clone(),
+                  obj: obj,
+                },
+                fields: fields.clone(),
+                ..Default::default()
+              })
+            })
+            .collect();
         }
         // KV tables: pass through without object expansion
         if let Ok(schema) = state.db.get_schema(&query_req.table) {
