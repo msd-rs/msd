@@ -139,7 +139,13 @@ class MsdClient(Generic[DF]):
       if start is not None and not isinstance(start, int):
         ts_where.append(f"ts >= '{start}'")
       if end is not None:
-        ts_where.append(f"ts < '{end}'")
+        if isinstance(end, str):
+          if end.startswith("="):
+            ts_where.append(f"ts <= '{end[1:]}'")
+          else:
+            ts_where.append(f"ts < '{end}'")
+        else:
+          ts_where.append(f"ts < '{end}'")
       if len(ts_where) > 0:
         ts_where = "and " + " and ".join(ts_where)
       else:
