@@ -10,7 +10,7 @@ name = "_msd"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = {version = "0.28", features = ["abi3", "extension-module"]}
-numpy = "0.28"
+pyo3 = {version = "0.29", features = ["abi3", "extension-module"]}
+numpy = "0.29"
 msd-request = { path = "../../msd-request" }
 msd-table = { path = "../../msd-table" }

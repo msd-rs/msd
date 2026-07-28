@@ -9,7 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 bincode-next.workspace = true
 axum = { version = "0.8", features = ["ws"] }
-axum-streams = { version = "0.25", features = ["json"] }
+axum-streams = { version = "0.26", features = ["json"] }
 clap.workspace = true
 colored = "3"
 csv.workspace = true
@@ -17,7 +17,7 @@ dotenvy.workspace = true
 futures.workspace = true
 http-body = "1"
 http-body-util = "0.1"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 memchr = "2"
 msd-db = { path = "../msd-db" }
 msd-request = { path = "../msd-request" }
@@ -47,7 +47,7 @@ time.workspace = true
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
 tokio.workspace = true
-tower-http = { version = "0.6", features = [
+tower-http = { version = "0.7", features = [
   "compression-full",
   "cors",
   "decompression-full",
