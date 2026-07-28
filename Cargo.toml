@@ -25,7 +25,7 @@ thiserror = "2"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 #bincode = { version = "2", features = ["serde"] }
-bincode-next = { version = "3.0.0-rc.15", features = ["derive", "serde"] }
+bincode-next = { version = "3.1.1", features = ["derive", "serde"] }
 time = { version = "0.3", features = [
   "serde-well-known",
   "macros",
@@ -40,4 +40,4 @@ tracing-subscriber = { version = "0.3", features = [
 dotenvy = "0.15"
 futures = "0.3"
 csv = "1.4"
-rustc-hash = "2.1.1"
+rustc-hash = "2.1.3"

@@ -39,7 +39,7 @@ rmcp = { version = "2.2", features = [
 ] }
 rustc-hash.workspace = true
 rustyline = { version = "18", features = ["derive"] }
-schemars = "1.0"
+schemars = "1.2"
 serde.workspace = true
 serde_json.workspace = true
 simd-csv = "0.13"
