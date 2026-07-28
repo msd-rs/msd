@@ -1,13 +1,9 @@
 use rmcp::{
-  ErrorData as McpError, Json, RoleServer, ServerHandler,
+  ErrorData as McpError, Json, ServerHandler,
   handler::server::{router::prompt::PromptRouter, tool::ToolRouter, wrapper::Parameters},
-  model::{
-    GetPromptRequestParams, GetPromptResult, Implementation, ListPromptsResult,
-    PaginatedRequestParams, PromptMessage, PromptMessageRole, ServerCapabilities, ServerInfo,
-  },
+  model::{Implementation, PromptMessage, ServerCapabilities, ServerInfo},
   prompt, prompt_handler, prompt_router,
   schemars::JsonSchema,
-  service::RequestContext,
   tool, tool_handler, tool_router,
   transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
@@ -91,7 +87,7 @@ impl MsdMcp {
   #[prompt(description = "guide to write SQL queries for msd")]
   pub async fn sql_guide(&self) -> Result<Vec<PromptMessage>, McpError> {
     Ok(vec![PromptMessage::new_text(
-      PromptMessageRole::User,
+      rmcp::model::Role::User,
       MCP_SQL_GUIDE,
     )])
   }
@@ -99,7 +95,7 @@ impl MsdMcp {
   #[prompt(description = "guide to write python scripts for msd")]
   pub async fn python_guide(&self) -> Result<Vec<PromptMessage>, McpError> {
     Ok(vec![PromptMessage::new_text(
-      PromptMessageRole::User,
+      rmcp::model::Role::User,
       MCP_PYTHON_GUIDE,
     )])
   }
