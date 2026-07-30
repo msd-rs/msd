@@ -16,7 +16,7 @@ pub use csv::*;
 pub use d64::{D64, D64_INF, D64_NAN};
 pub use date::*;
 pub use errors::TableError;
-pub use rust_decimal::Decimal as D128;
+//pub use rust_decimal::Decimal as D128;
 pub use serde::csv::*;
 pub use serde::opt;
 pub use table::{DataType, Field, FieldRef, RowsTable, Series, SeriesRef, Table, TableRef};

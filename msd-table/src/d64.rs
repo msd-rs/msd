@@ -533,21 +533,21 @@ impl Hash for D64 {
   }
 }
 
-impl From<&super::D128> for D64 {
-  fn from(d: &super::D128) -> Self {
-    let dec_num = d.scale() as usize;
-    let n = d.mantissa() as i64;
-    D64::from_i64(n, dec_num)
-  }
-}
+// impl From<&super::D128> for D64 {
+//   fn from(d: &super::D128) -> Self {
+//     let dec_num = d.scale() as usize;
+//     let n = d.mantissa() as i64;
+//     D64::from_i64(n, dec_num)
+//   }
+// }
 
-impl From<&D64> for super::D128 {
-  fn from(d: &D64) -> Self {
-    let scale = d.dec_num() as u32;
-    let num = d.into();
-    super::D128::new(num, scale)
-  }
-}
+// impl From<&D64> for super::D128 {
+//   fn from(d: &D64) -> Self {
+//     let scale = d.dec_num() as u32;
+//     let num = d.into();
+//     super::D128::new(num, scale)
+//   }
+// }
 
 #[cfg(test)]
 mod tests {
