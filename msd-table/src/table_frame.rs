@@ -12,9 +12,19 @@
 //! TABLE_DATA := binary of Table
 //! TABLE_FOOTER := CRC32 of TABLE_DATA
 
-use crate::errors::TableFrameError;
-use msd_table::{Table, TableRef};
+use crate::{Table, TableRef};
 use std::convert::TryInto;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum TableFrameError {
+  #[error("Invalid table frame: {0}")]
+  InvalidTableFrame(String),
+  #[error("Buffer too small, want {0} got {1}")]
+  BufferTooSmall(usize, usize),
+  #[error("Table frame CRC32 check failed")]
+  InvalidCrc,
+}
 
 const MAGIC: u16 = 0x4d7c;
 const VERSION: u16 = 0x0001;
@@ -185,7 +195,7 @@ fn crc32(buf: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use msd_table::{DataType, Field};
+  use crate::{DataType, Field};
 
   #[test]
   fn test_pack_unpack_roundtrip() {

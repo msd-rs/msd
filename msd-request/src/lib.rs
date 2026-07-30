@@ -14,7 +14,6 @@ mod keys;
 mod list_objects;
 mod query;
 mod sql;
-mod table_frame;
 
 pub use agg::*;
 pub use base::*;
@@ -26,4 +25,3 @@ pub use keys::*;
 pub use list_objects::*;
 pub use query::*;
 pub use sql::*;
-pub use table_frame::*;

@@ -9,6 +9,7 @@ mod date;
 mod errors;
 mod serde;
 mod table;
+mod table_frame;
 mod updater;
 mod variant;
 
@@ -20,5 +21,6 @@ pub use errors::TableError;
 pub use serde::csv::*;
 pub use serde::opt;
 pub use table::{DataType, Field, FieldRef, RowsTable, Series, SeriesRef, Table, TableRef};
+pub use table_frame::*;
 pub use updater::*;
 pub use variant::{Variant, VariantMutRef, VariantRef};

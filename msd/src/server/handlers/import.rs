@@ -17,10 +17,10 @@ use futures::StreamExt;
 use http_body_util::BodyStream;
 use memchr::memchr;
 use msd_db::request::MsdRequest;
-use msd_request::{
-  InsertData, InsertRequest, RequestKey, TableFrameError, check_table_frame, unpack_table_frame,
+use msd_request::{InsertData, InsertRequest, RequestKey};
+use msd_table::{
+  Table, TableFrameError, Variant, check_table_frame, get_local_offset, unpack_table_frame,
 };
-use msd_table::{Table, Variant, get_local_offset};
 use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;

@@ -10,8 +10,7 @@ use crate::{
 use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
-use msd_request::{check_table_frame, unpack_table_frame};
-use msd_table::Table;
+use msd_table::{Table, check_table_frame, unpack_table_frame};
 use reqwest::header;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tracing::error;
