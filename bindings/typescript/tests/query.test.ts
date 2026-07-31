@@ -6,7 +6,7 @@ const baseURL = "http://127.0.0.1:50510";
 test("msdQuery", async () => {
   const query =
     "SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000', 'SZ000001')";
-  const result = await msdQuery(query, { baseURL, binary: true });
+  const result = await msdQuery(query, { baseURL, binary: 1 });
   expect(result).toBeDefined();
   expect(typeof result).toBe("object");
   expect(Object.keys(result).length).toBe(2);
@@ -17,8 +17,8 @@ test("msdQuery", async () => {
 });
 
 test("benchQuery", async () => {
-  const query = "SELECT * FROM stock_kline_1d WHERE obj = 'S*'";
-  const result = await msdQuery(query, { baseURL, binary: true });
+  const query = "SELECT * FROM stock_kline_1d WHERE obj = 'SZ000*'";
+  const result = await msdQuery(query, { baseURL, binary: 0 });
   performance.mark("benchQuery-start");
   await msdQuery(query, { baseURL });
 

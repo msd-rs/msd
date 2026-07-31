@@ -11,7 +11,9 @@ use time::{Duration, UtcOffset, macros::format_description};
 use crate::server::parse_roles;
 
 pub const MSD_USER_AGENT: &str = "msd-client";
+pub const MSD_USER_AGENT_V2: &str = "msd-client/2";
 pub const MSD_TABLE_FORMAT: &str = "application/x-msd-table-frame";
+pub const MSD_TABLE_FORMAT_V2: &str = "application/x-msd-table-frame-v2";
 
 /// Get the global app config
 pub fn app_config() -> &'static MsdOptions {

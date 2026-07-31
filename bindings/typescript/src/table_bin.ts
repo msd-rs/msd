@@ -6,7 +6,7 @@
 import type { MsdQueryOptions } from "./query";
 import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type SeriesType } from "./table";
 
-class BincodeReader {
+export class BincodeReader {
   private view: DataView;
   private offset: number;
 
@@ -265,7 +265,7 @@ function parseVariant(reader: BincodeReader): any {
   }
 }
 
-function newTypedArray<K extends keyof SeriesTypes>(type: K, len: number, options?: MsdQueryOptions): SeriesType<K> {
+export function newTypedArray<K extends keyof SeriesTypes>(type: K, len: number, options?: MsdQueryOptions): SeriesType<K> {
   const shared = options?.shared ?? false;
   const arrayOptions = options?.resizable ? {maxByteLength: 524288} : {};
   
@@ -458,6 +458,8 @@ function parseField(reader: BincodeReader, options?: MsdQueryOptions): any {
   };
 }
 
+import { parseTableBinV2 } from "./table_bin_v2";
+
 export function parseTableBin(
   view: DataView,
   offset: number = 0,
@@ -470,6 +472,8 @@ export function parseTableBin(
     const v1 = view.getUint8(offset + 3);
     if (m0 === 0x7c && m1 === 0x4d && v0 === 0x01 && v1 === 0x00) {
       offset += 8;
+    } else if (m0 === 0x7c && m1 === 0x4d && v0 === 0x00 && v1 === 0x02) {
+      return parseTableBinV2(view, offset, options);
     }
   }
   const reader = new BincodeReader(view, offset);

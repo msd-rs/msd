@@ -12,21 +12,30 @@ pub use mcp::mcp_service;
 pub use query::handle_data;
 pub use ws::{Broker, handle_ws};
 
-use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT};
+use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT, MSD_USER_AGENT_V2};
 
-fn is_msd_client(headers: &axum::http::HeaderMap) -> bool {
+fn is_msd_client(headers: &axum::http::HeaderMap) -> u32 {
   let ua = headers
     .get(axum::http::header::USER_AGENT)
-    .and_then(|accept| accept.to_str().ok())
-    .map(|accept| accept.contains(MSD_USER_AGENT))
-    .unwrap_or(false);
-  if !ua {
+    .and_then(|ua| ua.to_str().ok())
+    .map(|ua| {
+      if ua.contains(MSD_USER_AGENT_V2) {
+        2
+      } else if ua.contains(MSD_USER_AGENT) {
+        1
+      } else {
+        0
+      }
+    })
+    .unwrap_or(0);
+  if ua == 0 {
     headers
       .get("x-msd-client")
-      .map(|v| !v.is_empty())
-      .unwrap_or(false)
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.parse::<u32>().ok())
+      .unwrap_or(0)
   } else {
-    true
+    ua
   }
 }
 

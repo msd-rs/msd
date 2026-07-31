@@ -9,8 +9,7 @@ mod py_table;
 mod _msd {
   use std::collections::HashMap;
 
-  use msd_request::{pack_table_ref_frame, unpack_table_frame};
-  use msd_table::{FieldRef, TableRef, UtcOffset};
+  use msd_table::{FieldRef, TableRef, UtcOffset, pack_table_ref_frame, unpack_table_frame};
   use pyo3::{
     exceptions::PyValueError,
     prelude::*,

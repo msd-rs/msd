@@ -118,3 +118,25 @@ impl FromStr for DataType {
     }
   }
 }
+
+impl TryFrom<u8> for DataType {
+  type Error = TableError;
+
+  fn try_from(v: u8) -> Result<Self, Self::Error> {
+    match v {
+      0 => Ok(DataType::Null),
+      1 => Ok(DataType::DateTime),
+      2 => Ok(DataType::Int64),
+      3 => Ok(DataType::Float64),
+      4 => Ok(DataType::Decimal64),
+      5 => Ok(DataType::String),
+      6 => Ok(DataType::Bool),
+      7 => Ok(DataType::Int32),
+      8 => Ok(DataType::UInt32),
+      9 => Ok(DataType::UInt64),
+      10 => Ok(DataType::Float32),
+      11 => Ok(DataType::Bytes),
+      _ => Err(TableError::UnknownDataType(v.to_string())),
+    }
+  }
+}

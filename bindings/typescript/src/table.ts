@@ -23,7 +23,7 @@ export type SeriesType<T extends keyof SeriesTypes> = SeriesTypes[T];
 
 
 
-type Field = {
+export type Field = {
   name: string;
   metadata: Record<string, any> | null;
 } & {
@@ -86,12 +86,13 @@ export type MsdTableApi = {
 };
 
 const MSD_TABLE_V1_MAGIC = 0x4d7c0001;
+const MSD_TABLE_V2_MAGIC = 0x4d7c0200;
 
 function checkMsdTable(obj: any): obj is MsdTable {
   if (typeof obj !== "object" || obj === null) {
     return false;
   }
-  if (obj.version !== MSD_TABLE_V1_MAGIC) {
+  if (obj.version !== MSD_TABLE_V1_MAGIC && obj.version !== MSD_TABLE_V2_MAGIC) {
     return false;
   }
   return true;

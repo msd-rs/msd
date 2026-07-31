@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseMsdTable, parseTableBin } from "../src";
+import { parseMsdTable, parseTableBin, parseTableBinV2 } from "../src";
 
 const testTable = `
 {
@@ -139,4 +139,24 @@ test("parse packed frame and access cells", async () => {
     "2024-12-31T16:00:00.000Z",
   );
   expect(msdTable.cell<number>(0, 1)).toBe(1.23);
+});
+
+const frameV2Buf = await Bun.file(
+  "/home/jia/repo/msd-rs2/bindings/typescript/tests/fixtures/v2.bin",
+).arrayBuffer();
+test("parse packed frame v2 and access cells", async () => {
+  const msdTable = parseTableBinV2(new DataView(frameV2Buf));
+
+  expect(msdTable.getRowsCount()).toBe(100);
+  expect(msdTable.getColumnsCount()).toBe(7);
+  expect(msdTable.getMetadata("obj")).toBe("SH600000");
+
+  expect(msdTable.cell<Date>(0, 0).toISOString()).toBe(
+    "1999-11-09T16:00:00.000Z",
+  );
+
+  // Also test parseTableBin auto-dispatching to v2
+  const autoTable = parseTableBin(new DataView(frameV2Buf));
+  expect(autoTable.getRowsCount()).toBe(100);
+  expect(autoTable.getMetadata("obj")).toBe("SH600000");
 });

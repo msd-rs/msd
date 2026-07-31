@@ -6,6 +6,7 @@
 import type { MsdTable, MsdTableApi } from "./table";
 import { parseMsdTable } from "./table";
 import { parseTableBin } from "./table_bin";
+import { parseTableBinV2 } from "./table_bin_v2";
 
 /**
  * Query options for msdQuery function.
@@ -22,7 +23,7 @@ export type MsdQueryOptions = {
   /**
    * Whether to use binary format for the response
    */
-  binary?: boolean;
+  binary?: number;
 
   /**
    * use shared array buffer for table column data.
@@ -49,7 +50,7 @@ export async function msdQuery(
     "Content-Type": "application/json",
   };
   if (binary) {
-    headers["x-msd-client"] = "1";
+    headers["x-msd-client"] = binary.toString();
   }
 
 
@@ -69,10 +70,11 @@ export async function msdQuery(
 
   const reader = response.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>;
 
-  const isBinaryResponse =
-    response.headers.get("Content-Type") === "application/x-msd-table-frame";
 
-  if (isBinaryResponse) {
+  const contentType = response.headers.get("Content-Type") || "";
+
+
+  if (contentType == "application/x-msd-table-frame" || contentType == "application/x-msd-table-frame-v2") {
     const result = await parseBinaryResponse(reader, options);
     return result;
   } else {
@@ -139,15 +141,25 @@ function tryReadTable(view: DataView, options: MsdQueryOptions): {
     return { table: null, readBytes: 0 };
   }
   const magic = view.getUint32(0, true);
-  if (magic !== 0x14d7c) {
+
+  if (magic == 0x00014d7c) {
+    const tableLength = view.getUint32(4, true);
+    if (view.byteLength < 8 + tableLength) {
+      // no enough data to read header
+      return { table: null, readBytes: 0 };
+    }
+    return { table: parseTableBin(view, 8, options), readBytes: 8 + tableLength };
+  }
+  else if (magic == 0x02004d7c) {
+    const tableLength = view.getUint32(4, true);
+    if (view.byteLength < 8 + tableLength) {
+      // no enough data to read header
+      return { table: null, readBytes: 0 };
+    }
+    return { table: parseTableBinV2(view, 8, options), readBytes: 8 + tableLength };
+  }else{
     throw new Error("Invalid magic number in binary response");
   }
-  const tableLength = view.getUint32(4, true);
-  if (view.byteLength < 8 + tableLength) {
-    // no enough data to read header
-    return { table: null, readBytes: 0 };
-  }
-  return { table: parseTableBin(view, 8, options), readBytes: 8 + tableLength };
 }
 
 async function parseTextResponse(

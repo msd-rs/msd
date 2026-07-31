@@ -4,7 +4,10 @@
 use std::net::SocketAddr;
 
 use super::is_msd_client;
-use crate::{app_config::MSD_TABLE_FORMAT, server::AppStateRef};
+use crate::{
+  app_config::{MSD_TABLE_FORMAT, MSD_TABLE_FORMAT_V2},
+  server::AppStateRef,
+};
 use axum::{
   Json,
   body::{Body, HttpBody},
@@ -20,7 +23,7 @@ use msd_request::{
   DeleteRequest, InsertRequest, ListObjectsRequest, QueryRequest, RequestKey, SqlRequest,
   sql_to_request,
 };
-use msd_table::{Table, pack_table_frame, table};
+use msd_table::{Table, pack_table_frame, pack_table_frame_v2, table};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 use tokio_stream::{self as stream};
@@ -57,8 +60,9 @@ pub async fn handle_data(
 
   debug!(count = requests.len(), "start to handle requests");
 
-  if is_msd_client(&headers) {
-    let body = TableFrameBody::new(state.clone(), requests);
+  let client_ver = is_msd_client(&headers);
+  if client_ver > 0 {
+    let body = TableFrameBody::new(state.clone(), requests, client_ver);
     Ok(body.into_response())
   } else {
     let s = stream::iter(requests)
@@ -281,20 +285,25 @@ async fn handle_drop_table(state: AppStateRef, name: String) -> Result<Table, Db
 #[derive(Debug)]
 struct TableFrameBody {
   set: JoinSet<Result<Vec<u8>, DbError>>,
+  version: u32,
 }
 
 impl TableFrameBody {
-  fn new(db: AppStateRef, requests: Vec<SqlRequest>) -> Self {
+  fn new(db: AppStateRef, requests: Vec<SqlRequest>, version: u32) -> Self {
     let mut set = JoinSet::new();
     for req in requests {
       let db = db.clone();
       set.spawn(async move {
-        handle_sql_request(db, req)
-          .await
-          .map(|t| pack_table_frame(&t))
+        handle_sql_request(db, req).await.map(|t| {
+          if version == 2 {
+            pack_table_frame_v2(&t)
+          } else {
+            pack_table_frame(&t)
+          }
+        })
       });
     }
-    Self { set }
+    Self { set, version }
   }
 }
 
@@ -328,11 +337,19 @@ impl HttpBody for TableFrameBody {
 }
 impl IntoResponse for TableFrameBody {
   fn into_response(self) -> Response<Body> {
+    let version = self.version;
     let mut resp = Response::new(Body::new(self));
-    resp.headers_mut().insert(
-      axum::http::header::CONTENT_TYPE,
-      axum::http::header::HeaderValue::from_static(MSD_TABLE_FORMAT),
-    );
+    if version == 2 {
+      resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::header::HeaderValue::from_static(MSD_TABLE_FORMAT_V2),
+      );
+    } else {
+      resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::header::HeaderValue::from_static(MSD_TABLE_FORMAT),
+      );
+    }
     resp
   }
 }
