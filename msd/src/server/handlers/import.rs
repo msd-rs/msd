@@ -602,7 +602,7 @@ fn process_csv_block_simd(
         .collect::<Vec<_>>();
       table.push_row(row).ok();
     } else {
-      if record.len() != parse_schema.column_count() + 1 {
+      if record.len() < parse_schema.column_count() + 1 {
         return Err(format!(
           "Column count mismatch: expected {}, got {}",
           parse_schema.column_count() + 1,
