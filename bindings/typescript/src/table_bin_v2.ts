@@ -4,13 +4,13 @@
  */
 
 import type { MsdQueryOptions } from "./query";
-import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type Field } from "./table";
+import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type Field, type SchemaFromFields } from "./table";
 
-export function parseTableBinV2(
+export function parseTableBinV2<C extends readonly Field[] = Field[]>(
   view: DataView,
   offset: number = 0,
   options?: MsdQueryOptions
-): MsdTable & MsdTableApi {
+): MsdTable & MsdTableApi<SchemaFromFields<C>> {
   let currentOffset = offset;
 
   if (view.byteLength - currentOffset >= 8) {
@@ -223,5 +223,5 @@ export function parseTableBinV2(
     metadata: Object.keys(metadata).length > 0 ? metadata : null,
   };
 
-  return wrapMsdTable(tableObj);
+  return wrapMsdTable(tableObj) as unknown as MsdTable & MsdTableApi<SchemaFromFields<C>>;
 }

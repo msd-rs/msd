@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseMsdTable, parseTableBin, parseTableBinV2 } from "../src";
+import { Field, SchemaFromFields } from "../src/table";
 
 const testTable = `
 {
@@ -52,6 +53,7 @@ test("parse table and access cells", () => {
   const msdTable = parseMsdTable(testTable);
   expect(msdTable.getRowsCount()).toBe(3);
   expect(msdTable.getColumnsCount()).toBe(3);
+  const objs = msdTable.column("obj")
 
   type rowType = {
     ts: Date | null;
@@ -66,19 +68,33 @@ test("parse table and access cells", () => {
     //console.log(JSON.stringify(row));
   }
 
+  // Test 1: Explicit generic argument at call site
   const tsColumn = msdTable.column("ts");
   expect(tsColumn).toBeDefined();
+  expect(tsColumn instanceof Float64Array).toBe(true);
   expect(tsColumn?.length).toBe(3);
   expect(typeof tsColumn?.[0]).toBe("number");
-  expect(typeof tsColumn?.[1]).toBe("number");
-  expect(typeof tsColumn?.[2]).toBe("number");
 
   const priceColumn = msdTable.column("price");
   expect(priceColumn).toBeDefined();
-  expect(priceColumn?.length).toBe(3);
-  expect(typeof priceColumn?.[0]).toBe("number");
-  expect(typeof priceColumn?.[1]).toBe("number");
-  expect(typeof priceColumn?.[2]).toBe("number");
+  expect(priceColumn instanceof Float64Array).toBe(true);
+
+  // Test 2: Un-annotated call site (returns SeriesTypes[keyof SeriesTypes] | null)
+  const tsColUnannotated = msdTable.column("ts");
+  expect(tsColUnannotated).toBeDefined();
+
+  // Test 3: Automatic inference via table schema generic parameter
+  type TestSchema = [
+    { name: "ts"; metadata: null; kind: "DateTime"; data: Float64Array },
+    { name: "price"; metadata: null; kind: "Decimal64"; data: Float64Array },
+    { name: "null"; metadata: null; kind: "Null"; data: null },
+  ];
+  const typedTable = parseMsdTable<TestSchema>(testTable);
+  const autoInferredTs = typedTable.column("ts"); // Automatically Float64Array | null!
+  expect(autoInferredTs instanceof Float64Array).toBe(true);
+
+  const autoInferredPrice = typedTable.column(1); // Automatically Float64Array | null!
+  expect(autoInferredPrice instanceof Float64Array).toBe(true);
 
   const nullColumn = msdTable.column("null");
   expect(nullColumn).toBeNull();

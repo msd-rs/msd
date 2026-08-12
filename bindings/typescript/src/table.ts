@@ -19,29 +19,33 @@ export type SeriesTypes = {
 };
 
 export type SeriesType<T extends keyof SeriesTypes> = SeriesTypes[T];
-
+export type SeriesKind = keyof SeriesTypes;
+export type DataForKind<K extends SeriesKind> = SeriesTypes[K];
 
 
 
 export type Field = {
-  name: string;
-  metadata: Record<string, any> | null;
-} & {
-  [K in keyof SeriesTypes]: {
+  [K in SeriesKind]: {
+    name: string;
+    metadata: Record<string, any> | null;
     kind: K;
-    data: SeriesTypes[K];
-  };
-}[keyof SeriesTypes];
+    data: SeriesType<K>;
+  }
+}[SeriesKind]
 
+export type SchemaFromFields<Cols extends readonly Field[]> = {
+  [C in Cols[number] as C['name']]: C['kind'];
+};
+
+export type TableSchema = Record<string, SeriesKind>
 
 export type MsdTable = {
   columns: Field[];
   metadata: Record<string, any> | null;
 };
 
-type CellType = string | number | boolean | Uint8Array | Date | null;
 
-export type MsdTableApi = {
+export type MsdTableApi<Schema extends TableSchema = TableSchema> = {
   /**
    * Get the number of rows in the table
    */
@@ -56,33 +60,37 @@ export type MsdTableApi = {
    * @param column The column index
    * @returns The value of the cell
    */
-  cell<T = CellType>(row: number, column: number): T;
+  cell(row: number, column: number): any;
   /**
    * Get the values of all cells in a specific row
    * @param row The row index
    * @returns An object containing the values of all cells in the row
    */
-  row<T = { [key: string]: CellType }>(row: number): T;
+  row(row: number): any;
 
   /**
    * Get the values of all cells in a specific column
-   * @param column The column index
-   * @returns An array containing the values of all cells in the column
+   * @param column The column index or name
+   * @returns An array or TypedArray containing the values of all cells in the column
    */
-  column<T = CellType>(column: number | string): T[] | null;
+  column<Name extends string & keyof Schema>(
+    column: Name | number
+  ): Schema[Name] extends SeriesKind
+    ? SeriesTypes[Schema[Name]]
+    : Field['data'];
 
   /**
    * Get the metadata of a specific column
    * @param key The key of the metadata
    * @returns The value of the metadata if it exists, otherwise null
    */
-  getMetadata(key: string): CellType;
+  getMetadata(key: string): any;
 
   /**
    * Iterate over all rows in the table
    * @returns An iterator over all rows in the table
    */
-  [Symbol.iterator]<T = { [key: string]: CellType }>(): Iterator<T>;
+  [Symbol.iterator]<T = { [key: string]: any }>(): Iterator<T>;
 };
 
 const MSD_TABLE_V1_MAGIC = 0x4d7c0001;
@@ -122,13 +130,15 @@ function checkMsdTable(obj: any): obj is MsdTable {
  * @param data JSON string representing the MSd table
  * @return MsdTable object with helper methods
  */
-export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
-  const apiObj = obj as MsdTable & MsdTableApi;
+export function wrapMsdTable<const Cols extends readonly Field[]>(
+  obj: MsdTable,
+): MsdTable & MsdTableApi<SchemaFromFields<Cols>> {
+  const apiObj = obj as any;
 
   apiObj.getRowsCount = function (): number {
     for (const col of this.columns) {
-      if (col.kind !== "Null" && col.data && typeof (col.data as any).length === "number") {
-        return (col.data as any).length;
+      if (col.kind !== "Null" && col.data && typeof col.data.length === "number") {
+        return col.data.length;
       }
     }
     return 0;
@@ -138,13 +148,13 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
     return this.columns.length;
   };
 
-  apiObj.getMetadata = function (key: string): CellType {
+  apiObj.getMetadata = function (key: string): any {
     const v = this.metadata?.[key];
     if (v === undefined) {
       return null;
     }
     if (typeof v === "object" && v !== null) {
-      return Object.values(v)[0] as CellType;
+      return Object.values(v)[0] as any;
     } else {
       return v;
     }
@@ -159,34 +169,35 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
     }
     switch (col.kind) {
       case "String":
-        return ((col.data[row] as string) ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Bytes":
         return (col.data[row] ?? null) as T;
       case "Int32":
-        return ((col.data as Int32Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "UInt32":
-        return ((col.data as Uint32Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Int64":
-        return ((col.data as BigInt64Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "UInt64":
-        return ((col.data as BigUint64Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Float32":
-        return ((col.data as Float32Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Float64":
-        return ((col.data as Float64Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Decimal64":
-        return ((col.data as Float64Array)[row] ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "Bool":
-        return ((col.data[row] as boolean) ?? null) as T;
+        return (col.data[row] ?? null) as T;
       case "DateTime":
-        const ts = (col.data as Float64Array)[row];
+        const ts = col.data[row];
         return (ts ? new Date(ts) : null) as T;
     }
+    return null as T;
   };
 
-  apiObj.column = function <T = CellType>(column: number | string): T[] | null {
+  apiObj.column = function (column: number | string): any {
     if (typeof column === "string") {
-      const col = this.columns.find((col) => col.name === column);
+      const col = this.columns.find((col: any) => col.name === column);
       if (!col) {
         return null;
       }
@@ -196,26 +207,17 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
     if (!col || col.kind === "Null" || !col.data) {
       return null;
     }
-    return col.data as unknown as T[];
+    return col.data;
   };
 
-  apiObj.row = function <T = { [key: string]: CellType }>(row: number): T {
-    const result: { [key: string]: CellType } = {};
+  apiObj.row = function <T = { [key: string]: any }>(row: number): T {
+    const result: { [key: string]: any } = {};
     for (let colIndex = 0; colIndex < this.columns.length; colIndex++) {
       const col = this.columns[colIndex];
       // @ts-ignore
       result[col!.name] = this.cell(row, colIndex);
     }
     return result as T;
-  };
-
-  apiObj[Symbol.iterator] = function* <
-    T = { [key: string]: CellType },
-  >(): Iterator<T> {
-    const rowsCount = this.getRowsCount();
-    for (let rowIndex = 0; rowIndex < rowsCount; rowIndex++) {
-      yield this.row(rowIndex);
-    }
   };
 
   return apiObj;
@@ -245,7 +247,9 @@ export function wrapMsdTable(obj: MsdTable): MsdTable & MsdTableApi {
  * @param data JSON string representing the MSd table
  * @return MsdTable object with helper methods
  */
-export function parseMsdTable(data: string): MsdTable & MsdTableApi {
+export function parseMsdTable<const Cols extends readonly Field[]>(
+  data: string,
+): MsdTable & MsdTableApi<SchemaFromFields<Cols>> {
   const obj = JSON.parse(data);
   if (!checkMsdTable(obj)) {
     throw new Error("Invalid MsdTable");
@@ -284,5 +288,5 @@ export function parseMsdTable(data: string): MsdTable & MsdTableApi {
         break;
     }
   }
-  return wrapMsdTable(obj);
+  return wrapMsdTable(obj) 
 }

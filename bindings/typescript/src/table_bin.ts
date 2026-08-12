@@ -4,7 +4,7 @@
  */
 
 import type { MsdQueryOptions } from "./query";
-import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type SeriesType } from "./table";
+import { type MsdTable, type MsdTableApi, wrapMsdTable, type SeriesTypes, type SeriesType, type Field, type SchemaFromFields } from "./table";
 
 export class BincodeReader {
   private view: DataView;
@@ -460,11 +460,11 @@ function parseField(reader: BincodeReader, options?: MsdQueryOptions): any {
 
 import { parseTableBinV2 } from "./table_bin_v2";
 
-export function parseTableBin(
+export function parseTableBin<const C extends readonly Field[] = Field[]>(
   view: DataView,
   offset: number = 0,
   options?: MsdQueryOptions
-): MsdTable & MsdTableApi {
+): MsdTable & MsdTableApi<SchemaFromFields<C>> {
   if (view.byteLength - offset >= 8) {
     const m0 = view.getUint8(offset);
     const m1 = view.getUint8(offset + 1);
@@ -493,5 +493,5 @@ export function parseTableBin(
     is_kv,
   };
 
-  return wrapMsdTable(tableObj);
+  return wrapMsdTable(tableObj) as unknown as MsdTable & MsdTableApi<SchemaFromFields<C>>;
 }
