@@ -133,6 +133,7 @@ async fn test_insert_new() -> Result<()> {
   let req = InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     data: InsertData::Columns(sample_data(n, "2023-01-01", ONE_DAY)),
+    truncate: None,
   };
   // Convert to table using schema
   let schema = db.get_schema("kline1d")?;
@@ -155,6 +156,7 @@ async fn insert_data(
   let req = InsertRequest {
     key: RequestKey::new(table, obj),
     data: InsertData::Columns(sample_data(count, start_date, step_secs)),
+    truncate: None,
   };
   let mut req = req.to_table(&db.get_schema(table)?)?;
   assert!(req.len() == 1);
@@ -396,6 +398,7 @@ async fn test_insert_agg() -> Result<()> {
   let req = InsertRequest {
     key: RequestKey::new("kline1m", "SH600000"),
     data: InsertData::Columns(data),
+    truncate: None,
   };
   let mut req = req.to_table(&db.get_schema("kline1m")?)?;
   assert!(req.len() == 1);
@@ -525,6 +528,7 @@ async fn test_chan() -> Result<()> {
   let req = InsertRequest {
     key: RequestKey::new("snapshot", "SH600000"),
     data: InsertData::Columns(data),
+    truncate: None,
   };
   let mut req = req.to_table(&db.get_schema("snapshot")?)?;
   assert!(req.len() == 1);
@@ -610,6 +614,7 @@ async fn test_drop_table() -> Result<()> {
   let insert_req = InsertRequest {
     key: RequestKey::new("kline1d", "SH600000"),
     data: InsertData::Columns(data),
+    truncate: None,
   };
   let mut req = insert_req.clone().to_table(&schema)?;
   assert!(req.len() == 1);
@@ -678,7 +683,7 @@ async fn test_kv_mode() -> Result<()> {
   let requests = msd_db::request::sql_to_request(sql_insert)?;
   // sql_to_request splits it by object, so we should have 2 requests: 'host' and 'port'
   assert_eq!(requests.len(), 2);
-  
+
   for req in requests {
     match req {
       msd_db::request::SqlRequest::Insert(insert_req) => {
@@ -705,8 +710,28 @@ async fn test_kv_mode() -> Result<()> {
       let table = rx.await??;
       assert_eq!(table.row_count(), 1);
       assert_eq!(table.column_count(), 2);
-      assert_eq!(table.column("key").unwrap().data.get(0).unwrap().get_str().unwrap(), "host");
-      assert_eq!(table.column("value").unwrap().data.get(0).unwrap().get_str().unwrap(), "localhost");
+      assert_eq!(
+        table
+          .column("key")
+          .unwrap()
+          .data
+          .get(0)
+          .unwrap()
+          .get_str()
+          .unwrap(),
+        "host"
+      );
+      assert_eq!(
+        table
+          .column("value")
+          .unwrap()
+          .data
+          .get(0)
+          .unwrap()
+          .get_str()
+          .unwrap(),
+        "localhost"
+      );
     }
     _ => panic!("Expected Query request"),
   }
@@ -721,7 +746,7 @@ async fn test_kv_mode() -> Result<()> {
       db.request(m_req).await?;
       let table = rx.await??;
       assert_eq!(table.row_count(), 2);
-      
+
       let keys = table.column("key").unwrap().data.get_string().unwrap();
       let values = table.column("value").unwrap().data.get_string().unwrap();
       assert_eq!(keys, &vec!["host".to_string(), "port".to_string()]);
@@ -751,7 +776,17 @@ async fn test_kv_mode() -> Result<()> {
       db.request(m_req).await?;
       let table = rx.await??;
       assert_eq!(table.row_count(), 1);
-      assert_eq!(table.column("key").unwrap().data.get(0).unwrap().get_str().unwrap(), "host");
+      assert_eq!(
+        table
+          .column("key")
+          .unwrap()
+          .data
+          .get(0)
+          .unwrap()
+          .get_str()
+          .unwrap(),
+        "host"
+      );
     }
     _ => panic!("Expected Query request"),
   }

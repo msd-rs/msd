@@ -119,6 +119,7 @@ impl Permission {
     let req = SqlRequest::Insert(msd_request::InsertRequest {
       key: msd_request::RequestKey::new("", ""),
       data: msd_request::InsertData::Table(msd_table::Table::default()),
+      truncate: None,
     });
     Self::check(headers, remote_addr, &req)
   }

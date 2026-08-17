@@ -27,6 +27,16 @@ impl<S: MsdStore> Worker<S> {
 
     let key = req.key.clone();
     self.ensure_cache_initialized(&req.key)?;
+
+    if req.truncate.unwrap_or(false) {
+      match self.cache.remove(&req.key) {
+        Some(item) => {
+          Self::delete_cache_item(&self.store, &req.key, &item)?;
+        }
+        None => {}
+      }
+    }
+
     let (resp, chan_table) = self.on_insert_existing(req)?;
 
     match chan_table {
@@ -254,6 +264,7 @@ impl<S: MsdStore> Worker<S> {
                 obj: key.obj.clone(),
               },
               data: msd_request::InsertData::Table(chan_table.clone()),
+              truncate: None,
             };
 
             let (chan_request, _rx) = MsdRequest::insert(chan_request);

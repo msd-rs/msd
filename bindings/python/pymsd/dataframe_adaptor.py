@@ -302,7 +302,7 @@ try:
           df = df1.join(df2, on=on, how="left")
         for col in df2_columns:
           if col != on and col != by:
-            df = df.with_columns(pl.col(col).fill_nan(0))
+            df = df.with_columns(pl.col(col).fill_null(0))
         return df
       else:
         raise ValueError(f"Unsupported method: {method}")

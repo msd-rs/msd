@@ -24,6 +24,8 @@ pub struct InsertRequest {
   #[serde(flatten)]
   pub key: RequestKey,
   pub data: InsertData,
+  /// truncate table before insert
+  pub truncate: Option<bool>,
 }
 
 impl Hash for InsertRequest {
@@ -89,7 +91,11 @@ impl InsertRequest {
               let value_series = t.column_by_index(0).unwrap().data.clone();
               let mut new_t = Table::from_columns(vec![
                 Field::new_with_data(key_col_schema.name.clone(), key_col_schema.kind, key_series),
-                Field::new_with_data(val_col_schema.name.clone(), val_col_schema.kind, value_series),
+                Field::new_with_data(
+                  val_col_schema.name.clone(),
+                  val_col_schema.kind,
+                  value_series,
+                ),
               ]);
               new_t.set_is_kv(true);
               InsertData::Table(new_t)
@@ -102,6 +108,7 @@ impl InsertRequest {
                 table: table_name.clone(),
               },
               data,
+              truncate: self.truncate,
             }
           })
           .collect(),
@@ -136,14 +143,19 @@ impl InsertRequest {
           if schema.is_kv() {
             let val_col_schema = schema.column_by_index(1).unwrap();
             let temp_template = Table::from_columns(vec![val_col_schema.to_empty()]);
-            let temp_table = table_from_csv(Cursor::new(&csv), b',', &temp_template).map_err(|e| RequestError::from(e))?;
+            let temp_table = table_from_csv(Cursor::new(&csv), b',', &temp_template)
+              .map_err(|e| RequestError::from(e))?;
             let n = temp_table.row_count();
             let key_series = Series::String(vec![self.key.obj.clone(); n]);
             let key_col_schema = schema.column_by_index(0).unwrap();
             let value_series = temp_table.column_by_index(0).unwrap().data.clone();
             let mut new_t = Table::from_columns(vec![
               Field::new_with_data(key_col_schema.name.clone(), key_col_schema.kind, key_series),
-              Field::new_with_data(val_col_schema.name.clone(), val_col_schema.kind, value_series),
+              Field::new_with_data(
+                val_col_schema.name.clone(),
+                val_col_schema.kind,
+                value_series,
+              ),
             ]);
             new_t.set_is_kv(true);
             new_t
@@ -161,7 +173,11 @@ impl InsertRequest {
               let value_series = table.column_by_index(0).unwrap().data.clone();
               table = Table::from_columns(vec![
                 Field::new_with_data(key_col_schema.name.clone(), key_col_schema.kind, key_series),
-                Field::new_with_data(val_col_schema.name.clone(), val_col_schema.kind, value_series),
+                Field::new_with_data(
+                  val_col_schema.name.clone(),
+                  val_col_schema.kind,
+                  value_series,
+                ),
               ]);
             }
             table.set_is_kv(true);
@@ -176,6 +192,7 @@ impl InsertRequest {
       Ok(vec![InsertRequest {
         key: self.key.clone(),
         data: InsertData::Table(res_table),
+        truncate: self.truncate,
       }])
     }
   }

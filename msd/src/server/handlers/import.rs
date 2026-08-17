@@ -71,6 +71,7 @@ impl TableResponse {
 pub struct ImportQuery {
   pub skip: Option<usize>,
   pub delimiter: Option<String>,
+  pub truncate: Option<bool>,
 }
 
 use crate::server::handlers::permission::Permission;
@@ -90,8 +91,10 @@ pub async fn handle_table(
     .get_schema(&table_name)
     .map_err(|e| (axum::http::StatusCode::NOT_FOUND, e.to_string()))?;
 
+  let truncate = q.truncate;
+
   if is_msd_table_format(&headers) {
-    handle_table_binary(state.clone(), table_name, body).await
+    handle_table_binary(state.clone(), table_name, body, truncate).await
   } else {
     let delimiter = q
       .delimiter
@@ -103,6 +106,7 @@ pub async fn handle_table(
       body,
       q.skip.unwrap_or_default(),
       delimiter,
+      truncate,
     )
     .await
   }
@@ -115,6 +119,7 @@ fn spawn_csv_workers(
   table_name: String,
   parse_schema: Table,
   delimiter: u8,
+  truncate: Option<bool>,
 ) -> mpsc::Sender<Vec<u8>> {
   let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
 
@@ -132,7 +137,7 @@ fn spawn_csv_workers(
             continue;
           }
           rows += table.row_count();
-          let _ = flush_table(&db, &table_name, &obj, table).await;
+          let _ = flush_table(&db, &table_name, &obj, table, truncate).await;
         }
         Err(e) => {
           error!(%e, id = worker_idx, "process line failed");
@@ -152,6 +157,7 @@ fn spawn_binary_workers(
   state: AppStateRef,
   table_name: String,
   schema: Table,
+  truncate: Option<bool>,
 ) -> mpsc::Sender<Vec<u8>> {
   let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1024);
 
@@ -178,7 +184,7 @@ fn spawn_binary_workers(
               table_name, obj
             ));
           }
-          match flush_table(&state, &table_name, &obj, table).await {
+          match flush_table(&state, &table_name, &obj, table, truncate).await {
             Ok(_) => {}
             Err(e) => {
               error!(%e, id = worker_idx, "process block failed");
@@ -203,6 +209,7 @@ async fn handle_table_csv(
   body: Body,
   skip: usize,
   delimiter: u8,
+  truncate: Option<bool>,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
 
@@ -280,6 +287,7 @@ async fn handle_table_csv(
               table_name.clone(),
               parse_schema.clone(),
               delimiter,
+              truncate,
             ));
           }
           debug!(
@@ -318,6 +326,7 @@ async fn handle_table_csv(
             table_name.clone(),
             parse_schema.clone(),
             delimiter,
+            truncate,
           ));
         }
         senders[worker_idx]
@@ -354,6 +363,7 @@ async fn handle_table_csv(
         table_name.clone(),
         parse_schema.clone(),
         delimiter,
+        truncate,
       ));
     }
 
@@ -395,6 +405,7 @@ async fn handle_table_binary(
   state: AppStateRef,
   table_name: String,
   body: Body,
+  truncate: Option<bool>,
 ) -> Result<Json<TableResponse>, (axum::http::StatusCode, String)> {
   let mut response = TableResponse::start();
 
@@ -447,6 +458,7 @@ async fn handle_table_binary(
             state.clone(),
             table_name.clone(),
             schema.clone(),
+            truncate,
           ));
         }
 
@@ -493,6 +505,7 @@ async fn flush_table(
   table_name: &str,
   obj: &str,
   table: Table,
+  truncate: Option<bool>,
 ) -> Result<(), String> {
   let pk_col_idx = table.pk_column();
   let min_ts = table
@@ -513,6 +526,7 @@ async fn flush_table(
       obj: obj.to_string(),
     },
     data: InsertData::Table(table),
+    truncate,
   };
   // ignore response from rx
   let (req, _rx) = MsdRequest::insert(req);

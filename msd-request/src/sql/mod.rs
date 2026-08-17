@@ -267,6 +267,7 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
               let req = SqlRequest::Insert(InsertRequest {
                 key: RequestKey::new(&table, &current_obj),
                 data: InsertData::Rows(RowsTable::new(None, std::mem::take(&mut current_rows))),
+                truncate: None,
               });
               rows.push(req);
             }
@@ -277,6 +278,7 @@ fn parse_insert(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
             let req = SqlRequest::Insert(InsertRequest {
               key: RequestKey::new(&table, &current_obj),
               data: InsertData::Rows(RowsTable::new(None, std::mem::take(&mut current_rows))),
+              truncate: None,
             });
             rows.push(req);
           }
@@ -516,6 +518,7 @@ fn parse_copy(table_name: &str, csv_data: &str) -> Result<Vec<SqlRequest>, Reque
         let req = SqlRequest::Insert(InsertRequest {
           key: RequestKey::new(table_name, current_obj),
           data: InsertData::Csv(std::mem::take(&mut current_rows)),
+          truncate: None,
         });
         rows.push(req);
       }
@@ -530,6 +533,7 @@ fn parse_copy(table_name: &str, csv_data: &str) -> Result<Vec<SqlRequest>, Reque
     let req = SqlRequest::Insert(InsertRequest {
       key: RequestKey::new(table_name, current_obj),
       data: InsertData::Csv(std::mem::take(&mut current_rows)),
+      truncate: None,
     });
     rows.push(req);
   }
