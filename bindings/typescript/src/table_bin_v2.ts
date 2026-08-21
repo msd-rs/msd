@@ -42,7 +42,7 @@ export function parseTableBinV2<C extends readonly Field[] = Field[]>(
     }
     const bytes = new Uint8Array(view.buffer, view.byteOffset + currentOffset, len);
     currentOffset += len;
-    return textDecoder.decode(bytes);
+    return textDecoder.decode(bytes.slice());
   }
 
   function readBytes(): Uint8Array {
