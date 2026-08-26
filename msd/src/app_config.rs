@@ -55,6 +55,8 @@ pub enum MsdCommands {
   Shell(ShellOptions),
   /// Generate a JWT token
   Token(TokenOptions),
+  /// Convert support files to new format
+  Convert(ConvertOptions),
 }
 
 #[derive(Debug, Args)]
@@ -149,6 +151,15 @@ pub struct TokenOptions {
   /// Expiration in days
   #[arg(short = 'e', long = "exp", default_value_t = 365)]
   pub exp: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ConvertOptions {
+  #[arg(short = 's', long = "source")]
+  pub source: String,
+
+  #[arg(short = 'd', long = "destination")]
+  pub destination: String,
 }
 
 fn parse_tz(s: &str) -> Result<UtcOffset> {

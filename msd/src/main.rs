@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 mod app_config;
+mod convert;
 mod logging;
 mod server;
 mod shell;
@@ -46,6 +47,9 @@ async fn main() -> Result<()> {
     }
     MsdCommands::Token(options) => {
       token::run(options.clone())?;
+    }
+    MsdCommands::Convert(options) => {
+      convert::run(options.clone())?;
     }
   }
 

@@ -56,7 +56,7 @@ export function parseTableBinV2<C extends readonly Field[] = Field[]>(
   }
 
   function newArrayBuffer(begin: number, end: number) {
-    const { shared = false, resizable = false } = options ?? {};
+    const {shared, resizable} = options ?? {};
     const len = end - begin;
     const maxByteLength = resizable ? 524288 : len;
     let ab: ArrayBuffer | SharedArrayBuffer;
@@ -65,18 +65,22 @@ export function parseTableBinV2<C extends readonly Field[] = Field[]>(
     } else {
       ab = new ArrayBuffer(len, { maxByteLength });
     }
-    const dst = new Uint8Array(ab);
-    dst.set(new Uint8Array(view.buffer, begin, len));
+    const dst = new Uint8Array(ab)
+    const src = new Uint8Array(view.buffer, view.byteOffset + begin, len)
+    dst.set(src)
+
     return ab;
   }
 
 
   function readTypedArray(kind: keyof SeriesTypes, rows: number) {
     const offset = currentOffset;
+    //console.log("reading", kind, "at offset", offset, "with", rows, "rows")
     switch (kind) {
       case "DateTime": {
         currentOffset += rows * Float64Array.BYTES_PER_ELEMENT;
-        return new Float64Array(newArrayBuffer(offset, currentOffset));
+        const a = new Float64Array(newArrayBuffer(offset, currentOffset));
+        return a;
       }
       case "Int64": {
         currentOffset += rows * BigInt64Array.BYTES_PER_ELEMENT;

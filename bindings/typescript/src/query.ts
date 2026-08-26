@@ -31,19 +31,59 @@ export type MsdQueryOptions = {
   shared?: boolean;
 
   /**
-   * does column data can be reisze
+   * does column data can be resize
    */
   resizable?: boolean;
+
+  /**
+   * when set, the `baseURL` is a path to the static file. each number is the format of file
+   * - 0: json
+   * - 1: bin v1
+   * - 2: bin v2
+   */
+  staticFile?: number;
 };
 
 export type MsdQueryResponse = {
-  [key: string]: MsdTableApi & MsdTable;
+  [obj: string]: { [table: string]: MsdTableApi & MsdTable };
 };
+
+
+async function mockMsdQuery(options: MsdQueryOptions): Promise<MsdQueryResponse> {
+  const { baseURL, fetch = globalThis.fetch} = options;
+
+  const response = await fetch(baseURL)
+
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("Response body is null");
+  }
+
+  const reader = response.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>;
+
+  if (options.staticFile! > 0) {
+    const result = await parseBinaryResponse(reader, options);
+    return result;
+  } else {
+    const result = await parseTextResponse(reader);
+    return result;
+  }
+
+}
 
 export async function msdQuery(
   query: string,
   options: MsdQueryOptions,
 ): Promise<MsdQueryResponse> {
+
+  // do mock query
+  if (typeof options.staticFile === 'number' && options.staticFile >= 0 && options.staticFile < 3) {
+    return mockMsdQuery(options);
+  }
+
   const { baseURL, fetch = globalThis.fetch, binary = false } = options;
   const url = `${baseURL}/query`;
   const headers: Record<string, string> = {
@@ -52,7 +92,6 @@ export async function msdQuery(
   if (binary) {
     headers["x-msd-client"] = binary.toString();
   }
-
 
   const response = await fetch(url, {
     method: "POST",
@@ -103,8 +142,13 @@ async function parseBinaryResponse(
       const { table, readBytes } = tryReadTable(b, options);
       if (table) {
         const obj = table.getMetadata("obj");
-        if (typeof obj === "string") {
-          result[obj] = table;
+        const kind = table.getMetadata("table")
+        if (typeof obj === "string" && typeof kind === "string") {
+          if (result[obj]) {
+            result[obj][kind] = table;
+          } else {
+            result[obj] = { [kind]: table };
+          }
         }
         totalReadBytes += readBytes;
       } else {
@@ -184,8 +228,13 @@ async function parseTextResponse(
         if (!line.trim()) continue;
         const table = parseMsdTable(line);
         const obj = table.getMetadata("obj");
-        if (typeof obj === "string") {
-          result[obj] = table;
+        const kind = table.getMetadata("table");
+        if (typeof obj === "string" && typeof kind === 'string') {
+          if (result[obj]) {
+            result[obj][kind] = table;
+          } else {
+            result[obj] = { [kind]: table };
+          }
         }
       }
     }
@@ -198,8 +247,13 @@ async function parseTextResponse(
   if (buffer.trim()) {
     const table = parseMsdTable(buffer);
     const obj = table.getMetadata("obj");
-    if (typeof obj === "string") {
-      result[obj] = table;
+    const kind = table.getMetadata("table");
+    if (typeof obj === "string" && typeof kind === 'string') {
+      if (result[obj]) {
+        result[obj][kind] = table;
+      } else {
+        result[obj] = { [kind]: table };
+      }
     }
   }
 

@@ -198,6 +198,8 @@ pub fn unpack_table_frame_v2(buf: &[u8], skip_header: bool) -> Result<Table, Tab
       TableFrameError::InvalidTableFrame(format!("column '{}' has invalid data type {}", name, e))
     })?;
 
+    println!("read {} at offset {} with {} rows", kind, offset, rows);
+
     let field = match kind {
       DataType::Null => Field {
         name,
@@ -207,9 +209,10 @@ pub fn unpack_table_frame_v2(buf: &[u8], skip_header: bool) -> Result<Table, Tab
       },
       DataType::DateTime => {
         let mut vec = Vec::with_capacity(rows as usize);
+        println!("arrayBuffer {:?}", &buf[offset..offset + 16]);
         for _ in 0..rows {
-          let v = read_i64(table_data, &mut offset);
-          vec.push(v);
+          let v = read_f64(table_data, &mut offset);
+          vec.push((v as i64) * 1000);
         }
         Field {
           name,
@@ -325,13 +328,13 @@ pub fn unpack_table_frame_v2(buf: &[u8], skip_header: bool) -> Result<Table, Tab
       DataType::Decimal64 => {
         let mut vec = Vec::with_capacity(rows as usize);
         for _ in 0..rows {
-          let v = read_d64(table_data, &mut offset);
+          let v = read_f64(table_data, &mut offset);
           vec.push(v);
         }
         Field {
           name,
           kind,
-          data: Series::Decimal64(vec),
+          data: Series::Float64(vec),
           metadata: None,
         }
       }
@@ -359,13 +362,13 @@ pub fn unpack_table_frame_v2(buf: &[u8], skip_header: bool) -> Result<Table, Tab
 fn read_string(buf: &[u8], offset: &mut usize) -> String {
   let len = u32::from_le_bytes(buf[*offset..*offset + 4].try_into().unwrap()) as usize;
   *offset += len + 4;
-  String::from_utf8(buf[*offset - 4..*offset].to_vec()).unwrap()
+  String::from_utf8(buf[*offset - len..*offset].to_vec()).unwrap()
 }
 
 fn read_bytes(buf: &[u8], offset: &mut usize) -> Vec<u8> {
   let len = u32::from_le_bytes(buf[*offset..*offset + 4].try_into().unwrap()) as usize;
   *offset += len + 4;
-  buf[*offset - 4..*offset].to_vec()
+  buf[*offset - len..*offset].to_vec()
 }
 
 fn read_u8(buf: &[u8], offset: &mut usize) -> u8 {
@@ -403,6 +406,7 @@ fn read_f64(buf: &[u8], offset: &mut usize) -> f64 {
   f64::from_le_bytes(buf[*offset - 8..*offset].try_into().unwrap())
 }
 
+#[allow(dead_code)]
 fn read_d64(buf: &[u8], offset: &mut usize) -> D64 {
   let v = read_f64(buf, offset);
   D64::from_f64(v, 2)
