@@ -481,18 +481,14 @@ pub fn now_datetime() -> OffsetDateTime {
 #[cfg(test)]
 mod tests {
 
-  use time::{
-    format_description,
-    macros::{datetime, offset},
-  };
+  use time::macros::{datetime, offset};
 
   use super::*;
   use anyhow::Result;
 
   #[test]
   fn test_time_lib() -> Result<()> {
-    let format =
-      format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour]")?;
+    let format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour]");
     let local_offset = offset!(+8);
 
     let d2021_01_02_00_00_00 = OffsetDateTime::parse("2021-01-02 00:00:00 08", &format)?;
