@@ -226,7 +226,6 @@ try:
 
       aligned_dfs = [base_df]
       symbols = [base_obj]
-
       for obj, df in sorted(dfs.items()):
         if obj == base_obj:
           continue
@@ -359,18 +358,18 @@ try:
       base_obj = base if base in dfs else next(iter(dfs))
       base_df = dfs[base_obj]
 
-      aligned_dfs = [base_df]
+      aligned_dfs = [base_df.lazy()]
       symbols = [base_obj]
 
+      base_index = base_df.select(on).lazy()
       for obj, df in sorted(dfs.items()):
         if obj == base_obj:
           continue
-        res_df = self.join_asof(base_df.select(on), df, on, join)
-
+        res_df = self.join_asof(base_index, df.lazy(), on, join)
         aligned_dfs.append(res_df)
         symbols.append(obj)
-
-      contacted = pl.concat(aligned_dfs)
+      aligned_dfs = pl.collect_all(aligned_dfs)
+      contacted = pl.concat(aligned_dfs, how='vertical')
       return contacted, symbols
     
     def to_numpy(self, df: pl.DataFrame) -> dict[str, np.ndarray]:
