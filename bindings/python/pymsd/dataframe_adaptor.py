@@ -20,7 +20,7 @@ class DataFrameAdaptor(Generic[DF]):
   Adaptor for DataFrame
   """
 
-  def build(self, table: MsdTable | dict[str, any]) -> DF:
+  def build(self, table: MsdTable | dict[str, Any]) -> DF:
     """
     create a DataFrame from a table
     """
@@ -124,8 +124,8 @@ try:
   import pandas as pd
 
   class PandasAdaptor(DataFrameAdaptor[pd.DataFrame]):
-    def build(self, table: MsdTable | dict[str, any]) -> pd.DataFrame:
-      if isinstance(table, list)
+    def build(self, table: MsdTable | dict[str, Any]) -> pd.DataFrame:
+      if isinstance(table, list):
         return pd.DataFrame({col: data for col, data in table})
       else:
         return pd.DataFrame(table)
@@ -257,7 +257,7 @@ try:
   import polars as pl
 
   class PolarsAdaptor(DataFrameAdaptor[pl.DataFrame]):
-    def build(self, table: MsdTable | dict[str, any]) -> pl.DataFrame:
+    def build(self, table: MsdTable | dict[str, Any]) -> pl.DataFrame:
       if isinstance(table, list):
         return pl.DataFrame([pl.Series(name, data) for name, data in table])
       else:
@@ -372,8 +372,8 @@ try:
       for obj, df in sorted(dfs.items()):
         if obj == base_obj:
           continue
-        res_df = self.join_asof(base_index, df.lazy(), on, join)
-        aligned_dfs.append(res_df)
+        res_df = self.join_asof(base_index, df.lazy(), on, join) #type: ignore
+        aligned_dfs.append(res_df) #type: ignore
         symbols.append(obj)
       aligned_dfs = pl.collect_all(aligned_dfs)
       contacted = pl.concat(aligned_dfs, how='vertical')
