@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+
+
+## [0.1.17] - 2026-09-20
+
+### Added
+
+- Native join for `MsdTable` in Python bindings via Rust implementation (`aligned_index`) for high-performance time-series alignment.
+- New `load_concat` and `build_sql` APIs in Python `MsdClient` with `Aligner` utility.
+- Table Frame binary serialization format v2 (`table_frame_v2`), optimized for simpler and faster deserialization in JavaScript/TypeScript.
+- Full Table Frame binary v2 support in TypeScript SDK.
+- CLI `convert` command to convert tables between CSV, JSON, JSONL, and TableFrame (v1/v2) formats.
+- CLI `import` command now supports importing both CSV and binary table frame (`.tbl`) files from file paths, stdin, or HTTP URLs.
+- Support for `truncate` option before import / insert requests to clear existing table data prior to inserting.
+- TypeScript SDK support for static file mock queries (JSON, binary v1, binary v2).
+
+### Changed
+
+- Import handler now allows input rows to have extra columns.
+- Python: Improved concatenation performance in Polars DataFrame adaptor using Polars `LazyFrame` (`pl.collect_all` and vertical concat).
+- Moved `table_frame` module from `msd-request` to `msd-table`.
+- Upgraded `rocksdb` and other workspace dependencies (including `rmcp`, `pyo3`).
+
+### Fixed
+
+- TypeScript SDK: Fix text decoding in binary v2 format to use subarray slice.
+
+### Removed
+
+- Removed `D128` (`rust_decimal::Decimal`) data type from `msd-table`.
+
+
 ## [0.1.16] - 2026-07-22
 
 ### Fix
