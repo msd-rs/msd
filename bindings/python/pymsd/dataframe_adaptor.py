@@ -20,7 +20,7 @@ class DataFrameAdaptor(Generic[DF]):
   Adaptor for DataFrame
   """
 
-  def build(self, table: MsdTable) -> DF:
+  def build(self, table: MsdTable | dict[str, any]) -> DF:
     """
     create a DataFrame from a table
     """
@@ -117,14 +117,18 @@ class DataFrameAdaptor(Generic[DF]):
     ...
 
 
+
 ADAPTORS: list[DataFrameAdaptor] = []
 
 try:
   import pandas as pd
 
   class PandasAdaptor(DataFrameAdaptor[pd.DataFrame]):
-    def build(self, table: MsdTable) -> pd.DataFrame:
-      return pd.DataFrame({col: data for col, data in table})
+    def build(self, table: MsdTable | dict[str, any]) -> pd.DataFrame:
+      if isinstance(table, list)
+        return pd.DataFrame({col: data for col, data in table})
+      else:
+        return pd.DataFrame(table)
 
     def read_data_file(
       self, p: str, /, **kwargs
@@ -253,8 +257,11 @@ try:
   import polars as pl
 
   class PolarsAdaptor(DataFrameAdaptor[pl.DataFrame]):
-    def build(self, table: MsdTable) -> pl.DataFrame:
-      return pl.DataFrame([pl.Series(name, data) for name, data in table])
+    def build(self, table: MsdTable | dict[str, any]) -> pl.DataFrame:
+      if isinstance(table, list):
+        return pl.DataFrame([pl.Series(name, data) for name, data in table])
+      else:
+        return pl.DataFrame(table)
 
     def read_data_file(
       self, p: str, /, **kwargs

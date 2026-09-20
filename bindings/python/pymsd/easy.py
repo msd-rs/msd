@@ -10,7 +10,7 @@ from typing import Tuple
 from pathlib import Path
 from .json_table import parse_json_table
 import datetime
-from .const import MsdTableFrame
+from .const import MsdTable, MsdTableFrame
 from .dataframe_adaptor import DataFrameAdaptor, JoinMethod
 from .update import import_csv, import_dataframes
 from typing import Iterator, overload, Generic, TypeVar
@@ -18,13 +18,42 @@ from collections import defaultdict
 from .query import query
 import logging
 import numpy as np
+from ._msd import aligned_index
 
 
 logger = logging.getLogger("MSD")
 
+logger.setLevel(logging.DEBUG)
+
 DF = TypeVar("DF")
 
 type RangeType = str | datetime.datetime | int
+
+class Aligner:
+  def __init__(self,left_index: np.ndarray, right_index: np.ndarray, method: JoinMethod ) -> None:
+    self.method = self.parse_method(method)
+
+    if np.issubdtype(left_index.dtype, np.datetime64):
+      self.aligned_right_index = aligned_index(left_index.astype(np.int64), right_index.astype(np.int64), self.method)
+    else:
+      self.aligned_right_index = aligned_index(left_index, right_index, self.method)
+
+    self.valid_aligned_right_index = self.aligned_right_index < len(right_index)
+
+  def parse_method(self, method: JoinMethod) -> int:
+    match method:
+      case 'zero': return 0
+      case 'nan': return 1
+      case 'backward': return 2
+      case 'forward': return 4
+    return 0
+
+  def apply(self, v: np.ndarray) -> np.ndarray:
+    fill = 0 if self.method == 0 else np.nan
+    r = np.full(self.aligned_right_index.shape, fill, dtype=v.dtype)
+    r[self.valid_aligned_right_index] = v[self.aligned_right_index[self.valid_aligned_right_index]]
+    return r
+
 
 class MsdClient(Generic[DF]):
   """
@@ -106,60 +135,8 @@ class MsdClient(Generic[DF]):
       dict[str, dict[str, DF]] or dict[str, DF]: the loaded data
 
     """
-    sql = []
-    tables = [tables] if isinstance(tables, str) else tables
-    objs = [objs] if isinstance(objs, str) else objs
-    fields = (
-      {tables[0]: fields} if isinstance(fields, list) and len(tables) == 1 else fields
-    )
-    starts = []
-    if start is None:
-      starts = [None] * len(tables)
-    elif not isinstance(start, list):
-      starts = [start] * len(tables)
-    else:
-      starts = start
+    sql = self.build_sql(objs, tables, join, start, end, fields)
 
-    for table, start in zip(tables, starts):
-      table_fields = []
-      if fields is None:
-        table_fields = ["*"]
-      elif isinstance(fields, dict):
-        table_fields = fields.get(table, [])
-        if len(table_fields) == 0:
-          table_fields = ["*"]
-        else:
-          if "ts" not in table_fields:
-            table_fields.insert(0, "ts")
-          else:
-            table_fields.remove("ts")
-            table_fields.insert(0, "ts")
-      ts_where = []
-      # only filter date on the first table
-      if start is not None and not isinstance(start, int):
-        ts_where.append(f"ts >= '{start}'")
-      if end is not None:
-        if isinstance(end, str):
-          if end.startswith("="):
-            ts_where.append(f"ts <= '{end[1:]}'")
-          else:
-            ts_where.append(f"ts < '{end}'")
-        else:
-          ts_where.append(f"ts < '{end}'")
-      if len(ts_where) > 0:
-        ts_where = "and " + " and ".join(ts_where)
-      else:
-        ts_where = ""
-      obj_where = ", ".join([f"'{o}'" for o in objs])
-      limit = ""
-      if isinstance(start, int):
-        limit = f"limit -{start}"
-      sql.append(
-        f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where} {limit};"
-      )
-
-    sql = "\n".join(sql)
-    logger.debug(sql)
     if join is not None and pre_join_hook is None:
       # Fast path: vectorized join
       raw_results = defaultdict(dict)
@@ -312,6 +289,162 @@ class MsdClient(Generic[DF]):
       list[str]: the symbols, first is base, then sorted symbols
     """
     return self.adaptor.concat(dfs, base, join)
+
+
+  def build_sql(
+    self,
+    objs: list[str] | str,
+    tables: list[str] | str,
+    join: JoinMethod | dict[str, JoinMethod] | None = None,
+    start: RangeType | list[RangeType] | None = None,
+    end: str | datetime.datetime | None = None,
+    fields: dict[str, list[str]] | list[str] | None = None,
+  ) -> str:
+
+    sql = []
+    tables = [tables] if isinstance(tables, str) else tables
+    objs = [objs] if isinstance(objs, str) else objs
+    fields = (
+      {tables[0]: fields} if isinstance(fields, list) and len(tables) == 1 else fields
+    )
+    starts = []
+    if start is None:
+      starts = [None] * len(tables)
+    elif not isinstance(start, list):
+      starts = [start] * len(tables)
+    else:
+      starts = start
+
+    for table, start in zip(tables, starts):
+      table_fields = []
+      if fields is None:
+        table_fields = ["*"]
+      elif isinstance(fields, dict):
+        table_fields = fields.get(table, [])
+        if len(table_fields) == 0:
+          table_fields = ["*"]
+        else:
+          if "ts" not in table_fields:
+            table_fields.insert(0, "ts")
+          else:
+            table_fields.remove("ts")
+            table_fields.insert(0, "ts")
+      ts_where = []
+      # only filter date on the first table
+      if start is not None and not isinstance(start, int):
+        ts_where.append(f"ts >= '{start}'")
+      if end is not None:
+        if isinstance(end, str):
+          if end.startswith("="):
+            ts_where.append(f"ts <= '{end[1:]}'")
+          else:
+            ts_where.append(f"ts < '{end}'")
+        else:
+          ts_where.append(f"ts < '{end}'")
+      if len(ts_where) > 0:
+        ts_where = "and " + " and ".join(ts_where)
+      else:
+        ts_where = ""
+      obj_where = ", ".join([f"'{o}'" for o in objs])
+      limit = ""
+      if isinstance(start, int):
+        limit = f"limit -{start}"
+      sql.append(
+        f"select {', '.join(table_fields)} from {table} where obj in ({obj_where}) {ts_where} {limit};"
+      )
+
+    sql = "\n".join(sql)
+    #logger.debug(sql)
+    return sql
+
+
+  def load_concat(
+    self,
+    objs: list[str] | str,
+    tables: list[str] | str,
+    base_obj: str | int = 0,
+    base_table: str | int = 0,
+    join: JoinMethod | dict[str, JoinMethod] | None = None,
+    start: RangeType | list[RangeType] | None = None,
+    end: str | datetime.datetime | None = None,
+    fields: dict[str, list[str]] | list[str] | None = None,
+    pre_join_hook: Callable[[str, MsdTable], MsdTable] | None = None,
+    ) -> tuple[list[str], dict[str, np.ndarray]]:
+
+    if len(objs) == 0 or len(tables) == 0:
+      return ([], {})
+
+    if isinstance(base_obj, int):
+      if base_obj < len(objs):
+        base_obj = objs[base_obj]
+      else:
+        base_obj = objs[0]
+
+    if isinstance(base_table, int):
+      if base_table < len(tables):
+        base_table = tables[base_table]
+      else:
+        base_table = tables[0]
+
+
+    logger.debug("start build sql")
+    sql = self.build_sql(objs, tables,  join, start, end, fields)
+
+    logger.debug("start query")
+    raw_results: dict[str, dict[str, MsdTable]] = defaultdict(dict)
+    table_fields : dict[str, tuple[list[str], str]] = {}
+    for table_name, obj, msd_table in query(self.baseURL, sql):
+      if table_name not in table_fields:
+        fields = [col[0] for col in msd_table]
+        method = 'nan'
+        if isinstance(join, dict):
+          if table_name in join:
+            method = join[table_name]
+          elif '*' in join:
+            method = join['*']
+        elif isinstance(join, str):
+          method = join
+        table_fields[table_name] = (fields, method)
+      if pre_join_hook is None:
+        raw_results[obj][table_name] = msd_table
+      else:
+        raw_results[obj][table_name] = pre_join_hook(table_name, msd_table)
+
+    logger.debug("start concat")
+    
+    base_index = raw_results[base_obj][base_table][0][1] # first column should be 'ts'
+
+    bars = len(base_index)
+
+    result_objs: list[str] = sorted(raw_results.keys())
+    result_columns: defaultdict[str, list[np.ndarray]] = defaultdict(list)
+    for obj in result_objs:
+      result_columns['ts'].append(base_index)
+      table = raw_results[obj]
+      for table_name, (fields, method) in table_fields.items():
+        if table_name not in table:
+          fill = 0 if method == 'zero' else np.nan
+          v = np.repeat(fill, bars)
+          for field in fields[1:]:
+            result_columns[field].append(v)
+        else:
+          columns = table[table_name]
+          if obj == base_obj and table_name == base_table:
+            for field, col in columns[1:]:
+              result_columns[field].append(col)
+          else:
+            table_index = columns[0][1]
+            aligner = Aligner(base_index, table_index, method) # type: ignore 
+            for field, col in columns[1:]:
+              result_columns[field].append(aligner.apply(col))
+
+    d = (
+      result_objs,
+      {field: np.concat(values) for field, values in result_columns.items()}
+    )
+    logger.debug("finish load_concat")
+    return d
+
 
   def save(self, table: str, data: Iterator[MsdTableFrame] | str, /, **kwargs) -> dict:
     """

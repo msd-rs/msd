@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 use pyo3::prelude::*;
+mod join;
 mod py_table;
 
 /// A Python module implemented in Rust.
@@ -10,13 +11,17 @@ mod _msd {
   use std::collections::HashMap;
 
   use msd_table::{FieldRef, TableRef, UtcOffset, pack_table_ref_frame, unpack_table_frame};
+  use numpy::{PyArray1, PyReadonlyArray1};
   use pyo3::{
     exceptions::PyValueError,
     prelude::*,
     types::{PyList, PyTuple},
   };
 
-  use crate::py_table::{PyArrayTyped, table_to_py_list};
+  use crate::{
+    join,
+    py_table::{PyArrayTyped, table_to_py_list},
+  };
 
   #[pyfunction]
   fn set_local_zone(tz: i8) -> PyResult<()> {
@@ -108,5 +113,29 @@ mod _msd {
     let table = TableRef::new(fields, Some(meta), false);
     let frame = pack_table_ref_frame(&table);
     Ok(frame)
+  }
+
+  #[pyfunction]
+  #[pyo3(signature = (left, right, method, /))]
+  fn aligned_index<'py>(
+    py: Python<'py>,
+    left: PyReadonlyArray1<'py, i64>,
+    right: PyReadonlyArray1<'py, i64>,
+    method: i32,
+  ) -> PyResult<Bound<'py, PyArray1<usize>>> {
+    let method = join::FillMethod::from(method);
+    let left_array = left.as_array();
+    let right_array = right.as_array();
+    let left = left_array
+      .as_slice()
+      .ok_or(PyValueError::new_err("left should be a int64 array"))?;
+    let right = right_array
+      .as_slice()
+      .ok_or(PyValueError::new_err("left should be a int64 array"))?;
+
+    let mut index = vec![];
+    join::joined_index(left, right, method, &mut index);
+
+    Ok(PyArray1::from_vec(py, index))
   }
 }
