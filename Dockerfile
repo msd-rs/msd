@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian:bookworm
 
 ADD ./target/release/msd /usr/bin/msd
 
