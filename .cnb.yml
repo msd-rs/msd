@@ -7,6 +7,7 @@ main:
         image: docker.cnb.cool/elsejj/ci/py312-rust:latest
         volumes:
           - ./target:copy-on-write
+          - /root/.cargo:copy-on-write
       runner:
         tags: cnb:arch:amd64
         cpus: 16
