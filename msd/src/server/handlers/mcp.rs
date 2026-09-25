@@ -1,7 +1,8 @@
+use rmcp::model::ServerConfig;
 use rmcp::{
   ErrorData as McpError, Json, ServerHandler,
   handler::server::{router::prompt::PromptRouter, tool::ToolRouter, wrapper::Parameters},
-  model::{Implementation, PromptMessage, ServerCapabilities, ServerInfo},
+  model::{Implementation, PromptMessage, ServerCapabilities},
   prompt, prompt_handler, prompt_router,
   schemars::JsonSchema,
   tool, tool_handler, tool_router,
@@ -104,13 +105,13 @@ impl MsdMcp {
 #[tool_handler]
 #[prompt_handler]
 impl ServerHandler for MsdMcp {
-  fn get_info(&self) -> ServerInfo {
+  fn get_info(&self) -> ServerConfig {
     let capabilities = ServerCapabilities::builder()
       .enable_tools()
       .enable_prompts()
       .build();
 
-    ServerInfo::new(capabilities)
+    ServerConfig::new(capabilities)
       .with_instructions(
         "MSD tables schema list and description help you to understand the database schema",
       )

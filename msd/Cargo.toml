@@ -9,7 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 bincode-next.workspace = true
 axum = { version = "0.8", features = ["ws"] }
-axum-streams = { version = "0.26", features = ["json"] }
+axum-streams = { version = "0.30", features = ["json"] }
 clap.workspace = true
 colored = "3"
 csv.workspace = true
@@ -31,7 +31,7 @@ reqwest = { version = "0.13", features = [
   "zstd",
   "deflate",
 ] }
-rmcp = { version = "2.2", features = [
+rmcp = { version = "3.4", features = [
   "server",
   "transport-streamable-http-server",
   "transport-streamable-http-server-session",
@@ -42,7 +42,7 @@ rustyline = { version = "18", features = ["derive"] }
 schemars = "1.2"
 serde.workspace = true
 serde_json.workspace = true
-simd-csv = "0.13"
+simd-csv = "0.14"
 time.workspace = true
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }

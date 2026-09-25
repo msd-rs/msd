@@ -11,18 +11,7 @@ logger = logging.getLogger("MSD")
 
 R = TypeVar("R")
 
-
-@overload
-def query(
-  baseURL: str, sql: str
-) -> Generator[Tuple[str, str, MsdTable], None, None]: ...
-
-
-@overload
-def query(
-  baseURL: str, sql: str, h: Callable[[MsdTable], R]
-) -> Generator[Tuple[str, str, R], None, None]: ...
-
+querySession = None
 
 def query(
   baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None
@@ -43,10 +32,14 @@ def query(
   except ImportError:
     raise ImportError("requests is required for msd_query")
 
+  global querySession
+  if querySession is None:
+    querySession = requests.Session()
+
   #logger.debug(f"query {baseURL}, sql: {sql}")
 
   endpoint = f"{baseURL}{MSD_QUERY_PATH}"
-  response = requests.post(
+  response = querySession.post(
     endpoint,
     json={"query": sql},
     stream=True,
