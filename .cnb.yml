@@ -7,7 +7,7 @@ main:
         image: docker.cnb.cool/elsejj/ci/py312-rust:latest
         volumes:
           - ./target:copy-on-write
-          - /root/.cargo:copy-on-write
+          - /root/.cargo/registry:copy-on-write
       runner:
         tags: cnb:arch:amd64
         cpus: 16
@@ -19,12 +19,13 @@ main:
           exports:
             info: MSD_VERSION
         - name: build
-          script: make release
-        - name: create release files
-          script: zip -j msd-${MSD_VERSION}.zip ./target/release/msd
+          script:
+            - make release
+            - zip -j msd-${MSD_VERSION}.zip ./target/release/msd
         - name: release
           image: cnbcool/attachments:latest
           settings:
+            tag: "v${MSD_VERSION}"
             attachments:
               - "./msd-${MSD_VERSION}.zip"
               - "./target/wheels/pymsd-${MSD_VERSION}-*.whl"
