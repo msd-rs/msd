@@ -5,11 +5,11 @@ main:
         - docker
       docker:
         image: docker.cnb.cool/elsejj/ci/py312-rust:latest
+        volumes:
+          - ./target:copy-on-write
       runner:
         tags: cnb:arch:amd64
         cpus: 16
-      volumes:
-        - ./target
       env:
         RUSTFLAGS: "-C target-feature=+sse4.2 -C target-feature=+avx2 -C target-feature=+pclmulqdq"
       stages:
@@ -18,12 +18,15 @@ main:
           exports:
             info: MSD_VERSION
         - name: build
-          script: make release
+          script:
+            - make release
+            - zip -j msd-${MSD_VERSION}.zip ./target/release/msd
         - name: release
           image: cnbcool/attachments:latest
           settings:
             attachments:
-              - "./target/release/msd"
+              - "./msd-${MSD_VERSION}.zip"
+              - "./target/wheels/pymsd-${MSD_VERSION}-*.whl"
           exports:
             FILES: FILES
         - name: set docker tag
