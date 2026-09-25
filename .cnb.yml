@@ -19,9 +19,9 @@ main:
           exports:
             info: MSD_VERSION
         - name: build
-          script:
-            - make release
-            - zip -j msd-${MSD_VERSION}.zip ./target/release/msd
+          script: make release
+        - name: create release files
+          script: zip -j msd-${MSD_VERSION}.zip ./target/release/msd
         - name: release
           image: cnbcool/attachments:latest
           settings:
