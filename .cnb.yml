@@ -19,6 +19,13 @@ main:
             info: MSD_VERSION
         - name: build
           script: make release
+        - name: release
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - "./target/release/msd"
+          exports:
+            FILES: FILES
         - name: set docker tag
           script: echo -n "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest"
           exports:
