@@ -23,6 +23,7 @@ use msd_request::{
   DeleteRequest, InsertRequest, ListObjectsRequest, QueryRequest, RequestKey, SqlRequest,
   sql_to_request,
 };
+use msd_store::MsdStore;
 use msd_table::{Table, pack_table_frame, pack_table_frame_v2, table};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
@@ -187,6 +188,26 @@ fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<String
         vec![]
       }
     }
+  } else if pattern.starts_with("@") {
+    // read from a kv table, eg. "!stock_block:block_name"
+    if let Some((table, key)) = pattern[1..].split_once(':') {
+      if let Ok(Some(val)) = state.db.store().get(key, table) {
+        if val.starts_with(b"[") {
+          // a json array
+          if let Ok(v) = serde_json::from_slice::<Vec<String>>(val.as_slice()) {
+            return v;
+          }
+        } else {
+          // should be string sep by ,
+          return val
+            .split(|&b| b == b',')
+            // give back what user had set
+            .map(|buf: &[u8]| unsafe { String::from_utf8_unchecked(buf.to_vec()) })
+            .collect::<Vec<String>>();
+        }
+      }
+    }
+    vec![]
   } else {
     vec![pattern.to_string()]
   }
