@@ -22,7 +22,14 @@ main:
           script:
             - make release
             - zip -j msd-${MSD_VERSION}.zip ./target/release/msd
-        - name: release
+        - name: create release
+          type: git:release
+          options:
+            overlying: true
+            tag: "v${MSD_VERSION}"
+            title: release "v${MSD_VERSION}"
+            description: "v${MSD_VERSION}"
+        - name: upload release file
           image: cnbcool/attachments:latest
           settings:
             tag: "v${MSD_VERSION}"
