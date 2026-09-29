@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.1.19] - 2026-09-21
+
+### Added
+
+- obj filter now support read content from other kv table, for example:
+    - `stock_block` is a kv table that mapping block name to obj list, there is a block named '出海概念'
+    - `select * from stock_kline_1d where obj = '@stock_block:出海概念' limit -1;` will return all stocks in that block
+    - This feature alleviates the burden of building large WHERE clauses.
 
 ## [0.1.18] - 2026-09-21
 
