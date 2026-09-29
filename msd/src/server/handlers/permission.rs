@@ -69,7 +69,7 @@ impl Permission {
       }
     };
 
-    if let Some(auth_token) = server_options.auth_token.as_ref() {
+    if let Some(auth_key) = server_options.auth_key.as_ref() {
       // by pass white list from `server_options.auth_whitelist`
       if server_options
         .auth_whitelist
@@ -88,7 +88,7 @@ impl Permission {
           "Missing Authorization header".to_string(),
         ))?;
 
-      let permission = Self::from_jwt(token, auth_token).map_err(|e| {
+      let permission = Self::from_jwt(token, auth_key).map_err(|e| {
         (
           axum::http::StatusCode::UNAUTHORIZED,
           format!("Invalid token: {}", e),

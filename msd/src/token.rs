@@ -16,7 +16,7 @@ pub fn run(options: TokenOptions) -> Result<()> {
     role: role_mask,
   };
 
-  let token = permission.to_jwt(&options.auth_token)?;
+  let token = permission.to_jwt(&options.auth_key)?;
   println!("{}", token);
 
   Ok(())

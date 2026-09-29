@@ -77,13 +77,13 @@ pub struct ServerOptions {
   /// Authentication token key
   #[arg(
     short = 'a',
-    long = "auth-token",
-    env = "MSD_AUTH_TOKEN",
+    long = "auth-key",
+    env = "MSD_AUTH_KEY",
     long_help = "Authentication token key. 
   If set, the server requires clients to provide this token for authentication. 
   If not set, no authentication is required."
   )]
-  pub auth_token: Option<String>,
+  pub auth_key: Option<String>,
 
   /// Authentication whitelist (CIDRs or IPs, separated by comma/semicolon/whitespace)
   #[arg(
@@ -151,8 +151,8 @@ pub struct ShellOptions {
 #[derive(Debug, Clone, Args)]
 pub struct TokenOptions {
   /// Authentication token key
-  #[arg(short = 'a', long = "auth-token", env = "MSD_AUTH_TOKEN")]
-  pub auth_token: String,
+  #[arg(short = 'a', long = "auth-key", env = "MSD_AUTH_KEY")]
+  pub auth_key: String,
 
   /// Role: read/write/admin
   #[arg(short = 'r', long = "role", default_value = "read")]
