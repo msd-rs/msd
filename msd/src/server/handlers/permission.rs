@@ -70,6 +70,15 @@ impl Permission {
     };
 
     if let Some(auth_token) = server_options.auth_token.as_ref() {
+      // by pass white list from `server_options.auth_whitelist`
+      if server_options
+        .auth_whitelist
+        .as_ref()
+        .map(|l| l.contains(remote_addr))
+        .unwrap_or(false)
+      {
+        return Ok(());
+      }
       let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())

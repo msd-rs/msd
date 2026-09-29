@@ -8,7 +8,7 @@ use clap::{Args, Parser};
 use msd_table::parse_duration;
 use time::{Duration, UtcOffset, macros::format_description};
 
-use crate::server::parse_roles;
+use crate::server::{IPList, parse_auth_whitelist, parse_roles};
 
 pub const MSD_USER_AGENT: &str = "msd-client";
 pub const MSD_USER_AGENT_V2: &str = "msd-client/2";
@@ -84,6 +84,16 @@ pub struct ServerOptions {
   If not set, no authentication is required."
   )]
   pub auth_token: Option<String>,
+
+  /// Authentication whitelist (CIDRs or IPs, separated by comma/semicolon/whitespace)
+  #[arg(
+    long = "auth-whitelist",
+    env = "MSD_AUTH_WHITELIST",
+    value_parser = parse_auth_whitelist,
+    long_help = "Authentication whitelist.
+  If set, clients from matching IPs or CIDRs can bypass token authentication."
+  )]
+  pub auth_whitelist: Option<IPList>,
 
   /// Default public permission for no local request
   #[arg(short = 'P', long = "public-permission", default_value = "read", value_parser = parse_roles)]

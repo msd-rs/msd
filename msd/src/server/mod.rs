@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 pub mod handlers;
+pub mod iplist;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -21,6 +22,7 @@ use tower_http::{
 use tracing::info;
 
 pub use handlers::permission::{Permission, parse_roles};
+pub use iplist::{IPList, parse_auth_whitelist};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
