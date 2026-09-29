@@ -128,6 +128,10 @@ pub struct ShellOptions {
   )]
   pub server_url: String,
 
+  /// Authentication token
+  #[arg(short = 'a', long = "auth-token", env = "MSD_AUTH_TOKEN")]
+  pub auth_token: Option<String>,
+
   /// Max table rows print in reactive mode, 0 for unlimited
   #[arg(short = 'r', long = "reactive-rows", default_value = "30")]
   pub reactive_rows: usize,

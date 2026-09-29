@@ -20,12 +20,15 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   let url = format!("{}{}", opts.server_url, QUERY_PATH);
   let timer = std::time::Instant::now();
 
-  let resp = client
+  let mut req = client
     .post(&url)
-    .json(&serde_json::json!({ "query": query }))
-    .send()
-    .await
-    .context("Failed to send query request")?;
+    .json(&serde_json::json!({ "query": query }));
+
+  if let Some(token) = opts.auth_token.as_ref() {
+    req = req.bearer_auth(token);
+  }
+
+  let resp = req.send().await.context("Failed to send query request")?;
 
   if !resp.status().is_success() {
     let status = resp.status();
