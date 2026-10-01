@@ -1,6 +1,6 @@
-# 分支名
-main:
-  push:
+# tag 'v*'
+v*:
+  tag_push:
     - services:
         - docker
       docker:
@@ -26,7 +26,6 @@ main:
           type: git:release
           options:
             overlying: true
-            tag: "v${MSD_VERSION}"
             title: release "v${MSD_VERSION}"
             description: "v${MSD_VERSION}"
         - name: upload release file
