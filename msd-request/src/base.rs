@@ -1,7 +1,7 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use std::{fmt::Display, hash::Hash, i64, sync::OnceLock};
+use std::{fmt::Display, hash::Hash, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
 
