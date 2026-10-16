@@ -21,6 +21,7 @@ use crate::TableError;
   bincode_next::Encode,
   bincode_next::Decode,
 )]
+#[repr(u8)]
 pub enum DataType {
   Null,      // 0
   DateTime,  // 1
