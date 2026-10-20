@@ -14,6 +14,7 @@ use crate::serde::DbBinary;
 use msd_request::{DeleteRequest, InsertRequest, Key, ListObjectsRequest, QueryRequest};
 use msd_store::MsdStore;
 use msd_table::{DataType, Table, Variant, parse_unit, table};
+use smol_str::SmolStr;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -37,9 +38,9 @@ pub struct MsdDb<S: MsdStore> {
   store: Arc<S>,
   workers: Arc<WorkSender>,
   // all schemas in memory for quick access, key is table name
-  schemas: Arc<RwLock<HashMap<String, Table>>>,
+  schemas: Arc<RwLock<HashMap<SmolStr, Table>>>,
   // all objects for each table in memory for quick access, key is table name, value is set of objects
-  objects: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+  objects: Arc<RwLock<HashMap<SmolStr, HashSet<SmolStr>>>>,
   flusher: mpsc::Sender<Broadcast>,
 }
 
@@ -96,17 +97,16 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         // Load objects for each table
         let mut objects_map = HashMap::new();
         for name in schema_map.keys() {
-          let name = name.to_string();
           // Skip objects loading for KV tables
-          if schema_map.get(&name).map(|t| t.is_kv()).unwrap_or(false) {
+          if schema_map.get(name).map(|t| t.is_kv()).unwrap_or(false) {
             continue;
           }
-          match db.load_objects_for_table(&name) {
+          match db.load_objects_for_table(name.as_str()) {
             Ok(objs) => {
               objects_map.insert(name.clone(), objs);
             }
             Err(e) => {
-              warn!(%e, table = name, "Failed to load objects for table");
+              warn!(%e, table = name.as_str(), "Failed to load objects for table");
             }
           }
         }
@@ -302,7 +302,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     result
   }
 
-  pub fn list_tables(&self) -> Result<HashMap<String, Table>, DbError> {
+  pub fn list_tables(&self) -> Result<HashMap<SmolStr, Table>, DbError> {
     let guard = self
       .schemas
       .read()
@@ -316,7 +316,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     &self.store
   }
 
-  pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<HashSet<String>, DbError> {
+  pub fn matched_objects(&self, req: &ListObjectsRequest) -> Result<HashSet<SmolStr>, DbError> {
     // KV tables: enumerate keys from store directly
     if self.is_kv_table(&req.table) {
       let wildcard = if req.obj.is_empty() {
@@ -328,7 +328,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       self
         .store
         .prefix_with(b"", None, &req.table, false, |k, _v| {
-          let obj = String::from_utf8_lossy(k).to_string();
+          let obj: SmolStr = unsafe { str::from_utf8_unchecked(k).into() };
           match &wildcard {
             Some(wc) => {
               if wc.is_match(obj.as_bytes()) {
@@ -373,7 +373,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         }
       }
 
-      Ok::<HashSet<String>, DbError>(objects)
+      Ok::<HashSet<SmolStr>, DbError>(objects)
     })();
     result
   }
@@ -381,35 +381,36 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
 /// ## Private methods
 impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
-  fn load_objects_for_table(&self, table: &str) -> Result<HashSet<String>, DbError> {
+  fn load_objects_for_table(&self, table: &str) -> Result<HashSet<SmolStr>, DbError> {
     let mut objects = HashSet::new();
     self
       .store
       .prefix_with(Key::index_prefix(), None, table, false, |k, _v| {
         if k.len() > Key::index_prefix().len() + 1 {
           let key = &k[Key::index_prefix().len() + 1..];
-          objects.insert(String::from_utf8_lossy(key).to_string());
+          objects.insert(unsafe { str::from_utf8_unchecked(key).into() });
         }
         true
       })?;
     Ok(objects)
   }
 
-  fn load_schema(&self) -> Result<HashMap<String, Table>, DbError> {
-    let mut schema_map: HashMap<String, Table> = HashMap::new();
+  fn load_schema(&self) -> Result<HashMap<SmolStr, Table>, DbError> {
+    let mut schema_map: HashMap<SmolStr, Table> = HashMap::new();
     self.store.prefix_with(
       TABLE_SCHEMA_KEY_PREFIX.as_bytes(),
       None,
       SCHEMA_TABLE_NAME,
       false,
       |k, v| {
-        let key = String::from_utf8_lossy(&k[TABLE_SCHEMA_KEY_PREFIX.len()..]).to_string();
+        let key: SmolStr =
+          unsafe { str::from_utf8_unchecked(&k[TABLE_SCHEMA_KEY_PREFIX.len()..]).into() };
         match DbBinary::from_bytes(&v) {
           Ok(table) => {
             schema_map.insert(key, table);
           }
           Err(err) => {
-            warn!(key, ?v, %err, "failed to deserialize table for schema entry");
+            warn!(key=key.as_str(), ?v, %err, "failed to deserialize table for schema entry");
           }
         }
         true
@@ -498,10 +499,10 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
         if let Some(chans) = chans {
           for chan in chans {
             for target in chan.tables() {
-              let scheam = self.schemas.read().unwrap();
-              let target_table = scheam
+              let schema = self.schemas.read().unwrap();
+              let target_table = schema
                 .get(target)
-                .ok_or(DbError::TableNotFound(target.to_string()))?;
+                .ok_or(DbError::TableNotFound(target.clone()))?;
 
               if !chan.match_target(target_table) {
                 return Err(DbError::InvalidTableSchema(format!(
@@ -528,14 +529,12 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       .store
       .put(key.as_bytes(), value, SCHEMA_TABLE_NAME, None)?;
 
-    {
-      let mut schemas = self.schemas.write().unwrap();
-      schemas.insert(name.to_string(), table.clone());
-    }
-    {
-      let mut objects = self.objects.write().unwrap();
-      objects.insert(name.to_string(), HashSet::new());
-    }
+    let name: SmolStr = name.into();
+
+    let mut schemas = self.schemas.write().unwrap();
+    schemas.insert(name.clone(), table.clone());
+    let mut objects = self.objects.write().unwrap();
+    objects.insert(name.clone(), HashSet::new());
     Ok(())
   }
 
@@ -649,7 +648,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
           let val_str = String::from_utf8_lossy(&bytes);
           let key_val = match key_col.kind {
             DataType::Bytes => Variant::Bytes(req.key.obj.as_bytes().to_vec()),
-            _ => Variant::String(req.key.obj.clone()),
+            _ => Variant::String(req.key.obj.to_string()),
           };
           let val = match value_col.kind {
             DataType::Bytes => Variant::Bytes(val_str.as_bytes().to_vec()),
@@ -661,7 +660,7 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       }
     }
 
-    result = result.replace_metadata([("table", &req.key.table)]);
+    result = result.replace_metadata([("table", &req.key.table.to_string())]);
     Ok(result)
   }
 
@@ -701,9 +700,9 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
   /// update the schema description
   fn update_schema_desc(
     &self,
-    table_name: String,
-    field: String,
-    desc: String,
+    table_name: SmolStr,
+    field: SmolStr,
+    desc: SmolStr,
   ) -> Result<(), DbError> {
     let mut guard = self
       .schemas
@@ -714,12 +713,12 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       .ok_or(DbError::TableNotFound(table_name.clone()))?;
 
     if field.is_empty() {
-      table.set_table_meta("desc", desc.into())?;
+      table.set_table_meta("desc", desc.as_str().into())?;
     } else {
-      table.set_field_meta(field, "desc", desc.into())?;
+      table.set_field_meta(field, "desc", desc.as_str().into())?;
     }
 
-    let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, &table_name);
+    let key = format!("{}{}", TABLE_SCHEMA_KEY_PREFIX, table_name.as_str());
     let value = table.to_bytes()?;
     self.store.put(key, value, SCHEMA_TABLE_NAME, None)?;
 

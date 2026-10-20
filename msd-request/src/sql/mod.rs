@@ -8,6 +8,7 @@ use crate::sql::msd_dialect::MsdSqlDialect;
 use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 
 use msd_table::{DataType as TableDataType, Field, RowsTable, Table, Variant};
+use smol_str::SmolStr;
 use sqlparser::ast::{
   BinaryOperator, ColumnOption, CommentObject, CreateTableOptions, Expr, FromTable, Ident,
   LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor,
@@ -332,21 +333,21 @@ fn parse_delete(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
 
       if !objects.is_empty() {
         if !object.is_empty() {
-          objects.insert(object);
+          objects.insert(object.into());
         }
         Ok(
           objects
             .into_iter()
             .map(|obj| {
               SqlRequest::Delete(DeleteRequest {
-                key: RequestKey::new(table_name.clone(), obj),
+                key: RequestKey::new(&table_name, obj),
                 date_range: req.date_range.clone(),
               })
             })
             .collect(),
         )
       } else {
-        req.key.obj = object;
+        req.key.obj = object.into();
         Ok(vec![SqlRequest::Delete(req)])
       }
     }
@@ -383,12 +384,14 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
     .ok_or(RequestError::UnsupportedSqlStatement)?;
 
   let mut req = QueryRequest::default();
-  req.key.table = table_name;
+  req.key.table = table_name.into();
   req.fields = parse_projection(&projection);
   let mut objects = HashSet::new();
 
   if let Some(expr) = selection {
-    parse_filter_common(expr, &mut req.key.obj, &mut objects, &mut req.date_range)?;
+    let mut obj = String::default();
+    parse_filter_common(expr, &mut obj, &mut objects, &mut req.date_range)?;
+    req.key.obj = obj.into();
   }
 
   if let Some(order) = parse_order_by(order_by.as_ref()) {
@@ -412,7 +415,7 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
   }
   if !objects.is_empty() {
     if !req.key.obj.is_empty() {
-      objects.insert(std::mem::take(&mut req.key.obj));
+      objects.insert(req.key.obj.clone());
     }
     req.objects = Some(objects.into_iter().collect());
   }
@@ -540,7 +543,7 @@ fn parse_copy(table_name: &str, csv_data: &str) -> Result<Vec<SqlRequest>, Reque
   Ok(rows)
 }
 
-fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {
+fn parse_projection(items: &[SelectItem]) -> Option<Vec<SmolStr>> {
   if items
     .iter()
     .any(|item| matches!(item, SelectItem::Wildcard(_)))
@@ -551,9 +554,9 @@ fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {
   let mut fields = Vec::new();
   for item in items {
     match item {
-      SelectItem::UnnamedExpr(Expr::Identifier(ident)) => fields.push(ident.value.clone()),
+      SelectItem::UnnamedExpr(Expr::Identifier(ident)) => fields.push(ident.value.as_str().into()),
       SelectItem::ExprWithAlias { expr, alias } => match expr {
-        Expr::Identifier(_) => fields.push(alias.value.clone()),
+        Expr::Identifier(_) => fields.push(alias.value.as_str().into()),
         _ => return None,
       },
       _ => return None,
@@ -566,7 +569,7 @@ fn parse_projection(items: &[SelectItem]) -> Option<Vec<String>> {
 fn parse_filter_common(
   expr: Expr,
   obj: &mut String,
-  objects: &mut HashSet<String>,
+  objects: &mut HashSet<SmolStr>,
   date_range: &mut crate::DateRange,
 ) -> Result<(), RequestError> {
   match expr {
@@ -593,7 +596,7 @@ fn parse_filter_common(
       if expr == "obj" {
         for item in list {
           let item = expr_to_string(&item)?;
-          objects.insert(item);
+          objects.insert(item.into());
         }
       }
       Ok(())

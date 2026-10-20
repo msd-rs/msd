@@ -19,6 +19,7 @@ bincode-next.workspace = true
 rustc-hash.workspace = true
 futures.workspace = true
 wildcard = { version = "0.3" }
+smol_str.workspace = true
 
 
 [dev-dependencies]

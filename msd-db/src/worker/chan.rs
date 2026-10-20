@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: agpl-3.0-only
 
 use msd_table::{Table, Variant};
+use smol_str::SmolStr;
 
 use crate::errors::DbError;
 
@@ -80,7 +81,7 @@ impl ChanItem {
 #[derive(Debug, Default)]
 pub struct Chan {
   items: Vec<ChanItem>,
-  target: Vec<String>,
+  target: Vec<SmolStr>,
 }
 
 impl Chan {
@@ -106,11 +107,11 @@ impl Chan {
     new_row
   }
 
-  pub fn tables(&self) -> &[String] {
+  pub fn tables(&self) -> &[SmolStr] {
     self.target.as_slice()
   }
 
-  pub fn table(&self) -> Option<&String> {
+  pub fn table(&self) -> Option<&SmolStr> {
     self.target.first()
   }
 
@@ -156,7 +157,7 @@ impl Chan {
       .split(',')
       .map(|s| s.trim())
       .filter(|s| !s.is_empty())
-      .map(|s| s.to_string())
+      .map(|s| s.into())
       .collect::<Vec<_>>();
 
     if target.is_empty() {

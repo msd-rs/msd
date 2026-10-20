@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use msd_store::MsdStore;
 use msd_table::{Table, now};
+use smol_str::SmolStr;
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
@@ -37,7 +38,7 @@ pub struct Worker<S: MsdStore> {
   pub id: usize,
   pub store: Arc<S>,
   pub cache: CacheMap,
-  pub schema: HashMap<String, Table>,
+  pub schema: HashMap<SmolStr, Table>,
   pub tx: Arc<WorkSender>,
   pub refresh_interval: i64,
 }
@@ -73,8 +74,10 @@ impl<S: MsdStore> Worker<S> {
         }
         MsdRequest::Comment { table, field, desc } => {
           warn!(
-            table,
-            field, desc, "Comment should not be handled by Worker"
+            table = table.as_str(),
+            field = field.as_str(),
+            desc = desc.as_str(),
+            "Comment should not be handled by Worker"
           );
         }
         MsdRequest::Broadcast(Broadcast::Shutdown) => {
@@ -106,7 +109,7 @@ impl<S: MsdStore> Worker<S> {
         let store_exists = self
           .store
           .list_tables()
-          .map(|cfs| cfs.contains(&table))
+          .map(|cfs| cfs.iter().any(|s| s.eq(&table)))
           .unwrap_or(true);
         self.cache.retain(|key, item| {
           let should_drop = key.table == table;

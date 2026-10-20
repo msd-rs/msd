@@ -3,6 +3,7 @@
 
 //! Error types for MsdDb.
 
+use smol_str::SmolStr;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -33,7 +34,7 @@ pub enum DbError {
   #[error("Chunk missing for {0} at seq {1}")]
   ChunkMissing(RequestKey, u32),
   #[error("Table not found: {0}")]
-  TableNotFound(String),
+  TableNotFound(SmolStr),
   #[error("Invalid agg type for field: {0}")]
   InvalidAgg(String),
   #[error("Cache not found for key: {0:?}")]

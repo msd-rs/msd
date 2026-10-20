@@ -47,12 +47,12 @@ impl MsdMcp {
     let tables = if all.len() > 30 {
       all
         .iter()
-        .map(|(name, table)| TableDefine::from(name, table, false))
+        .map(|(name, table)| TableDefine::from(&name.to_string(), table, false))
         .collect::<Vec<_>>()
     } else {
       all
         .iter()
-        .map(|(name, table)| TableDefine::from(name, table, true))
+        .map(|(name, table)| TableDefine::from(&name.to_string(), table, true))
         .collect::<Vec<_>>()
     };
     Ok(Json(GetTableResult { tables }))
@@ -73,8 +73,8 @@ impl MsdMcp {
 
     let tables = all
       .iter()
-      .filter(|(name, _)| names.contains(name))
-      .map(|(name, table)| TableDefine::from(name, table, true))
+      .filter(|(name, _)| names.iter().any(|s| s.eq(name.as_str())))
+      .map(|(name, table)| TableDefine::from(&name.to_string(), table, true))
       .collect::<Vec<_>>();
     Ok(Json(GetTableResult { tables }))
   }

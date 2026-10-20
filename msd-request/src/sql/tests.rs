@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use msd_table::{DataType, Variant, parse_datetime};
+use smol_str::ToSmolStr;
 
 #[test]
 fn test_sql_parse_create_table() -> Result<()> {
@@ -185,11 +186,11 @@ fn test_sql_parse_query() -> Result<()> {
       assert_eq!(
         query_req.fields,
         Some(vec![
-          "ts".to_string(),
-          "open".to_string(),
-          "high".to_string(),
-          "low".to_string(),
-          "close".to_string()
+          "ts".into(),
+          "open".into(),
+          "high".into(),
+          "low".into(),
+          "close".into()
         ])
       );
       assert_eq!(query_req.ascending, Some(false));
@@ -229,11 +230,11 @@ fn test_sql_parse_query_in() -> Result<()> {
       assert_eq!(
         query_req.fields,
         Some(vec![
-          "ts".to_string(),
-          "open".to_string(),
-          "high".to_string(),
-          "low".to_string(),
-          "close".to_string()
+          "ts".into(),
+          "open".into(),
+          "high".into(),
+          "low".into(),
+          "close".into()
         ])
       );
       assert_eq!(query_req.ascending, Some(false));

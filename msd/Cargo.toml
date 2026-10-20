@@ -55,6 +55,7 @@ tower-http = { version = "0.7", features = [
 tracing-appender = { version = "0.2" }
 tracing-subscriber.workspace = true
 tracing.workspace = true
+smol_str.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

@@ -271,7 +271,7 @@ impl<S: MsdStore> Worker<S> {
 
             match self.tx.send(chan_request) {
               Ok(_) => {
-                debug!(from=%key, to=table, "Sent chan insert request");
+                debug!(from = %key, to = table.as_str(), "Sent chan insert request");
               }
               Err(e) => {
                 warn!("Failed to send chan insert request: {}", e);

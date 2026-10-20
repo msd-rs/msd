@@ -4,11 +4,12 @@
 use std::{fmt::Display, hash::Hash, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct RequestKey {
-  pub table: String,
-  pub obj: String,
+  pub table: SmolStr,
+  pub obj: SmolStr,
 }
 
 pub fn broadcast_key() -> &'static RequestKey {
@@ -28,7 +29,7 @@ pub fn once_key() -> &'static RequestKey {
 }
 
 impl RequestKey {
-  pub fn new<S: Into<String>>(table: S, obj: S) -> Self {
+  pub fn new<S: Into<SmolStr>, T: Into<SmolStr>>(table: T, obj: S) -> Self {
     Self {
       table: table.into(),
       obj: obj.into(),

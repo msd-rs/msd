@@ -8,6 +8,7 @@ use std::{collections::HashMap, hash::Hash, ops::Deref};
 
 pub use msd_request::*;
 use msd_table::Table;
+use smol_str::SmolStr;
 use tokio::sync::oneshot;
 
 use crate::errors::DbError;
@@ -34,9 +35,9 @@ pub enum MsdRequest {
     resp_tx: RequestSender<DeleteResponse>,
   },
   Comment {
-    table: String,
-    field: String,
-    desc: String,
+    table: SmolStr,
+    field: SmolStr,
+    desc: SmolStr,
   },
 
   Broadcast(Broadcast),
@@ -71,11 +72,11 @@ impl MsdRequest {
     (MsdRequest::Delete { req, resp_tx }, resp_rx)
   }
 
-  pub fn create_table<S: Into<String>>(name: S, table: Table) -> Self {
+  pub fn create_table<S: Into<SmolStr>>(name: S, table: Table) -> Self {
     MsdRequest::Broadcast(Broadcast::CreateTable(name.into(), table))
   }
 
-  pub fn comment<S: Into<String>>(table: S, field: S, desc: S) -> Self {
+  pub fn comment<S: Into<SmolStr>>(table: S, field: S, desc: S) -> Self {
     MsdRequest::Comment {
       table: table.into(),
       field: field.into(),
@@ -83,11 +84,11 @@ impl MsdRequest {
     }
   }
 
-  pub fn drop_table<S: Into<String>>(name: S) -> Self {
+  pub fn drop_table<S: Into<SmolStr>>(name: S) -> Self {
     MsdRequest::Broadcast(Broadcast::DropTable(name.into()))
   }
 
-  pub fn update_schema(schema_map: HashMap<String, Table>) -> Self {
+  pub fn update_schema(schema_map: HashMap<SmolStr, Table>) -> Self {
     MsdRequest::Broadcast(Broadcast::UpdateSchema(schema_map))
   }
 }

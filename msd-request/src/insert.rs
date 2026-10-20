@@ -3,6 +3,7 @@
 
 use msd_table::{DataType, Field, RowsTable, Series, Table, Variant, table_from_csv};
 use serde::{Deserialize, Serialize};
+use smol_str::ToSmolStr;
 use std::hash::Hash;
 use std::io::Cursor;
 use std::ops::Deref;
@@ -104,7 +105,7 @@ impl InsertRequest {
             };
             InsertRequest {
               key: RequestKey {
-                obj: k.get_str().map(|s| s.to_string()).unwrap_or_default(),
+                obj: k.get_str().map(|s| s.to_smolstr()).unwrap_or_default(),
                 table: table_name.clone(),
               },
               data,
@@ -119,7 +120,7 @@ impl InsertRequest {
         InsertData::Rows(mut rows) => {
           for mut row in rows.rows.drain(..) {
             if schema.is_kv() && row.len() == 1 {
-              let mut new_row = vec![Variant::String(self.key.obj.clone())];
+              let mut new_row = vec![Variant::String(self.key.obj.to_string())];
               new_row.append(&mut row);
               table.push_row(new_row).map_err(|e| RequestError::from(e))?;
             } else {
@@ -131,7 +132,7 @@ impl InsertRequest {
         InsertData::Columns(cols) => {
           let cols = if schema.is_kv() && cols.len() == 1 {
             let n = cols[0].len();
-            let key_series = Series::String(vec![self.key.obj.clone(); n]);
+            let key_series = Series::String(vec![self.key.obj.to_string(); n]);
             vec![key_series, cols[0].clone()]
           } else {
             cols
@@ -146,7 +147,7 @@ impl InsertRequest {
             let temp_table = table_from_csv(Cursor::new(&csv), b',', &temp_template)
               .map_err(|e| RequestError::from(e))?;
             let n = temp_table.row_count();
-            let key_series = Series::String(vec![self.key.obj.clone(); n]);
+            let key_series = Series::String(vec![self.key.obj.to_string(); n]);
             let key_col_schema = schema.column_by_index(0).unwrap();
             let value_series = temp_table.column_by_index(0).unwrap().data.clone();
             let mut new_t = Table::from_columns(vec![
@@ -169,7 +170,7 @@ impl InsertRequest {
               let key_col_schema = schema.column_by_index(0).unwrap();
               let val_col_schema = schema.column_by_index(1).unwrap();
               let n = table.row_count();
-              let key_series = Series::String(vec![self.key.obj.clone(); n]);
+              let key_series = Series::String(vec![self.key.obj.to_string(); n]);
               let value_series = table.column_by_index(0).unwrap().data.clone();
               table = Table::from_columns(vec![
                 Field::new_with_data(key_col_schema.name.clone(), key_col_schema.kind, key_series),

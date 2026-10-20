@@ -4,12 +4,13 @@
 use std::collections::HashMap;
 
 use msd_table::Table;
+use smol_str::SmolStr;
 
 #[derive(Debug, Clone)]
 pub enum Broadcast {
-  UpdateSchema(HashMap<String, Table>),
-  CreateTable(String, Table),
-  DropTable(String),
+  UpdateSchema(HashMap<SmolStr, Table>),
+  CreateTable(SmolStr, Table),
+  DropTable(SmolStr),
   Flush,
   Shutdown,
 }

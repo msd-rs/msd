@@ -26,6 +26,7 @@ use msd_request::{
 use msd_store::MsdStore;
 use msd_table::{Table, pack_table_frame, pack_table_frame_v2, table};
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 use tokio::task::JoinSet;
 use tokio_stream::{self as stream};
 use tracing::{debug, info, warn};
@@ -162,7 +163,7 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
         let sub_requests = match state.db.get_schema(&insert_req.table) {
           Ok(schema) => insert_req.to_table(&schema).unwrap_or_default(),
           Err(e) => {
-            warn!(%e, table = &insert_req.table, "Failed to get schema");
+            warn!(%e, table = insert_req.table.as_str(), "Failed to get schema");
             vec![]
           }
         };
@@ -176,7 +177,7 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
     .collect()
 }
 
-fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<String> {
+fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<SmolStr> {
   if pattern.is_empty() || pattern.contains(|c| c == '*' || c == '?') {
     let req = ListObjectsRequest {
       key: RequestKey::new(table, pattern),
@@ -194,7 +195,7 @@ fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<String
       if let Ok(Some(val)) = state.db.store().get(key, table) {
         if val.starts_with(b"[") {
           // a json array
-          if let Ok(v) = serde_json::from_slice::<Vec<String>>(val.as_slice()) {
+          if let Ok(v) = serde_json::from_slice::<Vec<SmolStr>>(val.as_slice()) {
             return v;
           }
         } else {
@@ -202,14 +203,14 @@ fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<String
           return val
             .split(|&b| b == b',')
             // give back what user had set
-            .map(|buf: &[u8]| unsafe { String::from_utf8_unchecked(buf.to_vec()) })
-            .collect::<Vec<String>>();
+            .map(|buf: &[u8]| unsafe { str::from_utf8_unchecked(buf).into() })
+            .collect::<Vec<SmolStr>>();
         }
       }
     }
     vec![]
   } else {
-    vec![pattern.to_string()]
+    vec![pattern.into()]
   }
 }
 

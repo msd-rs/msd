@@ -176,7 +176,10 @@ impl<S: MsdStore> Worker<S> {
     if is_last_mode {
       result.sort_by_pk(!descending);
     }
-    result = result.replace_metadata([("obj", &req.key.obj), ("table", &req.key.table)]);
+    result = result.replace_metadata([
+      ("obj", req.key.obj.as_str()),
+      ("table", req.key.table.as_str()),
+    ]);
     debug!(id = self.id, rows = result.row_count(), "Query completed");
     Ok(result)
   }
@@ -198,7 +201,10 @@ impl<S: MsdStore> Worker<S> {
 
     let mut table = schema.to_empty();
     Self::filter_table_columns(&mut table, req);
-    Ok(table.replace_metadata([("obj", &req.key.obj), ("table", &req.key.table)]))
+    Ok(table.replace_metadata([
+      ("obj", req.key.obj.as_str()),
+      ("table", req.key.table.as_str()),
+    ]))
   }
 }
 

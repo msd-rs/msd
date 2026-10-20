@@ -3,6 +3,7 @@
 
 use msd_table::Table;
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 use std::hash::Hash;
 use std::ops::Deref;
 
@@ -13,14 +14,14 @@ pub struct QueryRequest {
   #[serde(flatten)]
   pub key: RequestKey,
   /// fields to retrieve, None means all fields
-  pub fields: Option<Vec<String>>,
+  pub fields: Option<Vec<SmolStr>>,
   pub date_range: DateRange,
   /// whether to sort ascendancy
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
   pub limit: Option<i32>,
   /// objects to query, replace obj in key with this
-  pub objects: Option<Vec<String>>,
+  pub objects: Option<Vec<SmolStr>>,
 }
 
 impl QueryRequest {

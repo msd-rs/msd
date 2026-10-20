@@ -522,8 +522,8 @@ async fn flush_table(
 
   let req = InsertRequest {
     key: RequestKey {
-      table: table_name.to_string(),
-      obj: obj.to_string(),
+      table: table_name.into(),
+      obj: obj.into(),
     },
     data: InsertData::Table(table),
     truncate,

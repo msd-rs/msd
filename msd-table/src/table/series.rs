@@ -4,6 +4,7 @@
 use std::{any::Any, cmp::Ordering, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 use crate::opt::{
   d64_array_bincode_decode, d64_array_bincode_encode, datetime_array_bincode_decode,
@@ -641,6 +642,12 @@ impl From<&str> for Series {
 
 impl From<Vec<&str>> for Series {
   fn from(v: Vec<&str>) -> Self {
+    Series::String(v.into_iter().map(|s| s.to_string()).collect())
+  }
+}
+
+impl From<Vec<SmolStr>> for Series {
+  fn from(v: Vec<SmolStr>) -> Self {
     Series::String(v.into_iter().map(|s| s.to_string()).collect())
   }
 }
