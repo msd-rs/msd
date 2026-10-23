@@ -818,3 +818,78 @@ async fn test_kv_mode() -> Result<()> {
 
   Ok(())
 }
+
+#[tokio::test]
+async fn test_insert_overwrite_existing_pk() -> Result<()> {
+  setup();
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+  // chunkSize = 10, round = 2d so we have gaps between existing PKs to test non-existent PKs inside chunk ranges
+  let schema = table!(
+    {name: "ts", kind: datetime},
+    {name: "open", kind: f64},
+  )
+  .replace_metadata([("chunkSize", v!(10u32)), ("round", v!("1d"))]);
+
+  let db = init_db(path, true, "kline1d", schema.clone()).await?;
+
+  // Insert 25 rows with step = 2 days:
+  // Chunk 0 (flushed): index 0..10  (day 0, 2, 4, ..., 18)
+  // Chunk 1 (flushed): index 10..20 (day 20, 22, 24, ..., 38)
+  // Chunk 2 (in cache): index 20..25 (day 40, 42, 44, 46, 48)
+  // Initial open values: 10.0, 11.0, ..., 34.0
+  let n = 25;
+  insert_data(&db, "kline1d", "SH600000", n, "2023-01-01", ONE_DAY * 2).await?;
+
+  let base_ts = parse_datetime("2023-01-01")?;
+  let day_us = ONE_DAY * 1_000_000;
+
+  // Prepare an update batch covering:
+  // 1. Non-existent PK before all chunks: base_ts - 2 * day_us (ignored)
+  // 2. Existing PKs in historical chunk 0: day 0 (idx 0 -> 100.0) and day 4 (idx 2 -> 102.0)
+  // 3. Non-existent PK inside historical chunk 0: day 1 (ignored)
+  // 4. Non-existent PK between chunk 0 and chunk 1: day 19 (ignored)
+  // 5. Existing PK in historical chunk 1: day 22 (idx 11 -> 111.0)
+  // 6. Existing PK in cache (chunk 2): day 42 (idx 21 -> 121.0)
+  // 7. Non-existent PK inside cache range: day 43 (ignored)
+  // 8. Existing cached_last_pk: day 48 (idx 24 -> 124.0)
+  // 9. New PK after cached_last_pk: day 50 (idx 25 -> 125.0)
+  let update_ts = Series::DateTime(vec![
+    base_ts - 2 * day_us,
+    base_ts + 0 * day_us,
+    base_ts + 1 * day_us,
+    base_ts + 4 * day_us,
+    base_ts + 19 * day_us,
+    base_ts + 22 * day_us,
+    base_ts + 42 * day_us,
+    base_ts + 43 * day_us,
+    base_ts + 48 * day_us,
+    base_ts + 50 * day_us,
+  ]);
+  let update_open = Series::Float64(vec![
+    999.0, 100.0, 999.0, 102.0, 999.0, 111.0, 121.0, 999.0, 124.0, 125.0,
+  ]);
+
+  let req = InsertRequest {
+    key: RequestKey::new("kline1d", "SH600000"),
+    data: InsertData::Columns(vec![update_ts, update_open]),
+    truncate: None,
+  };
+  let mut req = req.to_table(&schema)?;
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _res = rx.await??;
+
+  let table = do_query(&db, "kline1d", "SH600000").await?;
+  assert_eq!(table.row_count(), 26);
+
+  let opens = table.column("open").unwrap().data.get_float64().unwrap();
+  assert_eq!(opens[0], 100.0);
+  assert_eq!(opens[1], 11.0);
+  assert_eq!(opens[2], 102.0);
+  assert_eq!(opens[11], 111.0);
+  assert_eq!(opens[21], 121.0);
+  assert_eq!(opens[24], 124.0);
+  assert_eq!(opens[25], 125.0);
+
+  Ok(())
+}

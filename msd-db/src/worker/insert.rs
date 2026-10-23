@@ -3,9 +3,10 @@
 
 use std::vec;
 
-use msd_request::{InsertResponse, RequestError, RequestKey};
+use msd_request::{InsertResponse, Key, RequestError, RequestKey};
 use msd_table::{
-  DataType, Table, Variant, get_local_offset, now_with_tz, parse_unit, round_ts_with_tz,
+  DataType, Table, Variant, VariantRef, get_local_offset, now_with_tz, parse_unit,
+  round_ts_with_tz,
 };
 use tracing::{debug, trace, warn};
 
@@ -13,6 +14,7 @@ use super::{MsdStore, Worker};
 use crate::errors::DbError;
 use crate::index::IndexItem;
 use crate::request::{InsertRequest, MsdRequest};
+use crate::serde::DbBinary;
 use crate::worker::agg_state::AggState;
 use crate::worker::cache::CacheValue;
 use crate::worker::chan::Chan;
@@ -96,8 +98,10 @@ impl<S: MsdStore> Worker<S> {
       "Found existing cache for insert"
     );
 
-    // Track new chunks to flush
+    // Track new or modified historical chunks to flush
     let mut new_chunks: Vec<(u32, msd_table::Table)> = Vec::new();
+    // Currently loaded historical chunk: (seq, table, is_dirty)
+    let mut loaded_chunk: Option<(u32, msd_table::Table, bool)> = None;
 
     let mut chan_table = cache.chan.as_ref().map(|a| {
       a.iter()
@@ -117,20 +121,86 @@ impl<S: MsdStore> Worker<S> {
       let raw_pk = row[pk_col].get_datetime().copied().unwrap_or(0);
       let pk = round_ts_with_tz(raw_pk, &round_unit, tz_offset).unwrap_or(raw_pk);
       let cached_last_pk = cache.last_pk();
+      let cached_row_count = cache.cached.row_count();
 
-      // Skip rows with pk less than cached last pk
-      if pk < cached_last_pk as i64 {
-        warn!(
-          key = ?req.key,
-          incoming_pk = pk,
-          cached_last_pk,
-          "Skipping row with pk older than cached last"
-        );
+      // Handle historical rows with pk less than cached last pk
+      if cached_row_count > 0 && pk < cached_last_pk {
+        let cached_first_pk = cache.first_pk();
+        if pk >= cached_first_pk {
+          // Case 1: pk falls within the range of cache.cached
+          if let Some(row_idx) = Self::find_pk_row(&cache.cached, pk_col, pk) {
+            Self::overwrite_row(&mut cache.cached, row_idx, pk_col, row);
+          } else {
+            warn!(
+              key = ?req.key,
+              incoming_pk = pk,
+              cached_last_pk,
+              "Skipping row with non-existent pk in cache"
+            );
+          }
+        } else {
+          // Case 2: pk is older than cache.cached, search historical chunks in index
+          let hist_index = &cache.index[..cache.index.len().saturating_sub(1)];
+          let target_seq = hist_index
+            .binary_search_by(|item| {
+              if pk < item.start {
+                std::cmp::Ordering::Greater
+              } else if pk > item.end {
+                std::cmp::Ordering::Less
+              } else {
+                std::cmp::Ordering::Equal
+              }
+            })
+            .ok()
+            .map(|idx| idx as u32);
+
+          if let Some(seq) = target_seq {
+            if let Some((loaded_seq, _, _)) = &loaded_chunk {
+              if *loaded_seq != seq {
+                if let Some((old_seq, old_table, true)) = loaded_chunk.take() {
+                  new_chunks.push((old_seq, old_table));
+                } else {
+                  loaded_chunk = None;
+                }
+              }
+            }
+
+            if loaded_chunk.is_none() {
+              let data_key = Key::new_data(&req.key.obj, seq);
+              let data = self
+                .store
+                .get(data_key, &req.key.table)?
+                .ok_or_else(|| DbError::ChunkMissing(req.key.clone(), seq))?;
+              let chunk_table: Table = DbBinary::from_bytes(&data)?;
+              loaded_chunk = Some((seq, chunk_table, false));
+            }
+
+            if let Some((_, chunk_table, dirty)) = loaded_chunk.as_mut() {
+              if let Some(row_idx) = Self::find_pk_row(chunk_table, pk_col, pk) {
+                Self::overwrite_row(chunk_table, row_idx, pk_col, row);
+                *dirty = true;
+              } else {
+                warn!(
+                  key = ?req.key,
+                  incoming_pk = pk,
+                  seq,
+                  "Skipping row with non-existent pk in historical chunk"
+                );
+              }
+            }
+          } else {
+            // Case 3: pk does not fall into any existing chunk
+            warn!(
+              key = ?req.key,
+              incoming_pk = pk,
+              cached_last_pk,
+              "Skipping row with non-existent pk"
+            );
+          }
+        }
         continue;
       }
 
-      // Get the last pk in cached table
-      let cached_row_count = cache.cached.row_count();
       trace!(
         key = %req.key,
         raw_pk,
@@ -240,13 +310,35 @@ impl<S: MsdStore> Worker<S> {
       }
     }
 
-    // Flush all new chunks to storage
+    if let Some((seq, chunk, true)) = loaded_chunk.take() {
+      new_chunks.push((seq, chunk));
+    }
+
+    // Flush all new or modified historical chunks to storage
     for (seq, chunk) in new_chunks.iter() {
       Self::flush_chunk(self.store.clone(), &req.key, chunk, *seq)?;
     }
     // Update last changed time, this will trigger flush in next flush interval
     cache.last_changed = now_with_tz(tz_offset);
     Ok((Table::default(), chan_table))
+  }
+
+  fn find_pk_row(table: &Table, pk_col: usize, pk: i64) -> Option<usize> {
+    table
+      .column_by_index(pk_col)
+      .and_then(|col| col.data.get_datetime())
+      .and_then(|ts| ts.binary_search(&pk).ok())
+  }
+
+  fn overwrite_row(table: &mut Table, row_idx: usize, pk_col: usize, row: &[VariantRef<'_>]) {
+    for (col_idx, cell_value) in row.iter().enumerate() {
+      if col_idx == pk_col || cell_value.is_empty() {
+        continue;
+      }
+      if let Some(cell_mut) = table.get_cell_mut(row_idx, col_idx) {
+        let _ = cell_mut.set(cell_value.to_variant());
+      }
+    }
   }
 
   fn on_insert_chan(
