@@ -17,7 +17,7 @@ use msd_db::{MsdDb, MsdDbOptions};
 use msd_store::RocksDbStore;
 use tokio_util::sync::CancellationToken;
 use tower_http::{
-  compression::CompressionLayer, cors::CorsLayer, decompression::DecompressionLayer,
+  compression::CompressionLayer, cors::CorsLayer, decompression::RequestDecompressionLayer,
 };
 use tracing::info;
 
@@ -78,7 +78,6 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
     broker: Broker::new(),
   });
   let app = Router::new()
-    .layer(DecompressionLayer::new())
     .route(QUERY_PATH, post(handlers::handle_data))
     .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
     .route(WS_PATH, any(handlers::handle_ws))
@@ -87,6 +86,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
       handlers::mcp_service(state.clone(), ct.child_token()),
     )
     .with_state(state.clone())
+    .layer(RequestDecompressionLayer::new())
     .layer(CorsLayer::permissive())
     .layer(CompressionLayer::new());
   info!("msd server start");
