@@ -6,11 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.1.20] -
+## [0.1.20] - 2026-10-23
 
 ### Added
 
-- command list arg `--auth-whitelist` or env 'MSD_AUTH_WHITELIST' can specify a whitelist of ips that will bypass auth
+- Support for IP authentication whitelist via `--auth-whitelist` CLI argument or `MSD_AUTH_WHITELIST` environment variable to bypass token auth for trusted IPs and CIDR blocks.
+- Shell query support for authentication token via `--token` CLI argument or `MSD_AUTH_TOKEN` environment variable.
+- Automatic decompression support in CLI `import` for gzip (`.gz`), zstd (`.zstd`), and brotli (`.br`) compressed files (both CSV and `.tbl` formats) from local paths, HTTP URLs, and stdin.
+
+### Changed
+
+- Renamed server JWT signing key configuration from `auth_token` / `MSD_AUTH_TOKEN` to `auth_key` / `MSD_AUTH_KEY`.
+- Migrated table and object identifiers to `SmolStr` across `msd-db`, `msd-request`, and `msd-table` to reduce heap allocations.
+- Configured HTTP server response compression to focus on Zstandard (`zstd`).
+- Added `#[repr(u8)]` attribute to `DataType`.
+
+### Fixed
+
+- Fixed HTTP request decompression by configuring `RequestDecompressionLayer` on the router.
 
 ## [0.1.19] - 2026-09-21
 
