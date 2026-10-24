@@ -37,6 +37,10 @@ pub struct MsdOptions {
   #[arg(long = "log-dir", env = "MSD_LOG_PATH")]
   pub log_dir: Option<String>,
 
+  /// Maximum number of daily log files to retain
+  #[arg(long = "log-max-days", env = "MSD_LOG_MAX_DAYS")]
+  pub log_max_days: Option<usize>,
+
   #[arg(long = "tz", default_value = "", env = "MSD_TZ", value_parser = parse_tz)]
   pub tz_offset: Option<UtcOffset>,
 

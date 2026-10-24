@@ -4,14 +4,23 @@
 use crate::app_config;
 use msd_table::RFC3399_DATETIME;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time;
 
 pub fn setup_logging() -> WorkerGuard {
   let options = app_config();
   let timer = time::OffsetTime::new(options.tz_offset.unwrap(), RFC3399_DATETIME);
-  if let Some(log_dir) = app_config().log_dir.as_ref() {
-    let file_appender = tracing_appender::rolling::daily(log_dir, "msd.log");
+  if let Some(log_dir) = options.log_dir.as_ref() {
+    let mut builder = RollingFileAppender::builder()
+      .rotation(Rotation::DAILY)
+      .filename_prefix("msd.log");
+    if let Some(max_days) = options.log_max_days {
+      builder = builder.max_log_files(max_days);
+    }
+    let file_appender = builder
+      .build(log_dir)
+      .expect("failed to initialize rolling file appender");
     let (file_non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()
