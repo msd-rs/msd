@@ -28,6 +28,7 @@ v*:
             overlying: true
             title: release "v${MSD_VERSION}"
             description: "v${MSD_VERSION}"
+            latest: true
         - name: upload release file
           image: cnbcool/attachments:latest
           settings:

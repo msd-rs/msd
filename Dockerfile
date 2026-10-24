@@ -9,7 +9,7 @@ RUN apt update && apt install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 ENV MSD_DB_PATH=/opt/msd
 ENV MSD_WORKERS=8
-ENV MSD_LISTEN_ADDR=0.0.0.0:50510
+ENV MSD_LISTEN_ADDR=0.0.0.0:20510
 ENV MSD_PID_FILE=/var/run/msd.pid
 
 CMD ["msd", "server" ]
