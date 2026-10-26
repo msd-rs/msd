@@ -20,12 +20,27 @@ impl WorkSender {
     self.workers.push(worker);
   }
 
-  fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<MsdRequest> {
+  pub fn worker_count(&self) -> usize {
+    self.workers.len()
+  }
+
+  pub fn worker_index(&self, key: &RequestKey) -> usize {
     let mut hasher = FxHasher::default();
     key.hash(&mut hasher);
     let hash = hasher.finish();
-    let index = (hash as usize) % self.workers.len();
+    (hash as usize) % self.workers.len()
+  }
+
+  fn get_worker(&self, key: &RequestKey) -> &mpsc::Sender<MsdRequest> {
+    let index = self.worker_index(key);
     &self.workers[index]
+  }
+
+  pub fn send_to(&self, index: usize, req: MsdRequest) -> Result<(), DbError> {
+    self.workers[index]
+      .try_send(req)
+      .map_err(|_| DbError::InternalError("Failed to send request".to_string()))?;
+    Ok(())
   }
 
   pub fn send(&self, req: MsdRequest) -> Result<(), DbError> {

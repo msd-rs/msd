@@ -1,7 +1,11 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
-use std::{cell::RefCell, io::Write};
+use std::{
+  cell::{Cell, RefCell},
+  fmt::Write as FmtWrite,
+  io::Write,
+};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -22,24 +26,34 @@ pub trait TableHandler {
 #[derive(Debug)]
 pub struct PrintHandler {
   print_rows: usize,
+  header_printed: Cell<bool>,
+  col_widths: RefCell<Vec<usize>>,
 }
 
 impl From<&ShellOptions> for PrintHandler {
   fn from(opts: &ShellOptions) -> Self {
     Self {
       print_rows: opts.reactive_rows,
+      header_printed: Cell::new(false),
+      col_widths: RefCell::new(Vec::new()),
     }
   }
 }
 
 impl TableHandler for PrintHandler {
   fn handle(&self, table: &Table) -> Result<()> {
-    if table.row_count() == 0 {
+    if self.print_rows == 0 || table.row_count() == 0 {
       return Ok(());
     }
-    let rows = table_to_text(table, self.print_rows);
+    let print_header = !self.header_printed.get();
+    let rows = table_to_text(table, self.print_rows, print_header);
+    self.header_printed.set(true);
+
     let col_count = if rows.is_empty() { 0 } else { rows[0].len() };
-    let mut col_widths = vec![0; col_count];
+    let mut col_widths = self.col_widths.borrow_mut();
+    if col_widths.len() < col_count {
+      col_widths.resize(col_count, 0);
+    }
 
     for row in &rows {
       for (i, col) in row.iter().enumerate() {
@@ -49,18 +63,24 @@ impl TableHandler for PrintHandler {
       }
     }
     let sep = "|";
+    let mut out = String::with_capacity(rows.len() * col_count * 16);
     for (i, row) in rows.iter().enumerate() {
-      print!("{}", sep);
+      out.push_str(sep);
       for (col, width) in row.iter().zip(col_widths.iter()) {
-        let col = match i {
-          0 => col.color("blue").bold(),
-          1 => col.color("green"),
-          _ => col.white(),
+        let col = if print_header {
+          match i {
+            0 => col.color("blue").bold(),
+            1 => col.color("green"),
+            _ => col.white(),
+          }
+        } else {
+          col.white()
         };
-        print!("{:>width$}{}", col, sep);
+        let _ = write!(out, "{:>width$}{}", col, sep);
       }
-      print!("\n");
+      out.push('\n');
     }
+    print!("{}", out);
     Ok(())
   }
 }
@@ -105,10 +125,10 @@ impl TableHandler for CsvHandler {
 }
 
 /// convert table to row based text
-/// first row: column names
-/// second row: column types
+/// first row: column names (if print_header is true)
+/// second row: column types (if print_header is true)
 /// other rows: column rows as strings
-fn table_to_text(table: &Table, max_row: usize) -> Vec<Vec<String>> {
+fn table_to_text(table: &Table, max_row: usize, print_header: bool) -> Vec<Vec<String>> {
   let mut rows = vec![];
 
   let obj = table
@@ -117,23 +137,25 @@ fn table_to_text(table: &Table, max_row: usize) -> Vec<Vec<String>> {
     .map(|s| s.to_string())
     .unwrap_or_default();
 
-  let row = table.columns().iter().map(|c| c.name.clone()).fold(
-    vec!["no".into(), "obj".into()],
-    |mut acc, name| {
-      acc.push(name);
-      acc
-    },
-  );
-  rows.push(row);
+  if print_header {
+    let row = table.columns().iter().map(|c| c.name.clone()).fold(
+      vec!["no".into(), "obj".into()],
+      |mut acc, name| {
+        acc.push(name);
+        acc
+      },
+    );
+    rows.push(row);
 
-  let row = table.columns().iter().map(|c| c.kind.to_string()).fold(
-    vec!["int".into(), "string".into()],
-    |mut acc, kind| {
-      acc.push(kind);
-      acc
-    },
-  );
-  rows.push(row);
+    let row = table.columns().iter().map(|c| c.kind.to_string()).fold(
+      vec!["int".into(), "string".into()],
+      |mut acc, kind| {
+        acc.push(kind);
+        acc
+      },
+    );
+    rows.push(row);
+  }
 
   let top_rows = max_row / 2;
   let bottom_rows = table.row_count().saturating_sub(max_row - top_rows);

@@ -24,7 +24,10 @@ use msd_request::{
   sql_to_request,
 };
 use msd_store::MsdStore;
-use msd_table::{Table, pack_table_frame, pack_table_frame_v2, table};
+use msd_table::{
+  Table, pack_table_frame, pack_table_frame_into, pack_table_frame_v2, pack_table_frame_v2_into,
+  table,
+};
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 use tokio::task::JoinSet;
@@ -45,8 +48,10 @@ pub async fn handle_data(
   headers: HeaderMap,
   Json(body): Json<DataRequest>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
+  let total_start = std::time::Instant::now();
   debug!(remote_addr = %remote_addr, sql= body.query, "query");
 
+  let parse_start = std::time::Instant::now();
   let requests = sql_to_request(&body.query).map_err(|e| {
     (
       axum::http::StatusCode::BAD_REQUEST,
@@ -57,22 +62,37 @@ pub async fn handle_data(
   for req in &requests {
     Permission::check(&headers, &remote_addr, req)?;
   }
+  let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
+  let expand_start = std::time::Instant::now();
   let requests = flatten_requests_by_object(state.clone(), requests);
+  let expand_ms = expand_start.elapsed().as_secs_f64() * 1000.0;
 
   debug!(count = requests.len(), "start to handle requests");
 
   let client_ver = is_msd_client(&headers);
-  if client_ver > 0 {
+  let dispatch_start = std::time::Instant::now();
+  let mut resp = if client_ver > 0 {
     let body = TableFrameBody::new(state.clone(), requests, client_ver);
-    Ok(body.into_response())
+    body.into_response()
   } else {
+    let requests = expand_query_requests_for_ndjson(requests);
     let s = stream::iter(requests)
       .then(move |r| handle_sql_request(state.clone(), r))
       .map(|r| r.map_err(|e| axum::Error::new(e)));
 
-    Ok(StreamBodyAs::new(TableNdJsonFormat {}, s).into_response())
+    StreamBodyAs::new(TableNdJsonFormat {}, s).into_response()
+  };
+  let dispatch_ms = dispatch_start.elapsed().as_secs_f64() * 1000.0;
+  let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+  let timing_val = format!(
+    "parse;dur={:.2}, expand;dur={:.2}, dispatch;dur={:.2}, total;dur={:.2}",
+    parse_ms, expand_ms, dispatch_ms, total_ms
+  );
+  if let Ok(hv) = axum::http::header::HeaderValue::from_str(&timing_val) {
+    resp.headers_mut().insert("server-timing", hv);
   }
+  Ok(resp)
 }
 
 async fn handle_sql_request(db: AppStateRef, req: SqlRequest) -> Result<Table, DbError> {
@@ -139,7 +159,11 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
           objects
             .into_iter()
             .fold(Vec::with_capacity(cap), |mut acc, obj| {
-              if obj.is_empty() || obj.contains('*') || obj.contains('?') {
+              if obj.is_empty()
+                || obj.contains('*')
+                || obj.contains('?')
+                || obj.starts_with('@')
+              {
                 acc.extend(matched_objects(state.clone(), &query_req.table, &obj));
               } else {
                 acc.push(obj);
@@ -150,14 +174,8 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
         if objects.is_empty() {
           return vec![];
         }
-        objects
-          .into_iter()
-          .map(|obj| {
-            let mut query_req = query_req.clone();
-            query_req.key.obj = obj;
-            SqlRequest::Query(query_req)
-          })
-          .collect()
+        query_req.objects = Some(objects);
+        vec![SqlRequest::Query(query_req)]
       }
       SqlRequest::Insert(insert_req) => {
         let sub_requests = match state.db.get_schema(&insert_req.table) {
@@ -304,6 +322,29 @@ async fn handle_drop_table(state: AppStateRef, name: String) -> Result<Table, Db
   Ok(Table::default())
 }
 
+fn expand_query_requests_for_ndjson(requests: Vec<SqlRequest>) -> Vec<SqlRequest> {
+  requests
+    .into_iter()
+    .flat_map(|r| match r {
+      SqlRequest::Query(mut query_req) => {
+        if let Some(objects) = query_req.objects.take() {
+          objects
+            .into_iter()
+            .map(|obj| {
+              let mut q = query_req.clone();
+              q.key.obj = obj;
+              SqlRequest::Query(q)
+            })
+            .collect()
+        } else {
+          vec![SqlRequest::Query(query_req)]
+        }
+      }
+      other => vec![other],
+    })
+    .collect()
+}
+
 #[derive(Debug)]
 struct TableFrameBody {
   set: JoinSet<Result<Vec<u8>, DbError>>,
@@ -314,16 +355,46 @@ impl TableFrameBody {
   fn new(db: AppStateRef, requests: Vec<SqlRequest>, version: u32) -> Self {
     let mut set = JoinSet::new();
     for req in requests {
-      let db = db.clone();
-      set.spawn(async move {
-        handle_sql_request(db, req).await.map(|t| {
-          if version == 2 {
-            pack_table_frame_v2(&t)
-          } else {
-            pack_table_frame(&t)
+      match req {
+        SqlRequest::Query(mut query_req)
+          if !is_list_objects(&query_req) && query_req.objects.is_some() =>
+        {
+          let objects = query_req.objects.take().unwrap_or_default();
+          match db.db.query_batch(&query_req, objects) {
+            Ok(receivers) => {
+              for rx in receivers {
+                set.spawn(async move {
+                  let tables = rx.await.map_err(|e| DbError::from(e))??;
+                  let mut buf = Vec::with_capacity(tables.len() * 256);
+                  for t in &tables {
+                    if version == 2 {
+                      pack_table_frame_v2_into(t, &mut buf);
+                    } else {
+                      pack_table_frame_into(t, &mut buf);
+                    }
+                  }
+                  Ok(buf)
+                });
+              }
+            }
+            Err(e) => {
+              set.spawn(async move { Err(e) });
+            }
           }
-        })
-      });
+        }
+        other => {
+          let db = db.clone();
+          set.spawn(async move {
+            handle_sql_request(db, other).await.map(|t| {
+              if version == 2 {
+                pack_table_frame_v2(&t)
+              } else {
+                pack_table_frame(&t)
+              }
+            })
+          });
+        }
+      }
     }
     Self { set, version }
   }
@@ -338,25 +409,23 @@ impl HttpBody for TableFrameBody {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
     let this = self.get_mut();
-    let res = this.set.try_join_next();
-    match res {
-      None => {
-        if this.set.is_empty() {
-          std::task::Poll::Ready(None)
-        } else {
-          cx.waker().wake_by_ref();
-          std::task::Poll::Pending
-        }
-      }
-      Some(Ok(Ok(table))) => {
+    match this.set.poll_join_next(cx) {
+      std::task::Poll::Ready(None) => std::task::Poll::Ready(None),
+      std::task::Poll::Pending => std::task::Poll::Pending,
+      std::task::Poll::Ready(Some(Ok(Ok(table)))) => {
         let frame = Frame::data(axum::body::Bytes::from(table));
         std::task::Poll::Ready(Some(Ok(frame)))
       }
-      Some(Ok(Err(e))) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
-      Some(Err(e)) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+      std::task::Poll::Ready(Some(Ok(Err(e)))) => {
+        std::task::Poll::Ready(Some(Err(axum::Error::new(e))))
+      }
+      std::task::Poll::Ready(Some(Err(e))) => {
+        std::task::Poll::Ready(Some(Err(axum::Error::new(e))))
+      }
     }
   }
 }
+
 impl IntoResponse for TableFrameBody {
   fn into_response(self) -> Response<Body> {
     let version = self.version;

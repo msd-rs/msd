@@ -26,6 +26,11 @@ pub enum MsdRequest {
     req: QueryRequest,
     resp_tx: RequestSender<QueryResponse>,
   },
+  BatchQuery {
+    req: QueryRequest,
+    objects: Vec<SmolStr>,
+    resp_tx: RequestSender<Vec<QueryResponse>>,
+  },
   ListObjects {
     req: ListObjectsRequest,
     resp_tx: RequestSender<ListObjectsResponse>,
@@ -67,6 +72,21 @@ impl MsdRequest {
     (MsdRequest::Query { req, resp_tx }, resp_rx)
   }
 
+  pub fn batch_query(
+    req: QueryRequest,
+    objects: Vec<SmolStr>,
+  ) -> (Self, RequestReceiver<Vec<QueryResponse>>) {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    (
+      MsdRequest::BatchQuery {
+        req,
+        objects,
+        resp_tx,
+      },
+      resp_rx,
+    )
+  }
+
   pub fn delete(req: DeleteRequest) -> (Self, RequestReceiver<DeleteResponse>) {
     let (req, resp_tx, resp_rx) = req.to_request();
     (MsdRequest::Delete { req, resp_tx }, resp_rx)
@@ -99,6 +119,7 @@ impl Deref for MsdRequest {
     match self {
       MsdRequest::Insert { req, .. } => &req.key,
       MsdRequest::Query { req, .. } => &req.key,
+      MsdRequest::BatchQuery { req, .. } => &req.key,
       MsdRequest::ListObjects { req, .. } => &req.key,
       MsdRequest::Delete { req, .. } => &req.key,
       MsdRequest::Comment { .. } => once_key(),

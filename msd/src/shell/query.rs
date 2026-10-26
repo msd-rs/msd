@@ -51,6 +51,12 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     .get(header::CONTENT_TYPE)
     .is_some_and(|ct| ct.to_str().is_ok_and(|ct| ct.contains(MSD_TABLE_FORMAT)));
 
+  let server_timing = resp
+    .headers()
+    .get("server-timing")
+    .and_then(|v| v.to_str().ok())
+    .map(|s| s.to_string());
+
   let mut fetched_rows = 0;
   let mut objects = 0;
   // Stream the response body
@@ -114,6 +120,9 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
       format!("No data in {:.3} s", s)
     };
     eprintln!("{}", stat.cyan());
+    if let Some(st) = server_timing {
+      eprintln!("{}", format!("Server-Timing: {}", st).cyan());
+    }
   }
 
   Ok(())

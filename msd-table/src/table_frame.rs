@@ -40,27 +40,27 @@ const VERSION: u16 = 0x0001;
 /// * `Vec<u8>` - The packed table frame
 ///
 pub fn pack_table_frame(table: &Table) -> Vec<u8> {
-  let mut table_data = Vec::new();
+  let mut frame = Vec::with_capacity(256);
+  pack_table_frame_into(table, &mut frame);
+  frame
+}
 
-  // binary of Table
-  let table_bytes = bincode_next::encode_to_vec(table, bincode_next::config::standard())
-    .expect("Failed to serialize table");
-  table_data.extend_from_slice(&table_bytes);
-
-  let crc = crc32(&table_data);
-
-  // FRAME_SIZE := sizeof(TABLE_DATA + TABLE_FOOTER) as u32
-  // TABLE_FOOTER is CRC32 (4 bytes)
-  let frame_size = (table_data.len() + 4) as u32;
-
-  let mut frame = Vec::new();
+pub fn pack_table_frame_into(table: &Table, frame: &mut Vec<u8>) {
+  let header_pos = frame.len();
   frame.extend_from_slice(&MAGIC.to_le_bytes());
   frame.extend_from_slice(&VERSION.to_le_bytes());
-  frame.extend_from_slice(&frame_size.to_le_bytes());
-  frame.extend_from_slice(&table_data);
-  frame.extend_from_slice(&crc.to_le_bytes());
+  frame.extend_from_slice(&0u32.to_le_bytes());
 
-  frame
+  let data_start = frame.len();
+  bincode_next::encode_into_std_write(table, &mut *frame, bincode_next::config::standard())
+    .expect("Failed to serialize table");
+
+  let data_len = frame.len() - data_start;
+  let crc = crc32(&frame[data_start..]);
+  let frame_size = (data_len + 4) as u32;
+
+  frame[header_pos + 4..header_pos + 8].copy_from_slice(&frame_size.to_le_bytes());
+  frame.extend_from_slice(&crc.to_le_bytes());
 }
 
 pub fn pack_table_ref_frame(table: &TableRef) -> Vec<u8> {

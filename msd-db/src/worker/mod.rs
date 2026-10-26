@@ -65,8 +65,30 @@ impl<S: MsdStore> Worker<S> {
           let _ = resp_tx.send(res);
         }
         MsdRequest::Query { req, resp_tx } => {
-          let res = self.handle_query(req);
+          let res = self.handle_query(&req);
           let _ = resp_tx.send(res);
+        }
+        MsdRequest::BatchQuery {
+          mut req,
+          objects,
+          resp_tx,
+        } => {
+          let mut results = Vec::with_capacity(objects.len());
+          let mut err = None;
+          for obj in objects {
+            req.key.obj = obj;
+            match self.handle_query(&req) {
+              Ok(t) => results.push(t),
+              Err(e) => {
+                err = Some(e);
+                break;
+              }
+            }
+          }
+          let _ = resp_tx.send(match err {
+            Some(e) => Err(e),
+            None => Ok(results),
+          });
         }
         MsdRequest::Delete { req, resp_tx } => {
           let res = self.handle_delete(req);

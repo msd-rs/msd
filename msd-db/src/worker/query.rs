@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use msd_table::{Table, VariantRef};
+use msd_table::Table;
 use tracing::{debug, span, trace};
 
 use crate::{errors::DbError, request::QueryRequest, serde::DbBinary};
@@ -19,7 +19,7 @@ impl<S: MsdStore> Worker<S> {
   /// 2. Determine which chunks overlap with the query time range
   /// 3. Load and merge data from relevant chunks
   /// 4. Apply field filtering, time range filtering, ordering, and limit
-  pub(super) fn handle_query(&mut self, req: QueryRequest) -> Result<Table, DbError> {
+  pub(super) fn handle_query(&mut self, req: &QueryRequest) -> Result<Table, DbError> {
     debug!(?req, id = self.id, "Handling query request");
     let exist = self.ensure_cache_initialized(&req)?;
     if !exist {
@@ -70,15 +70,6 @@ impl<S: MsdStore> Worker<S> {
 
     let including_last = last_query_seq == index.len() - 1;
 
-    // start from the last chunk so iteration will go through chunks in descending seq order
-    let start_key = Key::new_data(
-      &req.key.obj,
-      if descending {
-        last_query_seq
-      } else {
-        first_query_seq
-      } as u32,
-    );
     // include the separator after object name so prefix covers `obj.`
     let prefix_len = req.key.obj.len() + 1;
 
@@ -92,88 +83,98 @@ impl<S: MsdStore> Worker<S> {
     let mut row_filter = RowFilter::new(limit, req.date_range, pk_col);
 
     if including_last && descending {
-      let mut cached = cache.cached.clone();
-      Self::filter_table_columns(&mut cached, &req);
       if result.column_count() == 0 {
-        result = cached.to_empty();
+        result = cache.cached.to_empty();
       }
-      result.extend_filtered(&cached, descending, |row| row_filter.apply(row))?;
+      Self::collect_rows_from_table(&mut result, &cache.cached, descending, &mut row_filter)?;
     }
 
-    self.store.prefix_with(
-      start_key,
-      Some(prefix_len),
-      &req.key.table,
-      !descending,
-      |k: &[u8], v: &[u8]| {
-        if row_filter.is_collected() {
-          return false;
-        }
-        trace!(key=?k, "start");
-        // parse key and get sequence
-        let key = match Key::try_from(k) {
-          Ok(k) => k,
-          Err(e) => {
-            trace!(key=?k, error=%e, "Failed to parse key in query");
-            inner_err = Some(DbError::from(e));
+    let need_store_scan =
+      !row_filter.is_collected() && (!including_last || first_query_seq < last_query_seq);
+
+    if need_store_scan {
+      let scan_start_seq = if descending && including_last {
+        last_query_seq.saturating_sub(1)
+      } else if descending {
+        last_query_seq
+      } else {
+        first_query_seq
+      };
+      let start_key = Key::new_data(&req.key.obj, scan_start_seq as u32);
+
+      self.store.prefix_with(
+        start_key,
+        Some(prefix_len),
+        &req.key.table,
+        !descending,
+        |k: &[u8], v: &[u8]| {
+          if row_filter.is_collected() {
             return false;
           }
-        };
-        if key.is_index() {
-          // got less boundary
-          return false;
-        }
-        let seq = key.get_seq() as usize;
-        if seq < first_query_seq {
-          trace!(%key, first_query_seq, last_query_seq, "Reached beyond needed chunks");
-          // reached beyond needed chunks
-          return false;
-        }
-        if seq == last_query_seq && seq == index.len() - 1 {
-          trace!(%key, last_query_seq, "last chunk will use cache");
-          return true;
-        }
-
-        let mut table: Table = match DbBinary::from_bytes(v) {
-          Ok(t) => t,
-          Err(e) => {
-            trace!(key=%key, error=%e, "Failed to deserialize table in query");
-            inner_err = Some(e);
+          trace!(key=?k, "start");
+          // parse key and get sequence
+          let key = match Key::try_from(k) {
+            Ok(k) => k,
+            Err(e) => {
+              trace!(key=?k, error=%e, "Failed to parse key in query");
+              inner_err = Some(DbError::from(e));
+              return false;
+            }
+          };
+          if key.is_index() {
+            // got less boundary
+            return false;
+          }
+          let seq = key.get_seq() as usize;
+          if seq < first_query_seq {
+            trace!(%key, first_query_seq, last_query_seq, "Reached beyond needed chunks");
+            // reached beyond needed chunks
+            return false;
+          }
+          if seq == last_query_seq && seq == index.len() - 1 {
+            trace!(%key, last_query_seq, "last chunk will use cache");
             return true;
           }
-        };
-        Self::filter_table_columns(&mut table, &req);
 
-        if result.column_count() == 0 {
-          // first chunk being processed, initialize result table with its schema
-          result = table.to_empty();
-        }
+          let table: Table = match DbBinary::from_bytes(v) {
+            Ok(t) => t,
+            Err(e) => {
+              trace!(key=%key, error=%e, "Failed to deserialize table in query");
+              inner_err = Some(e);
+              return true;
+            }
+          };
 
-        // collect rows from this chunk that match the time range
-        trace!(%key, collected_rows = row_filter.collected_rows, limit, descending, "begin filtering rows in chunk");
-        let status = result.extend_filtered(&table, descending, |row| row_filter.apply(row));
-        if let Err(e) = status {
-          trace!(%key, error=%e, "Failed to extend filtered rows in query");
-          inner_err = Some(DbError::TableError(e));
-        }
-        trace!(%key, collected_rows = row_filter.collected_rows, limit, "finished filtering rows in chunk");
-        true
-      },
-    )?;
+          if result.column_count() == 0 {
+            // first chunk being processed, initialize result table with its schema
+            result = table.to_empty();
+          }
 
-    if including_last && !descending {
-      let mut cached = cache.cached.clone();
-      Self::filter_table_columns(&mut cached, &req);
+          // collect rows from this chunk that match the time range
+          trace!(%key, collected_rows = row_filter.collected_rows, limit, descending, "begin filtering rows in chunk");
+          let status = Self::collect_rows_from_table(&mut result, &table, descending, &mut row_filter);
+          if let Err(e) = status {
+            trace!(%key, error=%e, "Failed to extend filtered rows in query");
+            inner_err = Some(e);
+          }
+          trace!(%key, collected_rows = row_filter.collected_rows, limit, "finished filtering rows in chunk");
+          !row_filter.is_collected()
+        },
+      )?;
+    }
+
+    if including_last && !descending && !row_filter.is_collected() {
       if result.column_count() == 0 {
-        result = cached.to_empty();
+        result = cache.cached.to_empty();
       }
-      result.extend_filtered(&cached, descending, |row| row_filter.apply(row))?;
+      Self::collect_rows_from_table(&mut result, &cache.cached, descending, &mut row_filter)?;
     }
 
     if let Some(e) = inner_err {
       return Err(e);
     }
-    if is_last_mode {
+    Self::filter_table_columns(&mut result, &req);
+    if is_last_mode && result.row_count() > 1 {
       result.sort_by_pk(!descending);
     }
     result = result.replace_metadata([
@@ -182,6 +183,59 @@ impl<S: MsdStore> Worker<S> {
     ]);
     debug!(id = self.id, rows = result.row_count(), "Query completed");
     Ok(result)
+  }
+
+  fn collect_rows_from_table(
+    result: &mut Table,
+    source: &Table,
+    descending: bool,
+    row_filter: &mut RowFilter,
+  ) -> Result<(), DbError> {
+    let row_count = source.row_count();
+    if row_count == 0 || row_filter.is_collected() {
+      return Ok(());
+    }
+    let pk_col = row_filter.pk_col;
+    let pk_series = match source.column_by_index(pk_col) {
+      Some(col) => &col.data,
+      None => return Ok(()),
+    };
+
+    let src_cols = source.columns();
+    let dst_cols = result.columns_mut();
+
+    if descending {
+      for r in (0..row_count).rev() {
+        if row_filter.is_collected() {
+          break;
+        }
+        if let Some(ts) = pk_series.get(r).and_then(|v| v.get_datetime().copied()) {
+          if row_filter.check_ts(ts) {
+            for (dst, src) in dst_cols.iter_mut().zip(src_cols.iter()) {
+              if let Some(cell) = src.data.get(r) {
+                dst.data.push(cell.to_variant())?;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      for r in 0..row_count {
+        if row_filter.is_collected() {
+          break;
+        }
+        if let Some(ts) = pk_series.get(r).and_then(|v| v.get_datetime().copied()) {
+          if row_filter.check_ts(ts) {
+            for (dst, src) in dst_cols.iter_mut().zip(src_cols.iter()) {
+              if let Some(cell) = src.data.get(r) {
+                dst.data.push(cell.to_variant())?;
+              }
+            }
+          }
+        }
+      }
+    }
+    Ok(())
   }
 
   fn filter_table_columns(table: &mut Table, req: &QueryRequest) {
@@ -226,14 +280,7 @@ impl RowFilter {
     }
   }
 
-  fn apply(&mut self, row: &Vec<VariantRef<'_>>) -> bool {
-    if self.is_collected() {
-      return false;
-    }
-    let ts = match row.get(self.pk_col).and_then(|v| v.get_datetime()) {
-      Some(v) => *v,
-      None => return false,
-    };
+  fn check_ts(&mut self, ts: i64) -> bool {
     let collected = self.data_range.contains(ts);
     if collected {
       self.collected_rows += 1;

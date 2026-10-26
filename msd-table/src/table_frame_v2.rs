@@ -34,19 +34,25 @@ const VERSION: u16 = 0x0200;
 /// * `Vec<u8>` - The packed table frame
 ///
 pub fn pack_table_frame_v2(table: &Table) -> Vec<u8> {
-  let mut frame = Vec::new();
+  let mut frame = Vec::with_capacity(256);
+  pack_table_frame_v2_into(table, &mut frame);
+  frame
+}
+
+pub fn pack_table_frame_v2_into(table: &Table, frame: &mut Vec<u8>) {
+  let header_pos = frame.len();
   frame.extend_from_slice(&MAGIC.to_le_bytes());
   frame.extend_from_slice(&VERSION.to_le_bytes());
   frame.extend_from_slice(&[0u8; 4]); // will be updated later
   write_string(
-    &mut frame,
+    frame,
     table
       .get_table_meta("obj")
       .and_then(|v| v.get_str())
       .unwrap_or(""),
   );
   write_string(
-    &mut frame,
+    frame,
     table
       .get_table_meta("table")
       .and_then(|v| v.get_str())
@@ -55,12 +61,12 @@ pub fn pack_table_frame_v2(table: &Table) -> Vec<u8> {
   frame.extend_from_slice(&(table.column_count() as u32).to_le_bytes());
   frame.extend_from_slice(&(table.row_count() as u32).to_le_bytes());
   for field in table.columns() {
-    write_string(&mut frame, &field.name);
+    write_string(frame, &field.name);
     frame.extend_from_slice(&[field.kind as u8]);
     match &field.data {
       Series::Null => {}
-      Series::String(v) => v.iter().for_each(|s| write_string(&mut frame, s)),
-      Series::Bytes(v) => v.iter().for_each(|b| write_bytes(&mut frame, b)),
+      Series::String(v) => v.iter().for_each(|s| write_string(frame, s)),
+      Series::Bytes(v) => v.iter().for_each(|b| write_bytes(frame, b)),
       Series::Int32(v) => v
         .iter()
         .for_each(|v| frame.extend_from_slice(&v.to_le_bytes())),
@@ -89,10 +95,8 @@ pub fn pack_table_frame_v2(table: &Table) -> Vec<u8> {
     }
   }
 
-  let data_size = frame.len() - 8;
-  frame[4..8].copy_from_slice(&(data_size as u32).to_le_bytes());
-
-  frame
+  let data_size = frame.len() - header_pos - 8;
+  frame[header_pos + 4..header_pos + 8].copy_from_slice(&(data_size as u32).to_le_bytes());
 }
 
 fn write_string(buf: &mut Vec<u8>, s: &str) {

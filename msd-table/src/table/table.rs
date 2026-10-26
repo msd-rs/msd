@@ -125,6 +125,11 @@ impl Table {
     &self.columns
   }
 
+  /// get mutable table columns slice
+  pub fn columns_mut(&mut self) -> &mut [Field] {
+    &mut self.columns
+  }
+
   /// get table column by index
   /// returns None if the index is out of bounds
   pub fn column_by_index(&self, index: usize) -> Option<&Field> {

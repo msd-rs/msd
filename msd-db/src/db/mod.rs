@@ -204,6 +204,38 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(())
   }
 
+  pub fn query_batch(
+    &self,
+    req: &QueryRequest,
+    objects: Vec<SmolStr>,
+  ) -> Result<Vec<crate::request::RequestReceiver<Vec<Table>>>, DbError> {
+    let worker_count = self.workers.worker_count();
+    let mut buckets: Vec<Vec<SmolStr>> = (0..worker_count)
+      .map(|_| Vec::with_capacity(objects.len() / worker_count.max(1) + 1))
+      .collect();
+
+    let mut key = req.key.clone();
+    for obj in objects {
+      key.obj = obj;
+      let idx = self.workers.worker_index(&key);
+      buckets[idx].push(std::mem::take(&mut key.obj));
+    }
+
+    const BATCH_CHUNK_SIZE: usize = 256;
+    let mut receivers = Vec::with_capacity(worker_count * 4);
+    for (idx, objs) in buckets.into_iter().enumerate() {
+      if objs.is_empty() {
+        continue;
+      }
+      for chunk in objs.chunks(BATCH_CHUNK_SIZE) {
+        let (msd_req, rx) = MsdRequest::batch_query(req.clone(), chunk.to_vec());
+        self.workers.send_to(idx, msd_req)?;
+        receivers.push(rx);
+      }
+    }
+    Ok(receivers)
+  }
+
   fn delete_objects(
     &self,
     req: DeleteRequest,
