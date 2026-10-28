@@ -4,12 +4,12 @@ use msd_table::DataType;
 use msd_table::Field;
 use msd_table::FillMethod;
 use msd_table::Result;
-use msd_table::Series;
 use msd_table::Table;
 use msd_table::Variant;
 use msd_table::bail;
 use msd_table::check_table_frame;
 use msd_table::unpack_table_frame;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 use pyo3::types::PyByteArray;
@@ -24,6 +24,7 @@ use reqwest::{
   header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 
@@ -106,6 +107,19 @@ impl PyMsdConnection {
   fn snapshot(&self, tables: Vec<String>, objects: Vec<String>) -> PyResult<PyTable> {
     let table = self.inner.snapshot(tables, objects)?;
     Ok(PyTable { inner: table })
+  }
+
+  /// query and call handler for each table
+  #[pyo3(signature = (sql, handler))]
+  fn query_map(&self, sql: String, handler: Bound<'_, PyAny>) -> PyResult<()> {
+    if !handler.is_callable() {
+      return Err(PyTypeError::new_err("handler must be callable"));
+    }
+    self.inner.query_map(sql, |table| {
+      handler.call1((PyTable { inner: table },))?;
+      Ok(())
+    })?;
+    Ok(())
   }
 }
 
@@ -348,6 +362,27 @@ impl MsdConnection {
     }
   }
 
+  fn query_map<F>(&self, sql: String, mut handler: F) -> Result<()>
+  where
+    F: FnMut(Table) -> Result<()>,
+  {
+    let (tx, mut rx) = mpsc::channel(32);
+
+    let conn = self.clone();
+    get_runtime().spawn(async move {
+      if let Err(err) = query_msd_stream(conn, sql, &tx).await {
+        let _ = tx.send(Err(err)).await;
+      }
+    });
+
+    while let Some(res) = rx.blocking_recv() {
+      let table = res?;
+      handler(table)?;
+    }
+
+    Ok(())
+  }
+
   fn snapshot_sql(&self, tables: &Vec<String>, objects: &Vec<String>) -> String {
     let objects_where = if objects.is_empty() {
       "".to_string()
@@ -426,4 +461,127 @@ async fn query_msd(conn: MsdConnection, sql: String) -> Result<GroupedTables> {
   }
 
   Ok(m)
+}
+
+async fn query_msd_stream(
+  conn: MsdConnection,
+  sql: String,
+  tx: &mpsc::Sender<Result<Table>>,
+) -> Result<()> {
+  let url = format!("{}/query", conn.url);
+
+  let req = conn
+    .client
+    .post(&url)
+    .json(&serde_json::json!({ "query": sql }));
+
+  let resp = req.send().await?;
+
+  let stream = resp.bytes_stream();
+  let stream_reader = tokio_util::io::StreamReader::new(
+    stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
+  );
+
+  let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
+
+  let mut buf = Vec::with_capacity(8 * 1024);
+
+  buf.resize(8, 0);
+  while rd.read_exact(&mut buf).await.is_ok() {
+    let (header_size, data_size) = match check_table_frame(&buf) {
+      Ok(size) => size,
+      Err(err) => {
+        bail!("invalid table frame: {}", err);
+      }
+    };
+
+    buf.resize(header_size + data_size, 0);
+    rd.read_exact(&mut buf[header_size..]).await?;
+    let table = unpack_table_frame(&buf, false)?;
+
+    if tx.send(Ok(table)).await.is_err() {
+      return Ok(());
+    }
+
+    buf.clear();
+    buf.resize(header_size, 0);
+  }
+
+  Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use msd_table::pack_table_frame;
+  use tokio::io::AsyncWriteExt;
+  use tokio::net::TcpListener;
+
+  #[test]
+  fn test_query_map() {
+    unsafe {
+      std::env::set_var("no_proxy", "127.0.0.1,localhost");
+      std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
+    }
+
+    let (url, handle) = get_runtime().block_on(async {
+      let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let port = listener.local_addr().unwrap().port();
+      let url = format!("http://127.0.0.1:{}", port);
+
+      let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req_buf = vec![0u8; 1024];
+        let _ = socket.read(&mut req_buf).await.unwrap();
+
+        let mut t1 = Table::from_columns(vec![Field::new_with_data(
+          "col1",
+          DataType::Int64,
+          vec![1i64, 2i64].into(),
+        )]);
+        let _ = t1.set_table_meta("table", "table1".into());
+        let _ = t1.set_table_meta("obj", "obj1".into());
+        let frame1 = pack_table_frame(&t1);
+
+        let mut t2 = Table::from_columns(vec![Field::new_with_data(
+          "col2",
+          DataType::String,
+          vec!["hello".to_string(), "world".to_string()].into(),
+        )]);
+        let _ = t2.set_table_meta("table", "table2".into());
+        let _ = t2.set_table_meta("obj", "obj2".into());
+        let frame2 = pack_table_frame(&t2);
+
+        let mut body = frame1;
+        body.extend_from_slice(&frame2);
+
+        let resp = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n\r\n",
+          body.len()
+        );
+        socket.write_all(resp.as_bytes()).await.unwrap();
+        socket.write_all(&body).await.unwrap();
+      });
+
+      (url, handle)
+    });
+
+    let conn = MsdConnection::new(&url, "", false).unwrap();
+    let mut received = Vec::new();
+    conn
+      .query_map("SELECT 1;".to_string(), |t| {
+        received.push((
+          t.get_table_meta("obj").and_then(|v| v.get_string()).cloned().unwrap(),
+          t.get_table_meta("table").and_then(|v| v.get_string()).cloned().unwrap(),
+        ));
+        Ok(())
+      })
+      .unwrap();
+
+    assert_eq!(received.len(), 2);
+    assert_eq!(received[0], ("obj1".to_string(), "table1".to_string()));
+    assert_eq!(received[1], ("obj2".to_string(), "table2".to_string()));
+
+    get_runtime().block_on(handle).unwrap();
+  }
 }

@@ -1,6 +1,8 @@
 import pymsd
 import time
 
+from pymsd._msd import Table
+
 # Change the following variables to test different environment
 BASE_URL = "http://localhost:50511"
 SQL_TO_TEST = """
@@ -55,16 +57,31 @@ select * from stock_shares where obj='SH600*';
     for j in range(bars-2, bars):
       print(table[i+j, 0], table[i+j, 1], table[i+j, 2], table[i+j, 8], )
   print(table.rows, table.columns, bars, t2 - t1)
-    
 
 
+def test_query_map():
+  sql = """
+select * from stock_kline_1d where obj='SH600*' limit -1000;
+"""
+  conn = pymsd.MsdConnection(BASE_URL)
 
+  objs = 0
+  rows = 0
+  def handler(table: Table):
+    nonlocal objs, rows
+    objs += 1
+    rows += table.rows
 
+  t1 = time.time()
+  conn.query_map(sql, handler)
+
+  print(rows, objs, time.time() - t1)
 
 
 if __name__ == "__main__":
   #test_query_many_ndarray()
   #test_query_many_conn()
-  test_query_kline()
+  #test_query_kline()
+  test_query_map()
   
 

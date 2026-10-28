@@ -14,7 +14,7 @@ pyo3 = { version = "0.30", features = ["abi3", "extension-module", "anyhow"] }
 numpy = "0.30"
 msd-request = { path = "../../msd-request" }
 msd-table = { path = "../../msd-table" }
-tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1"
 reqwest = { version = "0.13", features = ["stream", "zstd", "json"] }
 serde.workspace = true

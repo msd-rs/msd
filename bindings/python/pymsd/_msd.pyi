@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Callable, Tuple
 from .const import MsdTable
 import numpy as np
 
@@ -95,6 +95,13 @@ class MsdConnection:
     level 1: obj -> level 2: table name -> Table.
     """
     ...
+
+  def query_map(self, sql: str, h: Callable[[Table],Any]) -> None:
+    """
+    Execute raw query with a handler which can process each result table
+    """
+    ...
+    
   def query_join(
     self,
     sql: str,
