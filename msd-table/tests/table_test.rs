@@ -173,3 +173,122 @@ fn test_group_by() {
   assert_eq!(t_c.row_count(), 1);
   assert_eq!(t_c.cell(0, 0).get_i32(), Some(&4));
 }
+
+#[test]
+fn test_join_asof_fill_methods() {
+  let left = table!(
+    { name: "ts", kind: i64, data: vec![1i64, 2, 3, 4, 5] },
+    { name: "a", kind: f64, data: vec![10.0, 20.0, 30.0, 40.0, 50.0] }
+  );
+
+  let right = table!(
+    { name: "ts", kind: i64, data: vec![2i64, 4] },
+    { name: "b", kind: f64, data: vec![200.0, 400.0] },
+    { name: "c", kind: i32, data: vec![2, 4] }
+  );
+
+  // FillMethod::Zero
+  let joined_zero = left.join_asof(&right, FillMethod::Zero).unwrap();
+  assert_eq!(joined_zero.row_count(), 5);
+  assert_eq!(joined_zero.column_count(), 4);
+  assert_eq!(
+    joined_zero.column("b").unwrap().data.get_float64().unwrap(),
+    &vec![0.0, 200.0, 0.0, 400.0, 0.0]
+  );
+  assert_eq!(
+    joined_zero.column("c").unwrap().data.get_int32().unwrap(),
+    &vec![0, 2, 0, 4, 0]
+  );
+
+  // FillMethod::Nan
+  let joined_nan = left.join_asof(&right, FillMethod::Nan).unwrap();
+  assert_eq!(joined_nan.row_count(), 5);
+  assert_eq!(joined_nan.column_count(), 4);
+  let b_nan = joined_nan.column("b").unwrap().data.get_float64().unwrap();
+  assert!(b_nan[0].is_nan());
+  assert_eq!(b_nan[1], 200.0);
+  assert!(b_nan[2].is_nan());
+  assert_eq!(b_nan[3], 400.0);
+  assert!(b_nan[4].is_nan());
+
+  // FillMethod::Backward
+  let joined_bwd = left.join_asof(&right, FillMethod::Backward).unwrap();
+  assert_eq!(joined_bwd.row_count(), 5);
+  assert_eq!(joined_bwd.column_count(), 4);
+  let b_bwd = joined_bwd.column("b").unwrap().data.get_float64().unwrap();
+  assert!(b_bwd[0].is_nan());
+  assert_eq!(b_bwd[1], 200.0);
+  assert_eq!(b_bwd[2], 200.0);
+  assert_eq!(b_bwd[3], 400.0);
+  assert_eq!(b_bwd[4], 400.0);
+  assert_eq!(
+    joined_bwd.column("c").unwrap().data.get_int32().unwrap(),
+    &vec![0, 2, 2, 4, 4]
+  );
+
+  // FillMethod::Forward
+  let joined_fwd = left.join_asof(&right, FillMethod::Forward).unwrap();
+  assert_eq!(joined_fwd.row_count(), 5);
+  assert_eq!(joined_fwd.column_count(), 4);
+  let b_fwd = joined_fwd.column("b").unwrap().data.get_float64().unwrap();
+  assert_eq!(b_fwd[0], 200.0);
+  assert_eq!(b_fwd[1], 200.0);
+  assert_eq!(b_fwd[2], 400.0);
+  assert_eq!(b_fwd[3], 400.0);
+  assert!(b_fwd[4].is_nan());
+  assert_eq!(
+    joined_fwd.column("c").unwrap().data.get_int32().unwrap(),
+    &vec![2, 2, 4, 4, 0]
+  );
+}
+
+#[test]
+fn test_join_asof_non_zero_pk_column_and_d64() {
+  let mut left = table!(
+    { name: "val", kind: string, data: vec!["x", "y", "z"] },
+    { name: "ts", kind: datetime, data: vec![100i64, 200, 300] }
+  );
+  left
+    .set_field_meta("ts", "primary_key", v!(true))
+    .unwrap();
+
+  let d1: D64 = "12.34".parse().unwrap();
+  let d2: D64 = "56.78".parse().unwrap();
+  let mut right = table!(
+    { name: "price", kind: d64, data: vec![d1, d2] },
+    { name: "ts", kind: datetime, data: vec![100i64, 300] },
+    { name: "tag", kind: string, data: vec!["p1", "p2"] }
+  );
+  right
+    .set_field_meta("ts", "primary_key", v!(true))
+    .unwrap();
+
+  let joined_nan = left.join_asof(&right, FillMethod::Nan).unwrap();
+  assert_eq!(joined_nan.row_count(), 3);
+  assert_eq!(joined_nan.column_count(), 4);
+  let prices_nan = joined_nan
+    .column("price")
+    .unwrap()
+    .data
+    .get_decimal64()
+    .unwrap();
+  assert_eq!(prices_nan[0], d1);
+  assert!(prices_nan[1].is_nan());
+  assert_eq!(prices_nan[2], d2);
+  assert_eq!(
+    joined_nan.column("tag").unwrap().data.get_string().unwrap(),
+    &vec!["p1".to_string(), "".to_string(), "p2".to_string()]
+  );
+
+  let joined_zero = left.join_asof(&right, FillMethod::Zero).unwrap();
+  let prices_zero = joined_zero
+    .column("price")
+    .unwrap()
+    .data
+    .get_decimal64()
+    .unwrap();
+  assert_eq!(prices_zero[0], d1);
+  assert!(prices_zero[1].is_zero());
+  assert_eq!(prices_zero[1].dec_num(), 2);
+  assert_eq!(prices_zero[2], d2);
+}

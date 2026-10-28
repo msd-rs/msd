@@ -14,14 +14,19 @@ mod table_frame_v2;
 mod updater;
 mod variant;
 
-pub use csv::*;
+//pub use csv::*;
 pub use d64::{D64, D64_INF, D64_NAN};
 pub use date::*;
 pub use errors::TableError;
 pub use serde::csv::*;
 pub use serde::opt;
-pub use table::{DataType, Field, FieldRef, RowsTable, Series, SeriesRef, Table, TableRef};
+pub use table::{
+  DataType, Field, FieldRef, FillMethod, RowsTable, Series, SeriesRef, Table, TableRef,
+  joined_index,
+};
 pub use table_frame::*;
 pub use table_frame_v2::*;
 pub use updater::*;
 pub use variant::{Variant, VariantMutRef, VariantRef};
+
+pub use anyhow::{Result, anyhow, bail};

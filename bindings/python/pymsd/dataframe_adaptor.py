@@ -10,7 +10,7 @@ from typing import Any, Generator, Literal, Tuple, Generic, TypeAlias, TypeVar
 from .const import MsdTable, MsdTableFrame
 import numpy as np
 
-JoinMethod: TypeAlias = Literal["backward", "forward", "nearest", "zero", "nan"]
+JoinMethod: TypeAlias = Literal["backward", "forward",  "zero", "nan"]
 
 DF = TypeVar("DF")
 

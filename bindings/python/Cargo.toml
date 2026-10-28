@@ -10,7 +10,13 @@ name = "_msd"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = {version = "0.29", features = ["abi3", "extension-module"]}
-numpy = "0.29"
+pyo3 = { version = "0.30", features = ["abi3", "extension-module", "anyhow"] }
+numpy = "0.30"
 msd-request = { path = "../../msd-request" }
 msd-table = { path = "../../msd-table" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+tokio-stream = "0.1"
+reqwest = { version = "0.13", features = ["stream", "zstd", "json"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio-util = { version = "0.7", features = ["io"] }

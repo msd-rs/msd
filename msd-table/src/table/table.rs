@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Field, Series, TableError, Variant, VariantMutRef, VariantRef};
+use crate::{D64_NAN, Field, Series, TableError, Variant, VariantMutRef, VariantRef};
 
 pub const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 
@@ -546,15 +546,377 @@ impl Table {
       .and_then(|col| col.metadata.as_ref())
       .and_then(|meta| meta.get(key.as_ref()))
   }
-}
 
-impl Table {
   pub fn is_kv(&self) -> bool {
     self.is_kv
   }
 
   pub fn set_is_kv(&mut self, is_kv: bool) {
     self.is_kv = is_kv;
+  }
+}
+
+/// # Table join operation
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FillMethod {
+  #[default]
+  Zero,
+  Nan,
+  Backward,
+  Forward,
+}
+
+impl From<i32> for FillMethod {
+  fn from(value: i32) -> Self {
+    match value {
+      1 => Self::Nan,
+      2 => Self::Backward,
+      3 => Self::Forward,
+      _ => Self::Zero,
+    }
+  }
+}
+
+impl From<FillMethod> for i32 {
+  fn from(value: FillMethod) -> i32 {
+    match value {
+      FillMethod::Zero => 0,
+      FillMethod::Nan => 1,
+      FillMethod::Backward => 2,
+      FillMethod::Forward => 3,
+    }
+  }
+}
+
+impl From<&str> for FillMethod {
+  fn from(value: &str) -> Self {
+    match value {
+      "nan" => Self::Nan,
+      "backward" => Self::Backward,
+      "forward" => Self::Forward,
+      _ => Self::Zero,
+    }
+  }
+}
+
+impl From<String> for FillMethod {
+  fn from(value: String) -> Self {
+    Self::from(value.as_str())
+  }
+}
+
+impl From<&String> for FillMethod {
+  fn from(value: &String) -> Self {
+    Self::from(value.as_str())
+  }
+}
+
+impl From<FillMethod> for &'static str {
+  fn from(value: FillMethod) -> Self {
+    match value {
+      FillMethod::Zero => "zero",
+      FillMethod::Nan => "nan",
+      FillMethod::Backward => "backward",
+      FillMethod::Forward => "forward",
+    }
+  }
+}
+
+/// Join `left` and `right` according to `method`, and return in `result` the indices of `right` that match `left`.
+/// Both `left` and `right` are already sorted in ascending order.
+pub fn joined_index<T>(left: &[T], right: &[T], method: FillMethod, result: &mut Vec<usize>)
+where
+  T: PartialOrd + PartialEq,
+{
+  if result.len() != left.len() {
+    result.resize(left.len(), usize::MAX);
+  }
+
+  if left.is_empty() {
+    return;
+  }
+
+  if right.is_empty() {
+    result.fill(usize::MAX);
+    return;
+  }
+
+  match method {
+    FillMethod::Backward => joined_index_backward(left, right, result),
+    FillMethod::Forward => joined_index_forward(left, right, result),
+    FillMethod::Zero | FillMethod::Nan => joined_index_exact(left, right, result),
+  }
+}
+
+#[inline]
+fn joined_index_backward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [usize]) {
+  let right_len = right.len();
+  let mut curr: Option<usize> = None;
+
+  for (x, out) in left.iter().zip(result.iter_mut()) {
+    if x.partial_cmp(x).is_none() {
+      *out = usize::MAX;
+      continue;
+    }
+
+    let mut cand = match curr {
+      Some(c) if right[c] <= *x => c,
+      _ => {
+        if right[0] > *x {
+          *out = usize::MAX;
+          continue;
+        }
+        0
+      }
+    };
+
+    if cand + 1 < right_len && right[cand + 1] <= *x {
+      cand += 1;
+      if cand + 1 < right_len && right[cand + 1] <= *x {
+        cand += 1;
+        let mut step = 2usize;
+        while cand + step < right_len && right[cand + step] <= *x {
+          cand += step;
+          step = step.saturating_mul(2);
+        }
+        let upper = (cand + step).min(right_len);
+        let offset = right[cand + 1..upper].partition_point(|r| r <= x);
+        cand += offset;
+      }
+    }
+
+    *out = cand;
+    curr = Some(cand);
+  }
+}
+
+#[inline]
+fn joined_index_exact<T: PartialOrd + PartialEq>(left: &[T], right: &[T], result: &mut [usize]) {
+  let right_len = right.len();
+  let mut curr: Option<usize> = None;
+
+  for (x, out) in left.iter().zip(result.iter_mut()) {
+    if x.partial_cmp(x).is_none() {
+      *out = usize::MAX;
+      continue;
+    }
+
+    let mut cand = match curr {
+      Some(c) if right[c] <= *x => c,
+      _ => {
+        if right[0] > *x {
+          *out = usize::MAX;
+          continue;
+        }
+        0
+      }
+    };
+
+    if cand + 1 < right_len && right[cand + 1] <= *x {
+      cand += 1;
+      if cand + 1 < right_len && right[cand + 1] <= *x {
+        cand += 1;
+        let mut step = 2usize;
+        while cand + step < right_len && right[cand + step] <= *x {
+          cand += step;
+          step = step.saturating_mul(2);
+        }
+        let upper = (cand + step).min(right_len);
+        let offset = right[cand + 1..upper].partition_point(|r| r <= x);
+        cand += offset;
+      }
+    }
+
+    curr = Some(cand);
+    if right[cand] == *x {
+      *out = cand;
+    } else {
+      *out = usize::MAX;
+    }
+  }
+}
+
+#[inline]
+fn joined_index_forward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [usize]) {
+  let right_len = right.len();
+  let mut curr = 0usize;
+
+  for (x, out) in left.iter().zip(result.iter_mut()) {
+    if x.partial_cmp(x).is_none() {
+      *out = usize::MAX;
+      continue;
+    }
+
+    if curr >= right_len {
+      *out = usize::MAX;
+      continue;
+    }
+
+    if right[curr] >= *x {
+      *out = curr;
+      continue;
+    }
+
+    if curr + 1 >= right_len {
+      curr = right_len;
+      *out = usize::MAX;
+      continue;
+    }
+    if right[curr + 1] >= *x {
+      curr += 1;
+      *out = curr;
+      continue;
+    }
+
+    if curr + 2 >= right_len {
+      curr = right_len;
+      *out = usize::MAX;
+      continue;
+    }
+    if right[curr + 2] >= *x {
+      curr += 2;
+      *out = curr;
+      continue;
+    }
+
+    let mut step = 4usize;
+    curr += 2;
+    while curr + step < right_len && right[curr + step] < *x {
+      curr += step;
+      step = step.saturating_mul(2);
+    }
+
+    let upper = (curr + step).min(right_len);
+    let offset = right[curr + 1..upper].partition_point(|r| r < x);
+    let found = curr + 1 + offset;
+
+    if found < right_len && right[found] >= *x {
+      curr = found;
+      *out = found;
+    } else {
+      curr = right_len;
+      *out = usize::MAX;
+    }
+  }
+}
+
+fn select_with_fill<T: Clone>(data: &[T], indices: &[usize], fill_val: T) -> Vec<T> {
+  let mut result = Vec::with_capacity(indices.len());
+  for &i in indices {
+    if let Some(val) = data.get(i) {
+      result.push(val.clone());
+    } else {
+      result.push(fill_val.clone());
+    }
+  }
+  result
+}
+
+fn select_series_with_fill(series: &Series, indices: &[usize], fill: FillMethod) -> Series {
+  let use_zero = matches!(fill, FillMethod::Zero);
+  match series {
+    Series::Null => Series::Null,
+    Series::String(v) => Series::String(select_with_fill(v, indices, String::new())),
+    Series::Bytes(v) => Series::Bytes(select_with_fill(v, indices, Vec::new())),
+    Series::Int32(v) => Series::Int32(select_with_fill(v, indices, 0)),
+    Series::UInt32(v) => Series::UInt32(select_with_fill(v, indices, 0)),
+    Series::Int64(v) => Series::Int64(select_with_fill(v, indices, 0)),
+    Series::UInt64(v) => Series::UInt64(select_with_fill(v, indices, 0)),
+    Series::Float32(v) => {
+      let fill_val = if use_zero { 0.0 } else { f32::NAN };
+      Series::Float32(select_with_fill(v, indices, fill_val))
+    }
+    Series::Float64(v) => {
+      let fill_val = if use_zero { 0.0 } else { f64::NAN };
+      Series::Float64(select_with_fill(v, indices, fill_val))
+    }
+    Series::Decimal64(v) => {
+      let fill_val = if use_zero {
+        v.iter()
+          .find(|d| !d.is_nan() && !d.is_inf())
+          .map(|d| d.to_zero())
+          .unwrap_or_default()
+      } else {
+        D64_NAN
+      };
+      Series::Decimal64(select_with_fill(v, indices, fill_val))
+    }
+    Series::Bool(v) => Series::Bool(select_with_fill(v, indices, false)),
+    Series::DateTime(v) => Series::DateTime(select_with_fill(v, indices, 0)),
+  }
+}
+
+impl Table {
+  /// concat right table to self in horizontal order
+  /// it required self and right has same rows count,
+  /// join just append `right` columns to self.
+  /// after join, right will be consumed
+  pub fn h_concat(&mut self, right: Table) -> Result<(), Table> {
+    if self.row_count() != right.row_count() {
+      return Err(right);
+    }
+    for col in right.columns.into_iter() {
+      self.columns.push(col);
+    }
+    Ok(())
+  }
+  /// concat right table to self in vertical order
+  /// it required self and right has same columns count,
+  /// join just append `right` columns to self.
+  /// after join, right will be consumed
+  pub fn v_concat(&mut self, right: &Table) -> Result<(), TableError> {
+    self.extend(right, false)
+  }
+
+  pub fn join_asof(&self, other: &Table, fill: FillMethod) -> Result<Table, TableError> {
+    if self.columns.is_empty() || other.columns.is_empty() {
+      return Ok(self.clone());
+    }
+
+    let self_pk_idx = self.pk_column();
+    let other_pk_idx = other.pk_column();
+    let self_pk = &self.columns[self_pk_idx];
+    let other_pk = &other.columns[other_pk_idx];
+
+    if self_pk.kind != other_pk.kind {
+      return Err(TableError::TypeMismatch(self_pk.kind, other_pk.kind));
+    }
+
+    let mut indices = Vec::with_capacity(self.row_count());
+    match (&self_pk.data, &other_pk.data) {
+      (Series::Null, Series::Null) => indices.resize(self.row_count(), usize::MAX),
+      (Series::DateTime(l), Series::DateTime(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Int64(l), Series::Int64(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Float64(l), Series::Float64(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Decimal64(l), Series::Decimal64(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::String(l), Series::String(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Bool(l), Series::Bool(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Int32(l), Series::Int32(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::UInt32(l), Series::UInt32(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::UInt64(l), Series::UInt64(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Float32(l), Series::Float32(r)) => joined_index(l, r, fill, &mut indices),
+      (Series::Bytes(l), Series::Bytes(r)) => joined_index(l, r, fill, &mut indices),
+      (a, b) => return Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+    }
+
+    let mut columns = Vec::with_capacity(self.column_count() + other.column_count() - 1);
+    columns.extend(self.columns.iter().cloned());
+
+    for (idx, col) in other.columns.iter().enumerate() {
+      if idx == other_pk_idx {
+        continue;
+      }
+      let data = select_series_with_fill(&col.data, &indices, fill);
+      columns.push(col.with_data(data));
+    }
+
+    Ok(Self {
+      version: self.version,
+      columns,
+      metadata: self.metadata.clone(),
+      is_kv: self.is_kv,
+    })
   }
 }
 
