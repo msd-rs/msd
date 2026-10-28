@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.1.21] - 2026-10-28
+
+### Added
+
+- Support for configuring maximum retained daily log files via `--log-max-days` CLI argument or `MSD_LOG_MAX_DAYS` environment variable.
+- Native high-performance HTTP client `MsdConnection` in Python bindings using Tokio and Reqwest:
+  - `query`: executes queries and parses streamed table frames directly in Rust into `{obj: {table_name: Table}}`.
+  - `query_join`: queries and performs as-of joins across multiple tables directly in Rust.
+  - `snapshot`: captures latest snapshots of multiple tables across objects with support for single objects, wildcards (`*`), and KV table lookups (`@table:key`).
+- Native Python `Table` wrapper offering fast cell access and zero-copy conversion to NumPy data via `to_dict()` and `to_list()`.
+- Table operations in `msd-table`: horizontal concatenation (`h_concat`), vertical concatenation (`v_concat`), and `join_asof` with configurable fill methods (`Zero`, `Nan`, `Backward`, `Forward`).
+- Worker batch query execution (`BatchQuery` / `query_batch`) in `msd-db`, batching large object query sets by worker to improve throughput and concurrency.
+- `Server-Timing` HTTP response header reporting database query duration (`db`), serialization duration (`enc`), and total processing time (`total`).
+- Streaming table serialization utilities `write_table_to` and `write_table_v2_to` in `msd-table`.
+
+### Changed
+
+- Server query handler now streams and encodes results progressively instead of buffering all tables in memory.
+- Shell query CLI displays `Server-Timing` metrics and optimizes multi-table streaming display with single header rendering and buffered printing.
+- Upgraded Python binding dependencies `pyo3` and `numpy` to `0.30`.
+- Updated default Docker container listen port to `20510`.
+
 ## [0.1.20] - 2026-10-23
 
 ### Added
