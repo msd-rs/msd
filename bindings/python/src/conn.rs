@@ -177,7 +177,7 @@ impl PyMsdConnection {
       let table_clone = table.clone();
       let delim_clone = delimiter.clone();
       get_runtime().spawn(async move {
-        let res = conn.import_csv(&table_clone, body, header, delim_clone.as_deref());
+        let res = conn.async_import_csv(&table_clone, body, header, delim_clone.as_deref()).await;
         let _ = resp_tx.send(res);
       });
 
@@ -225,7 +225,7 @@ impl PyMsdConnection {
     let conn = self.inner.clone();
     let table_clone = table.clone();
     get_runtime().spawn(async move {
-      let res = conn.import_table(&table_clone, body);
+      let res = conn.async_import_table(&table_clone, body).await;
       let _ = resp_tx.send(res);
     });
 
@@ -571,10 +571,10 @@ impl MsdConnection {
     Ok(())
   }
 
-  fn import_csv(
+  async fn async_import_csv(
     &self,
     table: &str,
-    body: impl Into<reqwest::Body>,
+    body: reqwest::Body,
     header: bool,
     delimiter: Option<&str>,
   ) -> Result<serde_json::Value> {
@@ -583,11 +583,34 @@ impl MsdConnection {
     if let Some(d) = delimiter {
       url.push_str(&format!("&delimiter={}", d));
     }
+    put_import(self.clone(), url, "text/csv", body).await
+  }
+
+  async fn async_import_table(
+    &self,
+    table: &str,
+    body: reqwest::Body,
+  ) -> Result<serde_json::Value> {
+    let url = format!("{}/table/{}", self.url, table);
+    put_import(self.clone(), url, "application/x-msd-table-frame", body).await
+  }
+
+  fn import_csv(
+    &self,
+    table: &str,
+    body: impl Into<reqwest::Body>,
+    header: bool,
+    delimiter: Option<&str>,
+  ) -> Result<serde_json::Value> {
     let (tx, rx) = oneshot::channel();
     let conn = self.clone();
+    let table = table.to_string();
+    let delimiter = delimiter.map(|s| s.to_string());
     let body = body.into();
     get_runtime().spawn(async move {
-      let result = put_import(conn, url, "text/csv", body).await;
+      let result = conn
+        .async_import_csv(&table, body, header, delimiter.as_deref())
+        .await;
       let _ = tx.send(result);
     });
     if let Ok(res) = rx.blocking_recv() {
@@ -602,12 +625,12 @@ impl MsdConnection {
     table: &str,
     body: impl Into<reqwest::Body>,
   ) -> Result<serde_json::Value> {
-    let url = format!("{}/table/{}", self.url, table);
     let (tx, rx) = oneshot::channel();
     let conn = self.clone();
+    let table = table.to_string();
     let body = body.into();
     get_runtime().spawn(async move {
-      let result = put_import(conn, url, "application/x-msd-table-frame", body).await;
+      let result = conn.async_import_table(&table, body).await;
       let _ = tx.send(result);
     });
     if let Ok(res) = rx.blocking_recv() {
