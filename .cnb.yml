@@ -18,6 +18,12 @@ v*:
           script: grep -o '^version = "[0-9.]*"' Cargo.toml | sed 's/version = "//' | sed 's/"$//'
           exports:
             info: MSD_VERSION
+        - name: download github
+          script:
+            - mkdir github
+            - curl -L -o github/msd-aarch64-apple-darwin.tar.gz https://github.com/msd-rs/msd/releases/download/v${MSD_VERSION}/msd-aarch64-apple-darwin.tar.gz
+            - curl -L -o github/msd-x86_64-unknown-linux-gnu.tar.gz https://github.com/msd-rs/msd/releases/download/v${MSD_VERSION}/msd-x86_64-unknown-linux-gnu.tar.gz
+            - curl -L -o github/msd-x86_64-pc-windows-msvc.zip https://github.com/msd-rs/msd/releases/download/v${MSD_VERSION}/msd-x86_64-pc-windows-msvc.zip
         - name: build
           script:
             - make release
@@ -36,6 +42,7 @@ v*:
             attachments:
               - "./msd-${MSD_VERSION}.zip"
               - "./target/wheels/pymsd-${MSD_VERSION}-*.whl"
+              - "./github/*"
           exports:
             FILES: FILES
         - name: set docker tag
