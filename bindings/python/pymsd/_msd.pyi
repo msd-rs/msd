@@ -1,5 +1,6 @@
-from typing import Any, Callable, Tuple
-from .const import MsdTable
+from typing import Any, BinaryIO, Callable, Iterable, Tuple
+from pathlib import Path
+from .const import MsdTable, MsdTableFrame
 import numpy as np
 
 def pack_table_frame(obj: str, table: MsdTable, decimal_fields: dict[str, int] | None = None) -> bytes:
@@ -136,5 +137,56 @@ class MsdConnection:
     Args:
       tables: List of table names or 'name: field1, field2'.
       objects: List of objects (single, wildcard pattern, or block like '@stock_block:...').
+    """
+    ...
+
+  def import_csv(
+    self,
+    table: str,
+    data: BinaryIO | bytes | bytearray | str | Path,
+    header: bool = ...,
+    delimiter: str | None = ...,
+  ) -> dict[str, Any]:
+    """
+    Import CSV data into an MSD table.
+
+    Args:
+      table: The name of the table to import data to.
+      data: CSV data to import (bytes, file-like object with read(), file path string, or Path).
+      header: Whether the CSV data contains a header row. Defaults to True.
+      delimiter: Optional CSV delimiter character.
+
+    Returns:
+      Dict containing import statistics (e.g. total_rows, time_used_ms, rows_per_sec).
+    """
+    ...
+
+  def import_dataframes(
+    self,
+    table: str,
+    data: Iterable[MsdTableFrame | bytes] | MsdTableFrame,
+    decimal_fields: dict[str, int] | None = ...,
+  ) -> dict[str, Any]:
+    """
+    Import dataframes or table frames into an MSD table.
+
+    Args:
+      table: The name of the table to import data to.
+      data: Iterable of (object name, dataframe) tuples, single (object name, dataframe) tuple, or pre-packed bytes.
+      decimal_fields: Optional dictionary mapping decimal field names to scale.
+
+    Returns:
+      Dict containing import statistics (e.g. total_rows, time_used_ms, rows_per_sec).
+    """
+    ...
+
+  def import_dataframe(
+    self,
+    table: str,
+    data: Iterable[MsdTableFrame | bytes] | MsdTableFrame,
+    decimal_fields: dict[str, int] | None = ...,
+  ) -> dict[str, Any]:
+    """
+    Alias for import_dataframes.
     """
     ...

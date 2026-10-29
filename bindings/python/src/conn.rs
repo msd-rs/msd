@@ -27,6 +27,8 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::bytes::Bytes;
 
 use crate::py_table::table_to_py_dict;
 use crate::py_table::table_to_py_list;
@@ -120,6 +122,192 @@ impl PyMsdConnection {
       Ok(())
     })?;
     Ok(())
+  }
+
+  /// import csv data to msd table
+  /// data can be bytes, a file path string, Path object, or a file-like object with read()
+  #[pyo3(signature = (table, data, header = true, delimiter = None))]
+  fn import_csv<'py>(
+    &self,
+    py: Python<'py>,
+    table: String,
+    data: Bound<'py, PyAny>,
+    header: bool,
+    delimiter: Option<String>,
+  ) -> PyResult<Bound<'py, PyAny>> {
+    // 1. If data is bytes or bytearray:
+    if let Ok(bytes) = data.extract::<&[u8]>() {
+      let json = self.inner.import_csv(
+        &table,
+        bytes.to_vec(),
+        header,
+        delimiter.as_deref(),
+      )?;
+      return json_to_py(py, json);
+    }
+
+    // 2. If data is a file path string or PathLike:
+    let path_opt: Option<String> = if let Ok(path) = data.extract::<String>() {
+      Some(path)
+    } else if let Ok(fspath) = data.call_method0("__fspath__") {
+      fspath.extract::<String>().ok()
+    } else {
+      None
+    };
+
+    if let Some(path) = path_opt {
+      let bytes = std::fs::read(&path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("failed to read file: {e}")))?;
+      let json = self.inner.import_csv(
+        &table,
+        bytes,
+        header,
+        delimiter.as_deref(),
+      )?;
+      return json_to_py(py, json);
+    }
+
+    // 3. If data is a file-like object with .read():
+    if data.hasattr("read")? {
+      let (tx, rx) = mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(4);
+      let body = reqwest::Body::wrap_stream(ReceiverStream::new(rx));
+
+      let (resp_tx, resp_rx) = oneshot::channel();
+      let conn = self.inner.clone();
+      let table_clone = table.clone();
+      let delim_clone = delimiter.clone();
+      get_runtime().spawn(async move {
+        let res = conn.import_csv(&table_clone, body, header, delim_clone.as_deref());
+        let _ = resp_tx.send(res);
+      });
+
+      loop {
+        let chunk = data.call_method1("read", (64 * 1024,))?;
+        let bytes = chunk.extract::<&[u8]>()?;
+        if bytes.is_empty() {
+          break;
+        }
+        if tx.blocking_send(Ok(Bytes::copy_from_slice(bytes))).is_err() {
+          break;
+        }
+      }
+      drop(tx);
+
+      let res = if let Ok(r) = resp_rx.blocking_recv() {
+        r?
+      } else {
+        return Err(pyo3::exceptions::PyRuntimeError::new_err(
+          "internal error during import",
+        ));
+      };
+      return json_to_py(py, res);
+    }
+
+    Err(PyTypeError::new_err(
+      "data must be bytes, a file-like object, or a file path string",
+    ))
+  }
+
+  /// import dataframes or table frames to msd table
+  /// data can be an iterator of (obj_name, df), a single (obj_name, df) tuple, or bytes
+  #[pyo3(signature = (table, data, decimal_fields = None))]
+  fn import_dataframes<'py>(
+    &self,
+    py: Python<'py>,
+    table: String,
+    data: Bound<'py, PyAny>,
+    decimal_fields: Option<Bound<'py, PyAny>>,
+  ) -> PyResult<Bound<'py, PyAny>> {
+    let (tx, rx) = mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(4);
+    let body = reqwest::Body::wrap_stream(ReceiverStream::new(rx));
+
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let conn = self.inner.clone();
+    let table_clone = table.clone();
+    get_runtime().spawn(async move {
+      let res = conn.import_table(&table_clone, body);
+      let _ = resp_tx.send(res);
+    });
+
+    let pack_dataframe = py.import("pymsd.pack")?.getattr("pack_dataframe")?;
+
+    let is_single = if let Ok(tuple) = data.cast::<pyo3::types::PyTuple>() {
+      tuple.len() == 2
+        && tuple
+          .get_item(0)
+          .map_or(false, |x| x.is_instance_of::<PyString>())
+    } else {
+      false
+    };
+
+    let pack_item = |item: &Bound<'py, PyAny>| -> PyResult<Vec<u8>> {
+      if let Ok(b) = item.extract::<&[u8]>() {
+        Ok(b.to_vec())
+      } else if let Ok(tuple) = item.cast::<pyo3::types::PyTuple>() {
+        let obj = tuple.get_item(0)?;
+        let df = tuple.get_item(1)?;
+        if let Ok(py_table) = df.extract::<pyo3::PyRef<PyTable>>() {
+          let mut table = py_table.inner.clone();
+          let obj_str = obj.extract::<String>()?;
+          let _ = table.set_table_meta("obj", obj_str.into());
+          Ok(msd_table::pack_table_frame(&table))
+        } else {
+          let packed = pack_dataframe.call1((obj, df, &decimal_fields))?;
+          Ok(packed.extract::<Vec<u8>>()?)
+        }
+      } else if let Ok(list) = item.cast::<PyList>() {
+        let obj = list.get_item(0)?;
+        let df = list.get_item(1)?;
+        if let Ok(py_table) = df.extract::<pyo3::PyRef<PyTable>>() {
+          let mut table = py_table.inner.clone();
+          let obj_str = obj.extract::<String>()?;
+          let _ = table.set_table_meta("obj", obj_str.into());
+          Ok(msd_table::pack_table_frame(&table))
+        } else {
+          let packed = pack_dataframe.call1((obj, df, &decimal_fields))?;
+          Ok(packed.extract::<Vec<u8>>()?)
+        }
+      } else {
+        Err(PyTypeError::new_err(
+          "each item must be a tuple of (obj_name, dataframe) or bytes",
+        ))
+      }
+    };
+
+    if is_single {
+      let bytes_vec = pack_item(&data)?;
+      let _ = tx.blocking_send(Ok(Bytes::from(bytes_vec)));
+    } else {
+      let iter = data.try_iter()?;
+      for item_res in iter {
+        let item = item_res?;
+        let bytes_vec = pack_item(&item)?;
+        if tx.blocking_send(Ok(Bytes::from(bytes_vec))).is_err() {
+          break;
+        }
+      }
+    }
+    drop(tx);
+
+    let res = if let Ok(r) = resp_rx.blocking_recv() {
+      r?
+    } else {
+      return Err(pyo3::exceptions::PyRuntimeError::new_err(
+        "internal error during import",
+      ));
+    };
+    json_to_py(py, res)
+  }
+
+  #[pyo3(signature = (table, data, decimal_fields = None))]
+  fn import_dataframe<'py>(
+    &self,
+    py: Python<'py>,
+    table: String,
+    data: Bound<'py, PyAny>,
+    decimal_fields: Option<Bound<'py, PyAny>>,
+  ) -> PyResult<Bound<'py, PyAny>> {
+    self.import_dataframes(py, table, data, decimal_fields)
   }
 }
 
@@ -383,6 +571,52 @@ impl MsdConnection {
     Ok(())
   }
 
+  fn import_csv(
+    &self,
+    table: &str,
+    body: impl Into<reqwest::Body>,
+    header: bool,
+    delimiter: Option<&str>,
+  ) -> Result<serde_json::Value> {
+    let skip = if header { 1 } else { 0 };
+    let mut url = format!("{}/table/{}?skip={}", self.url, table, skip);
+    if let Some(d) = delimiter {
+      url.push_str(&format!("&delimiter={}", d));
+    }
+    let (tx, rx) = oneshot::channel();
+    let conn = self.clone();
+    let body = body.into();
+    get_runtime().spawn(async move {
+      let result = put_import(conn, url, "text/csv", body).await;
+      let _ = tx.send(result);
+    });
+    if let Ok(res) = rx.blocking_recv() {
+      res
+    } else {
+      bail!("internal error during import")
+    }
+  }
+
+  fn import_table(
+    &self,
+    table: &str,
+    body: impl Into<reqwest::Body>,
+  ) -> Result<serde_json::Value> {
+    let url = format!("{}/table/{}", self.url, table);
+    let (tx, rx) = oneshot::channel();
+    let conn = self.clone();
+    let body = body.into();
+    get_runtime().spawn(async move {
+      let result = put_import(conn, url, "application/x-msd-table-frame", body).await;
+      let _ = tx.send(result);
+    });
+    if let Ok(res) = rx.blocking_recv() {
+      res
+    } else {
+      bail!("internal error during import")
+    }
+  }
+
   fn snapshot_sql(&self, tables: &Vec<String>, objects: &Vec<String>) -> String {
     let objects_where = if objects.is_empty() {
       "".to_string()
@@ -510,6 +744,65 @@ async fn query_msd_stream(
   Ok(())
 }
 
+async fn put_import(
+  conn: MsdConnection,
+  url: String,
+  content_type: &'static str,
+  body: reqwest::Body,
+) -> Result<serde_json::Value> {
+  let req = conn
+    .client
+    .put(&url)
+    .header(reqwest::header::CONTENT_TYPE, content_type)
+    .body(body);
+
+  let resp = req.send().await?;
+  if !resp.status().is_success() {
+    let status = resp.status();
+    let txt = resp.text().await.unwrap_or_default();
+    bail!("Import failed: {} - {}", status, txt);
+  }
+  let txt = resp.text().await.unwrap_or_default();
+  if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+    Ok(json)
+  } else {
+    Ok(serde_json::json!({ "response": txt }))
+  }
+}
+
+fn json_to_py<'py>(py: Python<'py>, value: serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
+  match value {
+    serde_json::Value::Null => Ok(PyNone::get(py).to_owned().into_any()),
+    serde_json::Value::Bool(b) => Ok(PyBool::new(py, b).to_owned().into_any()),
+    serde_json::Value::Number(n) => {
+      if let Some(i) = n.as_i64() {
+        Ok(PyInt::new(py, i).into_any())
+      } else if let Some(u) = n.as_u64() {
+        Ok(PyInt::new(py, u).into_any())
+      } else if let Some(f) = n.as_f64() {
+        Ok(PyFloat::new(py, f).into_any())
+      } else {
+        Ok(PyNone::get(py).to_owned().into_any())
+      }
+    }
+    serde_json::Value::String(s) => Ok(PyString::new(py, &s).into_any()),
+    serde_json::Value::Array(arr) => {
+      let list = PyList::empty(py);
+      for item in arr {
+        list.append(json_to_py(py, item)?)?;
+      }
+      Ok(list.into_any())
+    }
+    serde_json::Value::Object(obj) => {
+      let dict = PyDict::new(py);
+      for (k, v) in obj {
+        dict.set_item(k, json_to_py(py, v)?)?;
+      }
+      Ok(dict.into_any())
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -581,6 +874,96 @@ mod tests {
     assert_eq!(received.len(), 2);
     assert_eq!(received[0], ("obj1".to_string(), "table1".to_string()));
     assert_eq!(received[1], ("obj2".to_string(), "table2".to_string()));
+
+    get_runtime().block_on(handle).unwrap();
+  }
+
+  #[test]
+  fn test_import_csv() {
+    unsafe {
+      std::env::set_var("no_proxy", "127.0.0.1,localhost");
+      std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
+    }
+
+    let (url, handle) = get_runtime().block_on(async {
+      let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let port = listener.local_addr().unwrap().port();
+      let url = format!("http://127.0.0.1:{}", port);
+
+      let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req_buf = vec![0u8; 1024];
+        let n = socket.read(&mut req_buf).await.unwrap();
+        let req_str = String::from_utf8_lossy(&req_buf[..n]);
+        assert!(req_str.starts_with("PUT /table/my_table?skip=1"));
+        assert!(req_str.contains("content-type: text/csv"));
+
+        let resp_body = r#"{"total_rows":5,"time_used_ms":10,"rows_per_sec":500}"#;
+        let resp = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+          resp_body.len(),
+          resp_body
+        );
+        socket.write_all(resp.as_bytes()).await.unwrap();
+      });
+
+      (url, handle)
+    });
+
+    let conn = MsdConnection::new(&url, "", false).unwrap();
+    let csv_data = b"col1,col2\n1,2\n3,4\n5,6\n7,8\n9,10\n".to_vec();
+    let res = conn.import_csv("my_table", csv_data, true, None).unwrap();
+    assert_eq!(res["total_rows"], 5);
+    assert_eq!(res["time_used_ms"], 10);
+    assert_eq!(res["rows_per_sec"], 500);
+
+    get_runtime().block_on(handle).unwrap();
+  }
+
+  #[test]
+  fn test_import_table() {
+    unsafe {
+      std::env::set_var("no_proxy", "127.0.0.1,localhost");
+      std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
+    }
+
+    let (url, handle) = get_runtime().block_on(async {
+      let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let port = listener.local_addr().unwrap().port();
+      let url = format!("http://127.0.0.1:{}", port);
+
+      let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req_buf = vec![0u8; 1024];
+        let n = socket.read(&mut req_buf).await.unwrap();
+        let req_str = String::from_utf8_lossy(&req_buf[..n]);
+        assert!(req_str.starts_with("PUT /table/my_table"));
+        assert!(req_str.contains("content-type: application/x-msd-table-frame"));
+
+        let resp_body = r#"{"total_rows":10,"time_used_ms":15,"rows_per_sec":667}"#;
+        let resp = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+          resp_body.len(),
+          resp_body
+        );
+        socket.write_all(resp.as_bytes()).await.unwrap();
+      });
+
+      (url, handle)
+    });
+
+    let conn = MsdConnection::new(&url, "", false).unwrap();
+    let mut t = Table::from_columns(vec![Field::new_with_data(
+      "col1",
+      DataType::Int64,
+      vec![1i64, 2i64].into(),
+    )]);
+    let _ = t.set_table_meta("table", "my_table".into());
+    let frame = pack_table_frame(&t);
+    let res = conn.import_table("my_table", frame).unwrap();
+    assert_eq!(res["total_rows"], 10);
+    assert_eq!(res["time_used_ms"], 15);
+    assert_eq!(res["rows_per_sec"], 667);
 
     get_runtime().block_on(handle).unwrap();
   }

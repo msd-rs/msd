@@ -3,9 +3,8 @@
 
 
 from typing import BinaryIO, Iterator
-from .const import MSD_IMPORT_PATH, MSD_USER_AGENT
-from .pack import pack_dataframe
 from .dataframe_adaptor import MsdTableFrame
+from ._msd import MsdConnection
 
 
 def import_csv(
@@ -23,29 +22,12 @@ def import_csv(
   Returns:
     dict: The result of the import operation.
   """
-  try:
-    import requests
-  except ImportError:
-    raise ImportError("requests is required for msd_import_csv")
-
-  skip = 1 if header else 0
-  endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}?skip={skip}"
-  response = requests.put(
-    endpoint,
-    data=data,
-    headers={
-      "User-Agent": MSD_USER_AGENT,
-      "Content-Type": "text/csv",
-    },
-  )
-  if response.status_code != 200:
-    raise Exception(f"Import failed: {response.text}")
-
-  return response.json()
+  conn = MsdConnection(baseURL)
+  return conn.import_csv(table_name, data, header=header)
 
 
 def import_dataframes(
-  baseURL: str, table_name: str, data: Iterator[MsdTableFrame], decimal_fields: dict|None = None
+  baseURL: str, table_name: str, data: Iterator[MsdTableFrame], decimal_fields: dict | None = None
 ) -> dict:
   """
   Import data from a generator of (object name, data) to msd.
@@ -58,21 +40,5 @@ def import_dataframes(
   Returns:
     dict: The result of the import operation.
   """
-  try:
-    import requests
-  except ImportError:
-    raise ImportError("requests is required for msd_import_csv")
-
-  endpoint = f"{baseURL}{MSD_IMPORT_PATH.format(table_name=table_name)}"
-  response = requests.put(
-    endpoint,
-    data=map(lambda x: pack_dataframe(x[0], x[1], decimal_fields), data),
-    headers={
-      "User-Agent": MSD_USER_AGENT,
-      "Content-Type": "application/x-msd-table-frame",
-    },
-  )
-  if response.status_code != 200:
-    raise Exception(f"Import failed: {response.text}")
-
-  return response.json()
+  conn = MsdConnection(baseURL)
+  return conn.import_dataframes(table_name, data, decimal_fields=decimal_fields)
