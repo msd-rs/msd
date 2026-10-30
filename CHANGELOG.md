@@ -5,16 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.22] - 2026-10-30
-
-### Add
-
-- Python: query_map stream each result table to a handler
-
-### Fix
-- Python: Native import blocking
+## [0.1.23] - 2026-10-30
 
 ### Added
+
+- Python: Add `MsdConnection.import_table` to import table frame data directly from `Table` instances, raw bytes, file paths (`str` / `Path`), or streaming readers.
+- Python: `MsdConnection.snapshot` now supports table timestamp filtering with `name[@ts.part=n][:fields]` syntax.
+- SQL: Support timestamp feature filters in `WHERE` clause (e.g., `ts.year`, `ts.month`, `ts.day`, `ts.hour`, `ts.minute`, `ts.second`, `ts.weekday`, date functions like `month(ts)`, and `EXTRACT`).
+
+## [0.1.22] - 2026-10-30
+
+### Added
+
+- Python: `query_map` streams each result table to a handler callback.
+
+### Fixed
+
+- Python: Fix blocking behavior in native dataframe import.
 
 ## [0.1.21] - 2026-10-29
 
