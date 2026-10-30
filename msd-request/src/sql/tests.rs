@@ -334,3 +334,48 @@ fn test_sql_parse_comment() -> Result<()> {
 
   Ok(())
 }
+
+#[test]
+fn test_sql_parse_query_ts_features() -> Result<()> {
+  let sql = r#"
+  SELECT ts, close
+  FROM kline1d
+  WHERE obj = 'SH600000' AND year(ts) = 2023 AND month(ts) = 12 AND ts.day = 15 AND hour(ts) = 9
+  "#;
+  let req = super::sql_to_request(sql)?;
+  assert_eq!(req.len(), 1);
+  match &req[0] {
+    super::SqlRequest::Query(query_req) => {
+      assert_eq!(query_req.key.table, "kline1d");
+      assert_eq!(query_req.key.obj, "SH600000");
+      assert_eq!(query_req.date_range.year, Some(2023));
+      assert_eq!(query_req.date_range.month, Some(12));
+      assert_eq!(query_req.date_range.day, Some(15));
+      assert_eq!(query_req.date_range.hour, Some(9));
+
+      let ts_match = parse_datetime("2023-12-15 09:30:00")?;
+      let ts_wrong_month = parse_datetime("2023-11-15 09:30:00")?;
+      let ts_wrong_day = parse_datetime("2023-12-16 09:30:00")?;
+      assert!(query_req.in_range(ts_match));
+      assert!(!query_req.in_range(ts_wrong_month));
+      assert!(!query_req.in_range(ts_wrong_day));
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  let sql_extract = "SELECT * FROM kline1d WHERE EXTRACT(MONTH FROM ts) = 12 AND weekday(ts) = 5";
+  let req = super::sql_to_request(sql_extract)?;
+  match &req[0] {
+    super::SqlRequest::Query(query_req) => {
+      assert_eq!(query_req.date_range.month, Some(12));
+      assert_eq!(query_req.date_range.weekday, Some(5));
+      // 2023-12-15 is Friday (5)
+      assert!(query_req.in_range(parse_datetime("2023-12-15 10:00:00")?));
+      // 2023-12-16 is Saturday (6)
+      assert!(!query_req.in_range(parse_datetime("2023-12-16 10:00:00")?));
+    }
+    _ => panic!("Expected Query request"),
+  }
+
+  Ok(())
+}

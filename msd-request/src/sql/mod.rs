@@ -580,14 +580,15 @@ fn parse_filter_common(
         return Ok(());
       }
 
-      match (*left, *right) {
-        (Expr::Identifier(ident), right_expr) => {
-          apply_predicate_common(ident, op, right_expr, obj, date_range)?;
+      match expr_to_filter_ident(*left) {
+        Ok(ident) => {
+          apply_predicate_common(ident, op, *right, obj, date_range)?;
         }
-        (left_expr, Expr::Identifier(ident)) => {
-          apply_predicate_common(ident, op, left_expr, obj, date_range)?;
+        Err(left_expr) => {
+          if let Ok(ident) = expr_to_filter_ident(*right) {
+            apply_predicate_common(ident, op, left_expr, obj, date_range)?;
+          }
         }
-        _ => {}
       }
       Ok(())
     }
@@ -602,6 +603,20 @@ fn parse_filter_common(
       Ok(())
     }
     _ => Ok(()),
+  }
+}
+
+fn expr_to_filter_ident(expr: Expr) -> Result<Ident, Expr> {
+  match expr {
+    Expr::Identifier(ident) => Ok(ident),
+    Expr::CompoundIdentifier(mut idents)
+      if idents.len() == 2 && idents[0].value.eq_ignore_ascii_case("ts") =>
+    {
+      Ok(Ident::new(format!("ts_{}", idents.remove(1).value)))
+    }
+    Expr::Function(func) => Ok(Ident::new(format!("ts_{}", func.name))),
+    Expr::Extract { field, .. } => Ok(Ident::new(format!("ts_{field}"))),
+    other => Err(other),
   }
 }
 
@@ -626,6 +641,27 @@ fn apply_predicate_common(
         BinaryOperator::LtEq => date_range.end = Some((ts, true)),
         _ => {}
       }
+    }
+    "ts_year" if op == BinaryOperator::Eq => {
+      date_range.year = expr_to_i32(&value_expr)?;
+    }
+    "ts_month" if op == BinaryOperator::Eq => {
+      date_range.month = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    }
+    "ts_day" if op == BinaryOperator::Eq => {
+      date_range.day = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    }
+    "ts_hour" if op == BinaryOperator::Eq => {
+      date_range.hour = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    }
+    "ts_minute" if op == BinaryOperator::Eq => {
+      date_range.minute = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    }
+    "ts_second" if op == BinaryOperator::Eq => {
+      date_range.second = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    }
+    "ts_weekday" if op == BinaryOperator::Eq => {
+      date_range.weekday = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
     _ => {}
   }

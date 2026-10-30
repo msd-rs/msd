@@ -46,15 +46,39 @@ impl Display for RequestKey {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Copy, PartialEq, Eq)]
 pub struct DateRange {
   /// start (timestamp, inclusive)
   pub start: Option<(i64, bool)>,
   /// end (timestamp, inclusive)
   pub end: Option<(i64, bool)>,
+  #[serde(default)]
+  pub year: Option<i32>,
+  #[serde(default)]
+  pub month: Option<u8>,
+  #[serde(default)]
+  pub day: Option<u8>,
+  #[serde(default)]
+  pub hour: Option<u8>,
+  #[serde(default)]
+  pub minute: Option<u8>,
+  #[serde(default)]
+  pub second: Option<u8>,
+  #[serde(default)]
+  pub weekday: Option<u8>,
 }
 
 impl DateRange {
+  pub fn has_feature_filter(&self) -> bool {
+    self.year.is_some()
+      || self.month.is_some()
+      || self.day.is_some()
+      || self.hour.is_some()
+      || self.minute.is_some()
+      || self.second.is_some()
+      || self.weekday.is_some()
+  }
+
   // Check if the timestamp is within the range, default to true if range is not set
   pub fn contains(&self, ts: i64) -> bool {
     if !self.is_set() {
@@ -70,10 +94,51 @@ impl DateRange {
       .as_ref()
       .map(|(ts, inclusive)| if *inclusive { *ts } else { *ts + 1 })
       .unwrap_or(i64::MAX);
-    start <= ts && end >= ts
+    if start > ts || end < ts {
+      return false;
+    }
+    if self.has_feature_filter() {
+      let dt = msd_table::to_datetime(ts);
+      if let Some(y) = self.year
+        && dt.year() != y
+      {
+        return false;
+      }
+      if let Some(m) = self.month
+        && dt.month() as u8 != m
+      {
+        return false;
+      }
+      if let Some(d) = self.day
+        && dt.day() != d
+      {
+        return false;
+      }
+      if let Some(h) = self.hour
+        && dt.hour() != h
+      {
+        return false;
+      }
+      if let Some(min) = self.minute
+        && dt.minute() != min
+      {
+        return false;
+      }
+      if let Some(s) = self.second
+        && dt.second() != s
+      {
+        return false;
+      }
+      if let Some(w) = self.weekday
+        && dt.weekday().number_from_monday() != w
+      {
+        return false;
+      }
+    }
+    true
   }
-  // Check if any start or end is set
+  // Check if any start, end or feature filter is set
   pub fn is_set(&self) -> bool {
-    self.start.is_some() || self.end.is_some()
+    self.start.is_some() || self.end.is_some() || self.has_feature_filter()
   }
 }
