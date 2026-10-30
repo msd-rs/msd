@@ -3,7 +3,7 @@ from pymsd.dataframe_adaptor import PandasAdaptor
 import pandas as pd
 import pymsd
 
-BASE_URL = "http://localhost:50510"
+BASE_URL = "http://localhost:50511"
 
 
 async def async_query_ok():

@@ -50,12 +50,12 @@ select * from stock_shares where obj='SH600*';
   table, objs, bars = conn.query_join(sql, "stock_kline_1d", {"stock_shares": "backward"}, "SH600000")
   t2 = time.time()
 
-  print(table.header)
-  for i in range(0, table.rows, bars):
-    for j in range(0, 2):
-      print(table[i+j, 0], table[i+j, 1], table[i+j, 2], table[i+j, 8], )
-    for j in range(bars-2, bars):
-      print(table[i+j, 0], table[i+j, 1], table[i+j, 2], table[i+j, 8], )
+  # print(table.header)
+  # for i in range(0, table.rows, bars):
+  #   for j in range(0, 2):
+  #     print(table[i+j, 0], table[i+j, 1], table[i+j, 2], table[i+j, 8], )
+  #   for j in range(bars-2, bars):
+  #     print(table[i+j, 0], table[i+j, 1], table[i+j, 2], table[i+j, 8], )
   print(table.rows, table.columns, bars, t2 - t1)
 
 

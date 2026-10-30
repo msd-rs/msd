@@ -31,9 +31,7 @@ def test_parse_json_table():
 def test_join_table_large():
   client = pymsd.create_msd_polars("http://localhost:50511")
 
-  with open("tests/a.txt") as fp:
-    objs = [line.strip() for line in fp.readlines()]
-  print(f"total {len(objs)} objs")
+  objs = ["SH600*"]
 
   t1 = time.time()
   dfs = client.load(
