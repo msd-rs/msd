@@ -137,12 +137,9 @@ impl PyMsdConnection {
   ) -> PyResult<Bound<'py, PyAny>> {
     // 1. If data is bytes or bytearray:
     if let Ok(bytes) = data.extract::<&[u8]>() {
-      let json = self.inner.import_csv(
-        &table,
-        bytes.to_vec(),
-        header,
-        delimiter.as_deref(),
-      )?;
+      let json = self
+        .inner
+        .import_csv(&table, bytes.to_vec(), header, delimiter.as_deref())?;
       return json_to_py(py, json);
     }
 
@@ -158,12 +155,9 @@ impl PyMsdConnection {
     if let Some(path) = path_opt {
       let bytes = std::fs::read(&path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("failed to read file: {e}")))?;
-      let json = self.inner.import_csv(
-        &table,
-        bytes,
-        header,
-        delimiter.as_deref(),
-      )?;
+      let json = self
+        .inner
+        .import_csv(&table, bytes, header, delimiter.as_deref())?;
       return json_to_py(py, json);
     }
 
@@ -177,7 +171,9 @@ impl PyMsdConnection {
       let table_clone = table.clone();
       let delim_clone = delimiter.clone();
       get_runtime().spawn(async move {
-        let res = conn.async_import_csv(&table_clone, body, header, delim_clone.as_deref()).await;
+        let res = conn
+          .async_import_csv(&table_clone, body, header, delim_clone.as_deref())
+          .await;
         let _ = resp_tx.send(res);
       });
 
@@ -620,11 +616,7 @@ impl MsdConnection {
     }
   }
 
-  fn import_table(
-    &self,
-    table: &str,
-    body: impl Into<reqwest::Body>,
-  ) -> Result<serde_json::Value> {
+  fn import_table(&self, table: &str, body: impl Into<reqwest::Body>) -> Result<serde_json::Value> {
     let (tx, rx) = oneshot::channel();
     let conn = self.clone();
     let table = table.to_string();
@@ -887,8 +879,14 @@ mod tests {
     conn
       .query_map("SELECT 1;".to_string(), |t| {
         received.push((
-          t.get_table_meta("obj").and_then(|v| v.get_string()).cloned().unwrap(),
-          t.get_table_meta("table").and_then(|v| v.get_string()).cloned().unwrap(),
+          t.get_table_meta("obj")
+            .and_then(|v| v.get_string())
+            .cloned()
+            .unwrap(),
+          t.get_table_meta("table")
+            .and_then(|v| v.get_string())
+            .cloned()
+            .unwrap(),
         ));
         Ok(())
       })
