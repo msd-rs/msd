@@ -204,6 +204,84 @@ impl PyMsdConnection {
     ))
   }
 
+  /// import table frame data to msd table
+  /// data can be Table, bytes, a file path string, Path object, or a file-like object with read()
+  #[pyo3(signature = (table, data))]
+  fn import_table<'py>(
+    &self,
+    py: Python<'py>,
+    table: String,
+    data: Bound<'py, PyAny>,
+  ) -> PyResult<Bound<'py, PyAny>> {
+    // 0. If data is PyTable:
+    if let Ok(py_table) = data.extract::<pyo3::PyRef<PyTable>>() {
+      let bytes = msd_table::pack_table_frame(&py_table.inner);
+      let json = self.inner.import_table(&table, bytes)?;
+      return json_to_py(py, json);
+    }
+
+    // 1. If data is bytes or bytearray:
+    if let Ok(bytes) = data.extract::<&[u8]>() {
+      let json = self.inner.import_table(&table, bytes.to_vec())?;
+      return json_to_py(py, json);
+    }
+
+    // 2. If data is a file path string or PathLike:
+    let path_opt: Option<String> = if let Ok(path) = data.extract::<String>() {
+      Some(path)
+    } else if let Ok(fspath) = data.call_method0("__fspath__") {
+      fspath.extract::<String>().ok()
+    } else {
+      None
+    };
+
+    if let Some(path) = path_opt {
+      let bytes = std::fs::read(&path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("failed to read file: {e}")))?;
+      let json = self.inner.import_table(&table, bytes)?;
+      return json_to_py(py, json);
+    }
+
+    // 3. If data is a file-like object with .read():
+    if data.hasattr("read")? {
+      let (tx, rx) = mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(4);
+      let body = reqwest::Body::wrap_stream(ReceiverStream::new(rx));
+
+      let (resp_tx, resp_rx) = oneshot::channel();
+      let conn = self.inner.clone();
+      let table_clone = table.clone();
+      get_runtime().spawn(async move {
+        let res = conn.async_import_table(&table_clone, body).await;
+        let _ = resp_tx.send(res);
+      });
+
+      loop {
+        let chunk = data.call_method1("read", (64 * 1024,))?;
+        let bytes = chunk.extract::<&[u8]>()?;
+        if bytes.is_empty() {
+          break;
+        }
+        if tx.blocking_send(Ok(Bytes::copy_from_slice(bytes))).is_err() {
+          break;
+        }
+      }
+      drop(tx);
+
+      let res = if let Ok(r) = resp_rx.blocking_recv() {
+        r?
+      } else {
+        return Err(pyo3::exceptions::PyRuntimeError::new_err(
+          "internal error during import",
+        ));
+      };
+      return json_to_py(py, res);
+    }
+
+    Err(PyTypeError::new_err(
+      "data must be Table, bytes, a file-like object, or a file path string",
+    ))
+  }
+
   /// import dataframes or table frames to msd table
   /// data can be an iterator of (obj_name, df), a single (obj_name, df) tuple, or bytes
   #[pyo3(signature = (table, data, decimal_fields = None))]
@@ -653,11 +731,17 @@ impl MsdConnection {
     for table in tables.iter() {
       let (table, fields) = table.split_once(':').unwrap_or((&table, "*"));
 
+      let (table, ts_filter) = table.split_once('@').unwrap_or((table, ""));
+
       sql.push_str("SELECT ");
       sql.push_str(fields);
       sql.push_str(" FROM ");
       sql.push_str(table);
       sql.push_str(&objects_where);
+      if !ts_filter.is_empty() {
+        sql.push_str(" AND ");
+        sql.push_str(ts_filter);
+      }
       sql.push_str(" LIMIT -1;");
     }
     sql

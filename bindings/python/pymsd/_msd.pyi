@@ -161,6 +161,23 @@ class MsdConnection:
     """
     ...
 
+  def import_table(
+    self,
+    table: str,
+    data: BinaryIO | bytes | bytearray | str | Path | Table,
+  ) -> dict[str, Any]:
+    """
+    Import table frame data into an MSD table.
+
+    Args:
+      table: The name of the table to import data to.
+      data: Table frame data to import (Table, bytes, file-like object with read(), file path string, or Path).
+
+    Returns:
+      Dict containing import statistics (e.g. total_rows, time_used_ms, rows_per_sec).
+    """
+    ...
+
   def import_dataframes(
     self,
     table: str,
