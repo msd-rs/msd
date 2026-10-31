@@ -598,17 +598,27 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
 
   fn handle_kv_insert(&self, mut req: InsertRequest) -> Result<Table, DbError> {
     let table = req.take_table().map_err(|e| DbError::from(e))?;
-    let value_col = table.column_by_index(1).ok_or(DbError::InternalError(
-      "KV table missing value column".into(),
-    ))?;
-    let value_bytes = {
-      let cell = value_col
-        .data
-        .get(0)
-        .ok_or(DbError::InternalError("KV table empty value".into()))?;
-      match cell.get_str() {
+    if table.column_count() < 2 {
+      return Err(DbError::InternalError(
+        "KV table must have at least 2 columns".into(),
+      ));
+    }
+    let mut rows = table.rows(false);
+    while let Some(row) = rows.next_cached() {
+      let key_bytes: &[u8] = match row[0].get_str() {
+        Some(s) => s.as_bytes(),
+        None => match row[0].get_bytes() {
+          Some(b) => b,
+          None => {
+            return Err(DbError::InternalError(
+              "KV key must be String or Bytes".into(),
+            ));
+          }
+        },
+      };
+      let value_bytes = match row[1].get_str() {
         Some(s) => s.as_bytes().to_vec(),
-        None => match cell.get_bytes() {
+        None => match row[1].get_bytes() {
           Some(b) => b.to_vec(),
           None => {
             return Err(DbError::InternalError(
@@ -616,11 +626,11 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
             ));
           }
         },
-      }
-    };
-    self
-      .store
-      .put(req.key.obj.as_bytes(), value_bytes, &req.key.table, None)?;
+      };
+      self
+        .store
+        .put(key_bytes, value_bytes, &req.key.table, None)?;
+    }
     Ok(Table::default())
   }
 
