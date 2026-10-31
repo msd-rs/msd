@@ -43,9 +43,14 @@ impl TableHandler for ListTablesHandler {
       return Ok(());
     };
 
+    let Some(schema_col) = table.column("schema").or_else(|| table.column_by_index(1)) else {
+      return Ok(());
+    };
+
     let mut rows = vec![vec![
       "no".to_string(),
       "name".to_string(),
+      "kind".to_string(),
       "desc".to_string(),
     ]];
     for i in 0..table.row_count() {
@@ -54,11 +59,26 @@ impl TableHandler for ListTablesHandler {
         .get(i)
         .map(|v| v.to_string())
         .unwrap_or_default();
-      let desc = table
+
+      let schema = schema_col
+        .data
+        .get(i)
+        .and_then(|v| {
+          v.get_str()
+            .and_then(|s| serde_json::from_str::<Table>(s).ok())
+        })
+        .unwrap_or_default();
+
+      let desc = schema
         .get_table_meta("desc")
         .map(|v| v.to_string())
         .unwrap_or_default();
-      rows.push(vec![format!("{}", i + 1), name, desc]);
+      let kind = if schema.is_kv() {
+        "kv".to_string()
+      } else {
+        "ts".to_string()
+      };
+      rows.push(vec![format!("{}", i + 1), name, kind, desc]);
     }
 
     let col_count = rows[0].len();
