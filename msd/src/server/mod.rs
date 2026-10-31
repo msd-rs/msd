@@ -10,7 +10,7 @@ use crate::app_config::ServerOptions;
 use anyhow::Result;
 use axum::{
   Router,
-  routing::{any, post, put},
+  routing::{any, get, post, put},
 };
 use handlers::Broker;
 use msd_db::{MsdDb, MsdDbOptions};
@@ -30,6 +30,7 @@ pub const QUERY_PATH: &str = "/query";
 pub const TABLE_PUT_PATH: &str = "/table/";
 pub const MCP_PATH: &str = "/mcp";
 pub const WS_PATH: &str = "/ws";
+pub const HEALTH_PATH: &str = "/health";
 const TABLE_PUT_PARAM_PATH: &str = "/table/{table_name}";
 
 pub struct AppState {
@@ -61,6 +62,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   info!("Table Put Path:    {}", TABLE_PUT_PARAM_PATH);
   info!("MCP Path:          {}", MCP_PATH);
   info!("Notify Path:       {}", WS_PATH);
+  info!("Health Path:       {}", HEALTH_PATH);
 
   let db_path = app_options.db_path.clone();
   let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
@@ -81,6 +83,7 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
     .route(QUERY_PATH, post(handlers::handle_data))
     .route(TABLE_PUT_PARAM_PATH, put(handlers::handle_table))
     .route(WS_PATH, any(handlers::handle_ws))
+    .route(HEALTH_PATH, get(handlers::handle_health))
     .nest_service(
       MCP_PATH,
       handlers::mcp_service(state.clone(), ct.child_token()),

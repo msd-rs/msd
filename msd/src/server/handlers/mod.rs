@@ -12,6 +12,10 @@ pub use mcp::mcp_service;
 pub use query::handle_data;
 pub use ws::{Broker, handle_ws};
 
+pub async fn handle_health() -> &'static str {
+  "OK"
+}
+
 use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT, MSD_USER_AGENT_V2};
 
 fn is_msd_client(headers: &axum::http::HeaderMap) -> u32 {
