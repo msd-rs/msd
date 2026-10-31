@@ -119,8 +119,20 @@ pub struct ServerOptions {
 
 /// Shell options
 #[derive(Debug, Clone, Args)]
+#[command(after_help = r#"
+Available commands:
+  .dump <table> [file_path]           Dump table to csv file (or stdout)
+  .exit | .quit | .q                  Exit shell
+  .help                               Print this help message
+  .import <file_path> <table> [skip]  Import csv file to table, skip header [skip] rows
+  .output <file_path>                 Redirect output to file (append mode)
+  .rows <number>                      Set reactive rows
+  .schema <table_name>                Print table schema
+  .server <server_url>                Set server url
+  .tables                             List all tables
+"#)]
 pub struct ShellOptions {
-  /// Optional command to run, will exit after the command is run, otherwise enter interactive mode
+  /// Optional command/sql/sql file to run, will exit after the command is run, otherwise enter interactive mode
   pub command: Option<String>,
 
   /// Server URL

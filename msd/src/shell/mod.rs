@@ -293,7 +293,7 @@ fn print_help() {
     ),
     (".help", "Print this help message"),
     (".rows", "Set reactive rows"),
-    (".schema", "Print table schema"),
+    (".schema <table_name>", "Print table schema"),
     (".server", "Set server url"),
     (".tables", "List all tables"),
   ];
