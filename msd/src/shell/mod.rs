@@ -254,7 +254,7 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
       eprintln!("Usage: .schema <table>");
       return Ok(());
     }
-    return query::execute(opts, &format!("DESCRIBE {}", table)).await;
+    return query::execute_schema(opts, table).await;
   }
 
   if cmd.starts_with(DUMP_COMMAND) {

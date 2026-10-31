@@ -19,8 +19,133 @@ pub fn build_table_handler(opts: &ShellOptions) -> impl TableHandler {
   PrintHandler::from(opts)
 }
 
+pub fn build_schema_handler() -> impl TableHandler {
+  SchemaHandler
+}
+
+pub fn build_list_tables_handler() -> impl TableHandler {
+  ListTablesHandler
+}
+
 pub trait TableHandler {
   fn handle(&self, table: &Table) -> Result<()>;
+}
+
+#[derive(Debug)]
+pub struct ListTablesHandler;
+
+impl TableHandler for ListTablesHandler {
+  fn handle(&self, table: &Table) -> Result<()> {
+    if table.row_count() == 0 {
+      return Ok(());
+    }
+    let Some(name_col) = table.column("name").or_else(|| table.column_by_index(0)) else {
+      return Ok(());
+    };
+
+    let mut rows = vec![vec![
+      "no".to_string(),
+      "name".to_string(),
+      "desc".to_string(),
+    ]];
+    for i in 0..table.row_count() {
+      let name = name_col
+        .data
+        .get(i)
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+      let desc = table
+        .get_table_meta("desc")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+      rows.push(vec![format!("{}", i + 1), name, desc]);
+    }
+
+    let col_count = rows[0].len();
+    let mut col_widths = vec![0; col_count];
+    for row in &rows {
+      for (i, col) in row.iter().enumerate() {
+        col_widths[i] = col_widths[i].max(col.len()).min(40);
+      }
+    }
+
+    let sep = "|";
+    let mut out = String::with_capacity(rows.len() * col_count * 16);
+    for (i, row) in rows.iter().enumerate() {
+      out.push_str(sep);
+      for (col, width) in row.iter().zip(col_widths.iter()) {
+        let col = if i == 0 {
+          col.color("blue").bold()
+        } else {
+          col.white()
+        };
+        let _ = write!(out, "{:>width$}{}", col, sep);
+      }
+      out.push('\n');
+    }
+    print!("{}", out);
+    Ok(())
+  }
+}
+
+#[derive(Debug)]
+pub struct SchemaHandler;
+
+impl TableHandler for SchemaHandler {
+  fn handle(&self, table: &Table) -> Result<()> {
+    let mut rows = vec![vec![
+      "no".to_string(),
+      "column".to_string(),
+      "type".to_string(),
+      "agg".to_string(),
+      "desc".to_string(),
+    ]];
+
+    for (i, col) in table.columns().iter().enumerate() {
+      let agg = col
+        .get_metadata("agg")
+        .and_then(|v| v.get_str())
+        .unwrap_or_default()
+        .to_string();
+      let desc = col
+        .get_metadata("desc")
+        .and_then(|v| v.get_str())
+        .unwrap_or_default()
+        .to_string();
+      rows.push(vec![
+        format!("{}", i + 1),
+        col.name.clone(),
+        col.kind.to_string(),
+        agg,
+        desc,
+      ]);
+    }
+
+    let col_count = rows[0].len();
+    let mut col_widths = vec![0; col_count];
+    for row in &rows {
+      for (i, col) in row.iter().enumerate() {
+        col_widths[i] = col_widths[i].max(col.len()).min(40);
+      }
+    }
+
+    let sep = "|";
+    let mut out = String::with_capacity(rows.len() * col_count * 16);
+    for (i, row) in rows.iter().enumerate() {
+      out.push_str(sep);
+      for (col, width) in row.iter().zip(col_widths.iter()) {
+        let col = if i == 0 {
+          col.color("blue").bold()
+        } else {
+          col.white()
+        };
+        let _ = write!(out, "{:>width$}{}", col, sep);
+      }
+      out.push('\n');
+    }
+    print!("{}", out);
+    Ok(())
+  }
 }
 
 #[derive(Debug)]

@@ -5,20 +5,30 @@ use super::get_client;
 use crate::{
   app_config::{MSD_TABLE_FORMAT, ShellOptions},
   server::QUERY_PATH,
-  shell::table_handler::{CsvHandler, TableHandler, build_table_handler},
+  shell::table_handler::{
+    CsvHandler, TableHandler, build_list_tables_handler, build_schema_handler, build_table_handler,
+  },
 };
 use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
+use msd_request::{SqlRequestType, sql_request_type};
 use msd_table::{Table, check_table_frame, unpack_table_frame};
 use reqwest::header;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tracing::error;
 
+pub async fn execute_schema(opts: &ShellOptions, table: &str) -> Result<()> {
+  execute(opts, &format!("DESCRIBE {}", table)).await
+}
+
 pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   let client = get_client(opts);
   let url = format!("{}{}", opts.server_url, QUERY_PATH);
   let timer = std::time::Instant::now();
+  let req_type = sql_request_type(query.trim());
+  let is_schema = req_type == SqlRequestType::Schema;
+  let is_list_tables = req_type == SqlRequestType::ListTables;
 
   let mut req = client
     .post(&url)
@@ -42,6 +52,10 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
       .open(path)
       .context("Failed to open output file")?;
     Box::new(CsvHandler::new(Box::new(file)))
+  } else if is_schema {
+    Box::new(build_schema_handler())
+  } else if is_list_tables {
+    Box::new(build_list_tables_handler())
   } else {
     Box::new(build_table_handler(opts))
   };
@@ -58,6 +72,7 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
     .map(|s| s.to_string());
 
   let mut fetched_rows = 0;
+  let mut fetched_cols = 0;
   let mut objects = 0;
   // Stream the response body
   let stream = resp.bytes_stream();
@@ -84,6 +99,7 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
       let table = unpack_table_frame(&buf, false)?;
 
       fetched_rows += table.row_count();
+      fetched_cols += table.column_count();
       objects += 1;
       handler.handle(&table)?;
 
@@ -101,6 +117,7 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
       let table: Table =
         serde_json::from_str(&line).context("Failed to parse table from response")?;
       fetched_rows += table.row_count();
+      fetched_cols += table.column_count();
       objects += 1;
       handler.handle(&table)?;
     }
@@ -116,6 +133,8 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
         s,
         fetched_rows as f64 / s
       )
+    } else if is_schema && fetched_cols > 0 {
+      format!("Fetched {} columns in {:.3} s", fetched_cols, s)
     } else {
       format!("No data in {:.3} s", s)
     };
