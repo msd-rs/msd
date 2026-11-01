@@ -1,5 +1,6 @@
 import pymsd
 import time
+import polars as pl
 
 from pymsd._msd import Table
 
@@ -77,11 +78,20 @@ select * from stock_kline_1d where obj='SH600*' limit -1000;
 
   print(rows, objs, time.time() - t1)
 
+def test_snapshot():
+  conn = pymsd.MsdConnection(BASE_URL)
+
+  table = conn.snapshot(["stock_kline_1d", "stock_shares"], ["SH600000"], "2025-10-25")
+  df = pl.DataFrame(table.to_dict())
+
+  print(df)
+
 
 if __name__ == "__main__":
   #test_query_many_ndarray()
   #test_query_many_conn()
   #test_query_kline()
-  test_query_map()
+  #test_query_map()
+  test_snapshot()
   
 
