@@ -129,7 +129,12 @@ class MsdConnection:
       base_obj: Base object key.
     """
     ...
-  def snapshot(self, tables: list[str], objects: list[str]) -> Table:
+  def snapshot(
+    self,
+    tables: list[str],
+    objects: list[str],
+    date: str | None = ...,
+  ) -> Table:
     """
     Take last snapshot of multiple tables for a set of objects,
     joining them into one table keyed by object.
@@ -137,6 +142,7 @@ class MsdConnection:
     Args:
       tables: List of table names or 'name: field1, field2'.
       objects: List of objects (single, wildcard pattern, or block like '@stock_block:...').
+      date: Optional date string to take snapshot up to (ts <= date).
     """
     ...
 

@@ -105,9 +105,14 @@ impl PyMsdConnection {
   /// - single: eg. SH600000
   /// - pattern: eg. SH600*
   /// - block: eg. @stock_block:上证A股
-  #[pyo3(signature = (tables, objects))]
-  fn snapshot(&self, tables: Vec<String>, objects: Vec<String>) -> PyResult<PyTable> {
-    let table = self.inner.snapshot(tables, objects)?;
+  #[pyo3(signature = (tables, objects, date = None))]
+  fn snapshot(
+    &self,
+    tables: Vec<String>,
+    objects: Vec<String>,
+    date: Option<String>,
+  ) -> PyResult<PyTable> {
+    let table = self.inner.snapshot(tables, objects, date.as_deref())?;
     Ok(PyTable { inner: table })
   }
 
@@ -563,8 +568,13 @@ impl MsdConnection {
     Ok((result.unwrap_or_default(), objs, bars))
   }
 
-  fn snapshot(&self, tables: Vec<String>, objects: Vec<String>) -> Result<Table> {
-    let sql = self.snapshot_sql(&tables, &objects);
+  fn snapshot(
+    &self,
+    tables: Vec<String>,
+    objects: Vec<String>,
+    date: Option<&str>,
+  ) -> Result<Table> {
+    let sql = self.snapshot_sql(&tables, &objects, date);
     let full = self.async_query(sql)?;
     let mut objs = full.keys().cloned().collect::<Vec<_>>();
 
@@ -710,7 +720,12 @@ impl MsdConnection {
     }
   }
 
-  fn snapshot_sql(&self, tables: &Vec<String>, objects: &Vec<String>) -> String {
+  fn snapshot_sql(
+    &self,
+    tables: &Vec<String>,
+    objects: &Vec<String>,
+    date: Option<&str>,
+  ) -> String {
     let objects_where = if objects.is_empty() {
       "".to_string()
     } else {
@@ -738,6 +753,13 @@ impl MsdConnection {
       sql.push_str(" FROM ");
       sql.push_str(table);
       sql.push_str(&objects_where);
+      if let Some(date) = date
+        && !date.is_empty()
+      {
+        sql.push_str(" AND ts <= '");
+        sql.push_str(date);
+        sql.push('\'');
+      }
       if !ts_filter.is_empty() {
         sql.push_str(" AND ");
         sql.push_str(ts_filter);
@@ -1071,5 +1093,27 @@ mod tests {
     assert_eq!(res["rows_per_sec"], 667);
 
     get_runtime().block_on(handle).unwrap();
+  }
+
+  #[test]
+  fn test_snapshot_sql() {
+    let conn = MsdConnection::new("http://127.0.0.1:8080", "", false).unwrap();
+    let tables = vec![
+      "stock_kline_1d".to_string(),
+      "stock_financial@ts.month=12:f001,f002".to_string(),
+    ];
+    let objects = vec!["SH600000".to_string(), "SH600001".to_string()];
+
+    let sql_no_date = conn.snapshot_sql(&tables, &objects, None);
+    assert_eq!(
+      sql_no_date,
+      "SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000','SH600001')  LIMIT -1;SELECT f001,f002 FROM stock_financial WHERE obj IN ('SH600000','SH600001')  AND ts.month=12 LIMIT -1;"
+    );
+
+    let sql_with_date = conn.snapshot_sql(&tables, &objects, Some("2025-12-31"));
+    assert_eq!(
+      sql_with_date,
+      "SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000','SH600001')  AND ts <= '2025-12-31' LIMIT -1;SELECT f001,f002 FROM stock_financial WHERE obj IN ('SH600000','SH600001')  AND ts <= '2025-12-31' AND ts.month=12 LIMIT -1;"
+    );
   }
 }

@@ -635,6 +635,10 @@ fn apply_predicate_common(
     "ts" => {
       let ts = expr_to_datetime(value_expr)?;
       match op {
+        BinaryOperator::Eq => {
+          date_range.start = Some((ts, true));
+          date_range.end = Some((ts, true));
+        }
         BinaryOperator::Gt => date_range.start = Some((ts, false)),
         BinaryOperator::GtEq => date_range.start = Some((ts, true)),
         BinaryOperator::Lt => date_range.end = Some((ts, false)),

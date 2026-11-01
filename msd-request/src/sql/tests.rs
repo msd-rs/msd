@@ -207,6 +207,18 @@ fn test_sql_parse_query() -> Result<()> {
     _ => panic!("Expected Query request"),
   }
 
+  let sql_eq = "SELECT * FROM kline1d WHERE obj = 'SH600000' AND ts = '2023-01-15';";
+  let req_eq = super::sql_to_request(sql_eq)?;
+  assert_eq!(req_eq.len(), 1);
+  match &req_eq[0] {
+    super::SqlRequest::Query(query_req) => {
+      let ts = parse_datetime("2023-01-15").unwrap();
+      assert_eq!(query_req.date_range.start, Some((ts, true)));
+      assert_eq!(query_req.date_range.end, Some((ts, true)));
+    }
+    _ => panic!("Expected Query request"),
+  }
+
   Ok(())
 }
 
