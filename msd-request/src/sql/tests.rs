@@ -389,5 +389,43 @@ fn test_sql_parse_query_ts_features() -> Result<()> {
     _ => panic!("Expected Query request"),
   }
 
+  let sql_multi_ts = r#"
+  SELECT ts, expire_ts, close
+  FROM kline1d
+  WHERE obj = 'SH600000'
+    AND ts >= '2023-01-01'
+    AND month(ts) = 1
+    AND expire_ts < '2024-01-01'
+    AND month(expire_ts) = 12
+    AND expire_ts.day = 31
+    AND EXTRACT(YEAR FROM update_ts) = 2023
+  "#;
+  let req = super::sql_to_request(sql_multi_ts)?;
+  match &req[0] {
+    super::SqlRequest::Query(query_req) => {
+      assert_eq!(
+        query_req.date_range.start,
+        Some((parse_datetime("2023-01-01")?, true))
+      );
+      assert_eq!(query_req.date_range.month, Some(1));
+      assert_eq!(query_req.ts_filters.len(), 2);
+
+      let (col1, range1) = &query_req.ts_filters[0];
+      assert_eq!(col1, "expire_ts");
+      assert_eq!(range1.end, Some((parse_datetime("2024-01-01")?, false)));
+      assert_eq!(range1.month, Some(12));
+      assert_eq!(range1.day, Some(31));
+      assert!(range1.contains(parse_datetime("2023-12-31 15:00:00")?));
+      assert!(!range1.contains(parse_datetime("2023-12-30 15:00:00")?));
+
+      let (col2, range2) = &query_req.ts_filters[1];
+      assert_eq!(col2, "update_ts");
+      assert_eq!(range2.year, Some(2023));
+      assert!(range2.contains(parse_datetime("2023-06-01 00:00:00")?));
+      assert!(!range2.contains(parse_datetime("2024-06-01 00:00:00")?));
+    }
+    _ => panic!("Expected Query request"),
+  }
+
   Ok(())
 }

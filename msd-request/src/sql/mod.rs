@@ -10,9 +10,9 @@ use crate::{DeleteRequest, InsertRequest, QueryRequest, RequestError};
 use msd_table::{DataType as TableDataType, Field, RowsTable, Table, Variant};
 use smol_str::SmolStr;
 use sqlparser::ast::{
-  BinaryOperator, ColumnOption, CommentObject, CreateTableOptions, Expr, FromTable, Ident,
-  LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor,
-  UnaryOperator, Value, ValueWithSpan,
+  BinaryOperator, ColumnOption, CommentObject, CreateTableOptions, Expr, FromTable,
+  FunctionArguments, Ident, LimitClause, ObjectName, Query, Select, SelectItem, SetExpr, Statement,
+  TableFactor, UnaryOperator, Value, ValueWithSpan,
 };
 use sqlparser::parser::{Parser, ParserError};
 
@@ -328,7 +328,13 @@ fn parse_delete(stmt: Statement) -> Result<Vec<SqlRequest>, RequestError> {
       let mut object = String::default();
 
       if let Some(selection) = delete.selection {
-        parse_filter_common(selection, &mut object, &mut objects, &mut req.date_range)?;
+        parse_filter_common(
+          selection,
+          &mut object,
+          &mut objects,
+          &mut req.date_range,
+          None,
+        )?;
       }
 
       if !objects.is_empty() {
@@ -390,7 +396,13 @@ fn parse_query_inner(query: Query) -> Result<SqlRequest, RequestError> {
 
   if let Some(expr) = selection {
     let mut obj = String::default();
-    parse_filter_common(expr, &mut obj, &mut objects, &mut req.date_range)?;
+    parse_filter_common(
+      expr,
+      &mut obj,
+      &mut objects,
+      &mut req.date_range,
+      Some(&mut req.ts_filters),
+    )?;
     req.key.obj = obj.into();
   }
 
@@ -566,27 +578,39 @@ fn parse_projection(items: &[SelectItem]) -> Option<Vec<SmolStr>> {
   Some(fields)
 }
 
+struct FilterTarget {
+  col: String,
+  feature: Option<String>,
+}
+
 fn parse_filter_common(
   expr: Expr,
   obj: &mut String,
   objects: &mut HashSet<SmolStr>,
   date_range: &mut crate::DateRange,
+  mut ts_filters: Option<&mut Vec<(SmolStr, crate::DateRange)>>,
 ) -> Result<(), RequestError> {
   match expr {
     Expr::BinaryOp { left, op, right } => {
       if op == BinaryOperator::And {
-        parse_filter_common(*left, obj, objects, date_range)?;
-        parse_filter_common(*right, obj, objects, date_range)?;
+        parse_filter_common(
+          *left,
+          obj,
+          objects,
+          date_range,
+          ts_filters.as_deref_mut(),
+        )?;
+        parse_filter_common(*right, obj, objects, date_range, ts_filters)?;
         return Ok(());
       }
 
-      match expr_to_filter_ident(*left) {
-        Ok(ident) => {
-          apply_predicate_common(ident, op, *right, obj, date_range)?;
+      match expr_to_filter_target(*left) {
+        Ok(target) => {
+          apply_predicate_common(target, op, *right, obj, date_range, ts_filters)?;
         }
         Err(left_expr) => {
-          if let Ok(ident) = expr_to_filter_ident(*right) {
-            apply_predicate_common(ident, op, left_expr, obj, date_range)?;
+          if let Ok(target) = expr_to_filter_target(*right) {
+            apply_predicate_common(target, op, left_expr, obj, date_range, ts_filters)?;
           }
         }
       }
@@ -606,66 +630,122 @@ fn parse_filter_common(
   }
 }
 
-fn expr_to_filter_ident(expr: Expr) -> Result<Ident, Expr> {
+fn expr_to_filter_target(expr: Expr) -> Result<FilterTarget, Expr> {
   match expr {
-    Expr::Identifier(ident) => Ok(ident),
-    Expr::CompoundIdentifier(mut idents)
-      if idents.len() == 2 && idents[0].value.eq_ignore_ascii_case("ts") =>
-    {
-      Ok(Ident::new(format!("ts_{}", idents.remove(1).value)))
+    Expr::Identifier(ident) => {
+      let lower = ident.value.to_ascii_lowercase();
+      if let Some(feat) = lower.strip_prefix("ts_")
+        && matches!(
+          feat,
+          "year" | "month" | "day" | "hour" | "minute" | "second" | "weekday"
+        )
+      {
+        return Ok(FilterTarget {
+          col: "ts".to_string(),
+          feature: Some(feat.to_string()),
+        });
+      }
+      Ok(FilterTarget {
+        col: ident.value,
+        feature: None,
+      })
     }
-    Expr::Function(func) => Ok(Ident::new(format!("ts_{}", func.name))),
-    Expr::Extract { field, .. } => Ok(Ident::new(format!("ts_{field}"))),
+    Expr::CompoundIdentifier(mut idents) if idents.len() == 2 => {
+      let feat = idents.remove(1).value;
+      let col = idents.remove(0).value;
+      Ok(FilterTarget {
+        col,
+        feature: Some(feat),
+      })
+    }
+    Expr::Function(func) => {
+      let col = match &func.args {
+        FunctionArguments::List(list) => list
+          .args
+          .first()
+          .map(|a| a.to_string())
+          .unwrap_or_else(|| "ts".to_string()),
+        _ => "ts".to_string(),
+      };
+      Ok(FilterTarget {
+        col,
+        feature: Some(func.name.to_string()),
+      })
+    }
+    Expr::Extract { field, expr, .. } => Ok(FilterTarget {
+      col: expr.to_string(),
+      feature: Some(field.to_string()),
+    }),
     other => Err(other),
   }
 }
 
 fn apply_predicate_common(
-  ident: Ident,
+  target: FilterTarget,
   op: BinaryOperator,
   value_expr: Expr,
   obj: &mut String,
   date_range: &mut crate::DateRange,
+  ts_filters: Option<&mut Vec<(SmolStr, crate::DateRange)>>,
 ) -> Result<(), RequestError> {
-  let name = ident.value;
-  match name.to_ascii_lowercase().as_str() {
-    "obj" if op == BinaryOperator::Eq => {
+  if target.feature.is_none() && target.col.eq_ignore_ascii_case("obj") {
+    if op == BinaryOperator::Eq {
       *obj = expr_to_string(&value_expr)?;
     }
-    "ts" => {
+    return Ok(());
+  }
+
+  let target_range = if target.col.eq_ignore_ascii_case("ts") {
+    date_range
+  } else if let Some(filters) = ts_filters {
+    if let Some(pos) = filters
+      .iter()
+      .position(|(c, _)| c.eq_ignore_ascii_case(&target.col))
+    {
+      &mut filters[pos].1
+    } else {
+      filters.push((target.col.into(), crate::DateRange::default()));
+      &mut filters.last_mut().unwrap().1
+    }
+  } else {
+    return Ok(());
+  };
+
+  match target.feature.as_deref().map(str::to_ascii_lowercase).as_deref() {
+    None => {
       let ts = expr_to_datetime(value_expr)?;
       match op {
         BinaryOperator::Eq => {
-          date_range.start = Some((ts, true));
-          date_range.end = Some((ts, true));
+          target_range.start = Some((ts, true));
+          target_range.end = Some((ts, true));
         }
-        BinaryOperator::Gt => date_range.start = Some((ts, false)),
-        BinaryOperator::GtEq => date_range.start = Some((ts, true)),
-        BinaryOperator::Lt => date_range.end = Some((ts, false)),
-        BinaryOperator::LtEq => date_range.end = Some((ts, true)),
+        BinaryOperator::Gt => target_range.start = Some((ts, false)),
+        BinaryOperator::GtEq => target_range.start = Some((ts, true)),
+        BinaryOperator::Lt => target_range.end = Some((ts, false)),
+        BinaryOperator::LtEq => target_range.end = Some((ts, true)),
         _ => {}
       }
     }
-    "ts_year" if op == BinaryOperator::Eq => {
-      date_range.year = expr_to_i32(&value_expr)?;
+    Some("year") if op == BinaryOperator::Eq => {
+      target_range.year = expr_to_i32(&value_expr)?;
     }
-    "ts_month" if op == BinaryOperator::Eq => {
-      date_range.month = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("month") if op == BinaryOperator::Eq => {
+      target_range.month = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
-    "ts_day" if op == BinaryOperator::Eq => {
-      date_range.day = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("day") if op == BinaryOperator::Eq => {
+      target_range.day = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
-    "ts_hour" if op == BinaryOperator::Eq => {
-      date_range.hour = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("hour") if op == BinaryOperator::Eq => {
+      target_range.hour = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
-    "ts_minute" if op == BinaryOperator::Eq => {
-      date_range.minute = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("minute") if op == BinaryOperator::Eq => {
+      target_range.minute = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
-    "ts_second" if op == BinaryOperator::Eq => {
-      date_range.second = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("second") if op == BinaryOperator::Eq => {
+      target_range.second = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
-    "ts_weekday" if op == BinaryOperator::Eq => {
-      date_range.weekday = expr_to_i32(&value_expr)?.map(|v| v as u8);
+    Some("weekday") if op == BinaryOperator::Eq => {
+      target_range.weekday = expr_to_i32(&value_expr)?.map(|v| v as u8);
     }
     _ => {}
   }

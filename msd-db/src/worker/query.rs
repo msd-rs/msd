@@ -3,7 +3,8 @@
 
 use std::ops::Deref;
 
-use msd_table::Table;
+use msd_table::{Series, Table};
+use smol_str::SmolStr;
 use tracing::{debug, span, trace};
 
 use crate::{errors::DbError, request::QueryRequest, serde::DbBinary};
@@ -80,7 +81,7 @@ impl<S: MsdStore> Worker<S> {
     let _scan_span = span!(tracing::Level::TRACE, "query_scan").entered();
     let pk_col = cache.cached.pk_column();
 
-    let mut row_filter = RowFilter::new(limit, req.date_range, pk_col);
+    let mut row_filter = RowFilter::new(limit, req.date_range, &req.ts_filters, pk_col);
 
     if including_last && descending {
       if result.column_count() == 0 {
@@ -204,13 +205,24 @@ impl<S: MsdStore> Worker<S> {
     let src_cols = source.columns();
     let dst_cols = result.columns_mut();
 
+    let mut extra_ts_cols = Vec::with_capacity(row_filter.extra_filters.len());
+    for (col_name, range) in row_filter.extra_filters {
+      match src_cols
+        .iter()
+        .find(|col| col.name.eq_ignore_ascii_case(col_name))
+      {
+        Some(col) => extra_ts_cols.push((&col.data, range)),
+        None => return Ok(()),
+      }
+    }
+
     if descending {
       for r in (0..row_count).rev() {
         if row_filter.is_collected() {
           break;
         }
         if let Some(ts) = pk_series.get(r).and_then(|v| v.get_datetime().copied()) {
-          if row_filter.check_ts(ts) {
+          if row_filter.check_row(ts, r, &extra_ts_cols) {
             for (dst, src) in dst_cols.iter_mut().zip(src_cols.iter()) {
               if let Some(cell) = src.data.get(r) {
                 dst.data.push(cell.to_variant())?;
@@ -225,7 +237,7 @@ impl<S: MsdStore> Worker<S> {
           break;
         }
         if let Some(ts) = pk_series.get(r).and_then(|v| v.get_datetime().copied()) {
-          if row_filter.check_ts(ts) {
+          if row_filter.check_row(ts, r, &extra_ts_cols) {
             for (dst, src) in dst_cols.iter_mut().zip(src_cols.iter()) {
               if let Some(cell) = src.data.get(r) {
                 dst.data.push(cell.to_variant())?;
@@ -263,25 +275,40 @@ impl<S: MsdStore> Worker<S> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RowFilter {
+struct RowFilter<'a> {
   limit: usize,
   data_range: DateRange,
+  extra_filters: &'a [(SmolStr, DateRange)],
   pk_col: usize,
   collected_rows: usize,
 }
 
-impl RowFilter {
-  fn new(limit: usize, data_range: DateRange, pk_col: usize) -> Self {
+impl<'a> RowFilter<'a> {
+  fn new(
+    limit: usize,
+    data_range: DateRange,
+    extra_filters: &'a [(SmolStr, DateRange)],
+    pk_col: usize,
+  ) -> Self {
     Self {
       limit,
       data_range,
+      extra_filters,
       pk_col,
       collected_rows: 0,
     }
   }
 
-  fn check_ts(&mut self, ts: i64) -> bool {
-    let collected = self.data_range.contains(ts);
+  fn check_row(&mut self, pk_ts: i64, row_idx: usize, extra: &[(&Series, &DateRange)]) -> bool {
+    if !self.data_range.contains(pk_ts) {
+      return false;
+    }
+    let collected = extra.iter().all(|(series, range)| {
+      series
+        .get(row_idx)
+        .and_then(|v| v.get_datetime().copied())
+        .is_some_and(|ts| range.contains(ts))
+    });
     if collected {
       self.collected_rows += 1;
     }

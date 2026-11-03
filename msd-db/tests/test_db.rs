@@ -893,3 +893,57 @@ async fn test_insert_overwrite_existing_pk() -> Result<()> {
 
   Ok(())
 }
+
+#[tokio::test]
+async fn test_query_multi_ts_columns() -> Result<()> {
+  let path = TempDirBuilder::new().prefix("msd_test_").tempdir()?;
+  let schema = table!(
+    {name: "ts", kind: datetime},
+    {name: "expire_ts", kind: datetime},
+    {name: "open", kind: f64},
+  )
+  .replace_metadata([("chunkSize", v!(2u32))]);
+
+  let db = init_db(path, true, "opt_quote", schema.clone()).await?;
+
+  let ts_col = Series::DateTime(vec![
+    parse_datetime("2023-01-10")?,
+    parse_datetime("2023-01-11")?,
+    parse_datetime("2023-02-10")?,
+    parse_datetime("2023-02-11")?,
+  ]);
+  let expire_col = Series::DateTime(vec![
+    parse_datetime("2023-06-15")?,
+    parse_datetime("2023-12-15")?,
+    parse_datetime("2023-12-20")?,
+    parse_datetime("2023-09-20")?,
+  ]);
+  let open_col = Series::Float64(vec![1.0, 2.0, 3.0, 4.0]);
+
+  let req = InsertRequest {
+    key: RequestKey::new("opt_quote", "SH600000"),
+    data: InsertData::Columns(vec![ts_col, expire_col, open_col]),
+    truncate: None,
+  };
+  let mut req = req.to_table(&schema)?;
+  let (req, rx) = MsdRequest::insert(req.remove(0));
+  db.request(req).await?;
+  let _ = rx.await??;
+
+  let sql = "SELECT open FROM opt_quote WHERE obj = 'SH600000' AND year(ts) = 2023 AND month(expire_ts) = 12 AND expire_ts >= '2023-12-15'";
+  let mut sql_reqs = msd_request::sql_to_request(sql)?;
+  let query_req = match sql_reqs.remove(0) {
+    msd_request::SqlRequest::Query(q) => q,
+    _ => panic!("Expected QueryRequest"),
+  };
+
+  let (req, rx) = MsdRequest::query(query_req);
+  db.request(req).await?;
+  let res = rx.await??;
+  assert_eq!(res.column_count(), 2);
+  assert_eq!(res.row_count(), 2);
+  let opens = res.column("open").unwrap().data.get_float64().unwrap();
+  assert_eq!(opens, &[2.0, 3.0]);
+
+  Ok(())
+}

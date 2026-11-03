@@ -16,6 +16,9 @@ pub struct QueryRequest {
   /// fields to retrieve, None means all fields
   pub fields: Option<Vec<SmolStr>>,
   pub date_range: DateRange,
+  /// additional datetime column filters: (column_name, date_range)
+  #[serde(default)]
+  pub ts_filters: Vec<(SmolStr, DateRange)>,
   /// whether to sort ascendancy
   pub ascending: Option<bool>,
   /// limit number of results, None means no limit
