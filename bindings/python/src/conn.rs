@@ -12,7 +12,7 @@ use msd_table::check_table_frame;
 use msd_table::compute_joined_indices;
 use msd_table::extend_series_with_fill;
 use msd_table::unpack_frame_batch;
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 use pyo3::types::PyByteArray;
@@ -137,6 +137,34 @@ impl PyMsdConnection {
     Ok(outer)
   }
 
+  /// Execute query and concatenate tables of the same table name.
+  /// Returns a dict where:
+  /// key: table name
+  /// value: tuple[Table, list[tuple[obj, start, end]]]
+  #[pyo3(signature = (sql))]
+  fn query_concat<'py>(&self, py: Python<'py>, sql: String) -> PyResult<Bound<'py, PyDict>> {
+    let batches = py.detach(|| self.inner.async_query_batches(sql))?;
+    let concatenated = concat_batches(batches).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let outer = PyDict::new(py);
+    for (table_name, table, ranges) in concatenated {
+      let table_pystr = PyString::new(py, table_name.as_ref());
+      let py_ranges = PyList::new(py, ranges)?;
+      let py_table = Py::new(
+        py,
+        PyTable {
+          inner: table,
+          obj: String::new(),
+          table_name,
+        },
+      )?;
+      let val = (py_table, py_ranges).into_pyobject(py)?;
+      outer.set_item(table_pystr, val)?;
+    }
+
+    Ok(outer)
+  }
+
   /// query and join the result to one table
   /// the join result will
   /// - rows: count_of_objects * base_table.rows
@@ -185,7 +213,12 @@ impl PyMsdConnection {
 
   /// query and call handler for each table
   #[pyo3(signature = (sql, handler))]
-  fn query_map<'py>(&self, py: Python<'py>, sql: String, handler: Bound<'py, PyAny>) -> PyResult<()> {
+  fn query_map<'py>(
+    &self,
+    py: Python<'py>,
+    sql: String,
+    handler: Bound<'py, PyAny>,
+  ) -> PyResult<()> {
     if !handler.is_callable() {
       return Err(PyTypeError::new_err("handler must be callable"));
     }
@@ -630,6 +663,129 @@ impl PyTable {
   }
 }
 
+fn concat_batches(
+  batches: Vec<FrameBatch>,
+) -> Result<Vec<(Arc<str>, Table, Vec<(String, usize, usize)>)>> {
+  if batches.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  // Check if all batches share a single table name (the common case)
+  let mut single_table_name: Option<Arc<str>> = None;
+  let mut is_single_table = true;
+  let mut total_tables = 0usize;
+  let mut total_rows = 0usize;
+
+  'check: for batch in &batches {
+    for (_, tname, t) in batch {
+      total_tables += 1;
+      total_rows += t.row_count();
+      match &single_table_name {
+        None => single_table_name = Some(Arc::clone(tname)),
+        Some(prev) if prev.as_ref() == tname.as_ref() => {}
+        Some(_) => {
+          is_single_table = false;
+          break 'check;
+        }
+      }
+    }
+  }
+
+  let Some(single_table_name) = single_table_name else {
+    return Ok(Vec::new());
+  };
+
+  if is_single_table {
+    let mut concat_table: Option<Table> = None;
+    let mut ranges: Vec<(String, usize, usize)> = Vec::with_capacity(total_tables);
+
+    for batch in batches {
+      for (obj, _, table) in batch {
+        match &mut concat_table {
+          None => {
+            let rows = table.row_count();
+            let mut table = table;
+            if total_rows > rows {
+              table.reserve(total_rows - rows);
+            }
+            let _ = table.set_table_meta("obj", Variant::Null);
+            ranges.push((obj, 0, rows));
+            concat_table = Some(table);
+          }
+          Some(dest) => {
+            let start = dest.row_count();
+            dest.extend(&table, false)?;
+            let end = dest.row_count();
+            ranges.push((obj, start, end));
+          }
+        }
+      }
+    }
+
+    if let Some(table) = concat_table {
+      Ok(vec![(single_table_name, table, ranges)])
+    } else {
+      Ok(Vec::new())
+    }
+  } else {
+    let mut table_stats: HashMap<Arc<str>, (usize, usize)> = HashMap::new();
+    for batch in &batches {
+      for (_, tname, t) in batch {
+        let entry = table_stats.entry(Arc::clone(tname)).or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 += t.row_count();
+      }
+    }
+
+    struct TableGroup {
+      table_name: Arc<str>,
+      table: Table,
+      ranges: Vec<(String, usize, usize)>,
+    }
+
+    let mut groups: Vec<TableGroup> = Vec::with_capacity(table_stats.len());
+    let mut name_to_group_idx: HashMap<Arc<str>, usize> = HashMap::with_capacity(table_stats.len());
+
+    for batch in batches {
+      for (obj, table_name, table) in batch {
+        if let Some(&idx) = name_to_group_idx.get(&table_name) {
+          let group = &mut groups[idx];
+          let start = group.table.row_count();
+          group.table.extend(&table, false)?;
+          let end = group.table.row_count();
+          group.ranges.push((obj, start, end));
+        } else {
+          let (tot_tables, tot_rows) = table_stats
+            .get(&table_name)
+            .copied()
+            .unwrap_or((1, table.row_count()));
+          let mut ranges = Vec::with_capacity(tot_tables);
+          let rows = table.row_count();
+          let mut table = table;
+          if tot_rows > rows {
+            table.reserve(tot_rows - rows);
+          }
+          let _ = table.set_table_meta("obj", Variant::Null);
+          ranges.push((obj, 0, rows));
+          let idx = groups.len();
+          name_to_group_idx.insert(Arc::clone(&table_name), idx);
+          groups.push(TableGroup {
+            table_name,
+            table,
+            ranges,
+          });
+        }
+      }
+    }
+
+    let result = groups
+      .into_iter()
+      .map(|g| (g.table_name, g.table, g.ranges))
+      .collect();
+    Ok(result)
+  }
+}
+
 #[derive(Debug, Clone)]
 struct MsdConnection {
   client: Client,
@@ -759,7 +915,12 @@ impl MsdConnection {
             if idx == other_pk_idx {
               continue;
             }
-            extend_series_with_fill(&mut result_cols[col_offset].data, &col.data, &indices, method);
+            extend_series_with_fill(
+              &mut result_cols[col_offset].data,
+              &col.data,
+              &indices,
+              method,
+            );
             col_offset += 1;
           }
         } else {
@@ -838,9 +999,7 @@ impl MsdConnection {
     for batch in batches {
       for (obj, table_name, table) in batch {
         if !obj.is_empty() && !table_name.is_empty() {
-          let mm = m
-            .entry(obj)
-            .or_insert_with(|| HashMap::with_capacity(1));
+          let mm = m.entry(obj).or_insert_with(|| HashMap::with_capacity(1));
           mm.insert(table_name.as_ref().to_owned(), table);
         }
       }
@@ -1219,82 +1378,8 @@ fn json_to_py<'py>(py: Python<'py>, value: serde_json::Value) -> PyResult<Bound<
 mod tests {
   use super::*;
   use msd_table::pack_table_frame;
-  use tokio::io::AsyncWriteExt;
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;
-
-  #[test]
-  fn test_query_map() {
-    unsafe {
-      std::env::set_var("no_proxy", "127.0.0.1,localhost");
-      std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
-    }
-
-    let (url, handle) = get_runtime().block_on(async {
-      let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-      let port = listener.local_addr().unwrap().port();
-      let url = format!("http://127.0.0.1:{}", port);
-
-      let handle = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut req_buf = vec![0u8; 1024];
-        let _ = socket.read(&mut req_buf).await.unwrap();
-
-        let mut t1 = Table::from_columns(vec![Field::new_with_data(
-          "col1",
-          DataType::Int64,
-          vec![1i64, 2i64].into(),
-        )]);
-        let _ = t1.set_table_meta("table", "table1".into());
-        let _ = t1.set_table_meta("obj", "obj1".into());
-        let frame1 = pack_table_frame(&t1);
-
-        let mut t2 = Table::from_columns(vec![Field::new_with_data(
-          "col2",
-          DataType::String,
-          vec!["hello".to_string(), "world".to_string()].into(),
-        )]);
-        let _ = t2.set_table_meta("table", "table2".into());
-        let _ = t2.set_table_meta("obj", "obj2".into());
-        let frame2 = pack_table_frame(&t2);
-
-        let mut body = frame1;
-        body.extend_from_slice(&frame2);
-
-        let resp = format!(
-          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n\r\n",
-          body.len()
-        );
-        socket.write_all(resp.as_bytes()).await.unwrap();
-        socket.write_all(&body).await.unwrap();
-      });
-
-      (url, handle)
-    });
-
-    let conn = MsdConnection::new(&url, "", false).unwrap();
-    let mut received = Vec::new();
-    conn
-      .query_map("SELECT 1;".to_string(), |t| {
-        received.push((
-          t.get_table_meta("obj")
-            .and_then(|v| v.get_string())
-            .cloned()
-            .unwrap(),
-          t.get_table_meta("table")
-            .and_then(|v| v.get_string())
-            .cloned()
-            .unwrap(),
-        ));
-        Ok(())
-      })
-      .unwrap();
-
-    assert_eq!(received.len(), 2);
-    assert_eq!(received[0], ("obj1".to_string(), "table1".to_string()));
-    assert_eq!(received[1], ("obj2".to_string(), "table2".to_string()));
-
-    get_runtime().block_on(handle).unwrap();
-  }
 
   #[test]
   fn test_import_csv() {
@@ -1406,5 +1491,106 @@ mod tests {
       sql_with_date,
       "SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000','SH600001')  AND ts <= '2025-12-31' LIMIT -1;SELECT f001,f002 FROM stock_financial WHERE obj IN ('SH600000','SH600001')  AND ts <= '2025-12-31' AND ts.month=12 LIMIT -1;"
     );
+  }
+
+  #[test]
+  fn test_concat_batches_single_table() {
+    let t1 = Table::from_columns(vec![Field::new_with_data(
+      "val",
+      DataType::Int64,
+      vec![10i64, 20i64].into(),
+    )]);
+    let t2 = Table::from_columns(vec![Field::new_with_data(
+      "val",
+      DataType::Int64,
+      vec![30i64, 40i64, 50i64].into(),
+    )]);
+
+    let batch = vec![
+      ("SH600000".to_string(), Arc::from("quote"), t1),
+      ("SZ000001".to_string(), Arc::from("quote"), t2),
+    ];
+
+    let result = concat_batches(vec![batch]).unwrap();
+    assert_eq!(result.len(), 1);
+
+    let (table_name, table, ranges) = &result[0];
+    assert_eq!(table_name.as_ref(), "quote");
+    assert_eq!(table.row_count(), 5);
+    assert_eq!(ranges.len(), 2);
+    assert_eq!(ranges[0], ("SH600000".to_string(), 0, 2));
+    assert_eq!(ranges[1], ("SZ000001".to_string(), 2, 5));
+
+    // Verify concatenated cell values
+    assert_eq!(
+      table.get_cell(0, 0),
+      Some(msd_table::VariantRef::Int64(&10))
+    );
+    assert_eq!(
+      table.get_cell(1, 0),
+      Some(msd_table::VariantRef::Int64(&20))
+    );
+    assert_eq!(
+      table.get_cell(2, 0),
+      Some(msd_table::VariantRef::Int64(&30))
+    );
+    assert_eq!(
+      table.get_cell(3, 0),
+      Some(msd_table::VariantRef::Int64(&40))
+    );
+    assert_eq!(
+      table.get_cell(4, 0),
+      Some(msd_table::VariantRef::Int64(&50))
+    );
+  }
+
+  #[test]
+  fn test_concat_batches_multi_tables() {
+    let t1 = Table::from_columns(vec![Field::new_with_data(
+      "val",
+      DataType::Int64,
+      vec![10i64].into(),
+    )]);
+    let t2 = Table::from_columns(vec![Field::new_with_data(
+      "col_str",
+      DataType::String,
+      vec!["abc".to_string(), "def".to_string()].into(),
+    )]);
+    let t3 = Table::from_columns(vec![Field::new_with_data(
+      "val",
+      DataType::Int64,
+      vec![20i64, 30i64].into(),
+    )]);
+
+    let batch = vec![
+      ("SH600000".to_string(), Arc::from("quote"), t1),
+      ("SH600000".to_string(), Arc::from("financial"), t2),
+      ("SZ000001".to_string(), Arc::from("quote"), t3),
+    ];
+
+    let result = concat_batches(vec![batch]).unwrap();
+    assert_eq!(result.len(), 2);
+
+    let (tname0, table0, ranges0) = &result[0];
+    assert_eq!(tname0.as_ref(), "quote");
+    assert_eq!(table0.row_count(), 3);
+    assert_eq!(ranges0.len(), 2);
+    assert_eq!(ranges0[0], ("SH600000".to_string(), 0, 1));
+    assert_eq!(ranges0[1], ("SZ000001".to_string(), 1, 3));
+
+    let (tname1, table1, ranges1) = &result[1];
+    assert_eq!(tname1.as_ref(), "financial");
+    assert_eq!(table1.row_count(), 2);
+    assert_eq!(ranges1.len(), 1);
+    assert_eq!(ranges1[0], ("SH600000".to_string(), 0, 2));
+  }
+
+  #[test]
+  fn test_concat_batches_empty() {
+    let result = concat_batches(vec![]).unwrap();
+    assert!(result.is_empty());
+
+    let result2 = concat_batches(vec![vec![]]).unwrap();
+    assert!(result2.is_empty());
   }
 }

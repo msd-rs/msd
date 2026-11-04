@@ -92,9 +92,28 @@ def test_financial():
 
   for i in range(0, 5):
     t1 = time.time()
-    table = conn.query(sql)
+    m = conn.query(sql)
+    dfs = []
+    for obj, mm in m.items():
+      t = mm["stock_financial"]
+      dfs.append(pl.DataFrame(t.to_dict()))
+
+    df = pl.concat(dfs)
+
+
     print(f"query financial used: {time.time() - t1:.3f}s")
 
+def test_financial_pl():
+  conn = pymsd.MsdConnection(BASE_URL, "", False)
+  sql = "select f001,f007,f095, f130,f203 from stock_financial limit -8 "
+
+  for i in range(0, 1):
+    t1 = time.time()
+
+    m = conn.query_concat(sql)
+    df = pl.DataFrame(m["stock_financial"][0].to_dict())
+    print(f"query_pl financial used: {time.time() - t1:.3f}s")
+    print(df)
 
 
 if __name__ == "__main__":
@@ -104,5 +123,6 @@ if __name__ == "__main__":
   #test_query_map()
   #test_snapshot()
   test_financial()
+  test_financial_pl()
   
 

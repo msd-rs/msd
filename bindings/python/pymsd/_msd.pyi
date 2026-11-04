@@ -97,6 +97,15 @@ class MsdConnection:
     """
     ...
 
+  def query_concat(self, sql: str) -> dict[str, tuple[Table, list[tuple[str, int, int]]]]:
+    """
+    Execute query and concatenate tables of the same table name.
+    Returns a dict where:
+    key: table name
+    value: tuple[Table, list[tuple[obj, start, end]]]
+    """
+    ...
+
   def query_raw(self, sql: str) -> list[tuple[str, str, MsdTable]]:
     """
     Execute raw query and return a list of (table_name, obj, MsdTable) tuples.

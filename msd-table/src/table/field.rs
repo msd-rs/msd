@@ -68,6 +68,10 @@ impl Field {
     }
   }
 
+  pub fn reserve(&mut self, additional: usize) {
+    self.data.reserve(additional);
+  }
+
   pub fn with_data(&self, data: Series) -> Self {
     Self {
       name: self.name.clone(),

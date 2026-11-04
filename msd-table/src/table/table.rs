@@ -99,6 +99,12 @@ impl Table {
     }
   }
 
+  pub fn reserve(&mut self, additional: usize) {
+    for col in &mut self.columns {
+      col.reserve(additional);
+    }
+  }
+
   pub fn version(&self) -> u32 {
     self.version
   }
@@ -108,7 +114,9 @@ impl Table {
   }
 
   pub fn set_obj_table_meta(&mut self, obj: &str, table: &str) {
-    let meta = self.metadata.get_or_insert_with(|| HashMap::with_capacity(2));
+    let meta = self
+      .metadata
+      .get_or_insert_with(|| HashMap::with_capacity(2));
     if let Some(Variant::String(s)) = meta.get_mut("obj") {
       s.clear();
       s.push_str(obj);
@@ -893,7 +901,12 @@ fn extend_vec_with_fill<T: Clone>(dst: &mut Vec<T>, data: &[T], indices: &[usize
   }
 }
 
-pub fn extend_series_with_fill(dst: &mut Series, src: &Series, indices: &[usize], fill: FillMethod) {
+pub fn extend_series_with_fill(
+  dst: &mut Series,
+  src: &Series,
+  indices: &[usize],
+  fill: FillMethod,
+) {
   let use_zero = matches!(fill, FillMethod::Zero);
   match (dst, src) {
     (Series::Null, _) => {}
@@ -1248,9 +1261,12 @@ where
     3u32 => {
       decoder.decode_struct_header(1)?;
       let len = decoder.decode_slice_len()?;
-      let byte_len = len
-        .checked_mul(8)
-        .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(len as u64))?;
+      let byte_len =
+        len
+          .checked_mul(8)
+          .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(
+            len as u64,
+          ))?;
       decoder.claim_bytes_read(byte_len)?;
       let _ = decoder.borrow_reader().take_bytes(byte_len)?;
       Ok(len)
@@ -1299,9 +1315,12 @@ where
     10u32 => {
       decoder.decode_struct_header(1)?;
       let len = decoder.decode_slice_len()?;
-      let byte_len = len
-        .checked_mul(4)
-        .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(len as u64))?;
+      let byte_len =
+        len
+          .checked_mul(4)
+          .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(
+            len as u64,
+          ))?;
       decoder.claim_bytes_read(byte_len)?;
       let _ = decoder.borrow_reader().take_bytes(byte_len)?;
       Ok(len)

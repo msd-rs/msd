@@ -94,6 +94,23 @@ impl Series {
     }
   }
 
+  pub fn reserve(&mut self, additional: usize) {
+    match self {
+      Series::Null => {}
+      Series::String(v) => v.reserve(additional),
+      Series::Bytes(v) => v.reserve(additional),
+      Series::Int32(v) => v.reserve(additional),
+      Series::UInt32(v) => v.reserve(additional),
+      Series::Int64(v) => v.reserve(additional),
+      Series::UInt64(v) => v.reserve(additional),
+      Series::Float32(v) => v.reserve(additional),
+      Series::Float64(v) => v.reserve(additional),
+      Series::Decimal64(v) => v.reserve(additional),
+      Series::Bool(v) => v.reserve(additional),
+      Series::DateTime(v) => v.reserve(additional),
+    }
+  }
+
   pub fn extend_range(
     &mut self,
     other: &Series,
@@ -197,11 +214,7 @@ impl Series {
     }
   }
 
-  pub fn extend_by_indices(
-    &mut self,
-    other: &Series,
-    indices: &[usize],
-  ) -> Result<(), TableError> {
+  pub fn extend_by_indices(&mut self, other: &Series, indices: &[usize]) -> Result<(), TableError> {
     if indices.is_empty() {
       return Ok(());
     }
