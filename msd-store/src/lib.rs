@@ -12,6 +12,15 @@ pub use errors::StoreError;
 pub trait MsdStore {
   /// get a value named `key` in `table`
   fn get<K: AsRef<[u8]>>(&self, key: K, table: &str) -> Result<Option<Vec<u8>>, StoreError>;
+  /// get a value named `key` in `table` and invoke `f` on the borrowed slice without copying when supported
+  fn get_with<K: AsRef<[u8]>, R, F: FnOnce(&[u8]) -> R>(
+    &self,
+    key: K,
+    table: &str,
+    f: F,
+  ) -> Result<Option<R>, StoreError> {
+    Ok(self.get(key, table)?.map(|v| f(&v)))
+  }
   /// get the next key-value pair after `key` in `table` in lexicographical order
   ///
   /// An optional buffer(key, value) can be provided to avoid allocations.

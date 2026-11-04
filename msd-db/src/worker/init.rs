@@ -5,13 +5,13 @@ use crate::{
   errors::DbError,
   index::IndexItem,
   serde::DbBinary,
-  worker::{agg_state::AggState, cache::CacheValue, chan::Chan},
+  worker::cache::CacheValue,
 };
 
 use super::Worker;
 use msd_request::{Key, RequestKey};
 use msd_store::MsdStore;
-use msd_table::{Table, now};
+use msd_table::{LazyChunk, Table};
 
 impl<S: MsdStore> Worker<S> {
   /// Ensure that the cache for the given request key is initialized.
@@ -27,32 +27,40 @@ impl<S: MsdStore> Worker<S> {
       return Ok(true);
     }
     let index_key = Key::new_index(&key.obj);
-    let index = match self.store.get(index_key, &key.table)? {
-      Some(data) => data,
-      None => return Ok(false),
-    };
-    let index: Vec<IndexItem> = DbBinary::from_bytes(&index)?;
-    if index.is_empty() {
-      return Ok(false);
+    let mut decode_err: Option<DbError> = None;
+    let index_opt = self.store.get_with(index_key, &key.table, |bytes| {
+      let res: Result<Vec<IndexItem>, DbError> = DbBinary::from_bytes(bytes);
+      match res {
+        Ok(idx) => Some(idx),
+        Err(e) => {
+          decode_err = Some(e);
+          None
+        }
+      }
+    })?;
+    if let Some(e) = decode_err {
+      return Err(e);
     }
+    let index = match index_opt.flatten() {
+      Some(idx) if !idx.is_empty() => idx,
+      _ => return Ok(false),
+    };
     let last_seq = (index.len() - 1) as u32;
     let data_key = Key::new_data(&key.obj, last_seq);
     let data = self
       .store
       .get(data_key, &key.table)?
       .ok_or(DbError::ChunkMissing(key.clone(), last_seq))?;
-    let table: Table = DbBinary::from_bytes(&data)?;
-    let state = AggState::table_states(&table);
-    let chan = Chan::parse_from_table(&table);
-    let last_saved = now();
     self.cache.insert(
       key.clone(),
       CacheValue {
-        cached: table,
+        cached: Table::default(),
+        lazy_last: Some(LazyChunk::new(data.into_boxed_slice())),
+        lazy_prev: None,
         index,
-        state,
-        chan,
-        last_changed: last_saved,
+        state: Vec::new(),
+        chan: None,
+        last_changed: 0,
       },
     );
     Ok(true)

@@ -56,6 +56,61 @@ impl Table {
     }
   }
 
+  pub fn to_empty_projected(&self, col_indices: &[usize], row_cap: usize) -> Self {
+    let columns = col_indices
+      .iter()
+      .filter_map(|&idx| self.columns.get(idx))
+      .map(|col| {
+        let mut f = col.to_empty_with_capacity(row_cap);
+        if let Some(ref mut meta) = f.metadata {
+          meta.remove("desc");
+          if meta.is_empty() {
+            f.metadata = None;
+          }
+        }
+        f
+      })
+      .collect();
+    Self {
+      version: self.version,
+      columns,
+      metadata: None,
+      is_kv: self.is_kv,
+    }
+  }
+
+  pub fn clear_rows(&mut self) {
+    for col in &mut self.columns {
+      col.data.clear();
+    }
+  }
+
+  pub fn version(&self) -> u32 {
+    self.version
+  }
+
+  pub fn metadata(&self) -> Option<&HashMap<String, Variant>> {
+    self.metadata.as_ref()
+  }
+
+  pub fn set_obj_table_meta(&mut self, obj: &str, table: &str) {
+    let meta = self.metadata.get_or_insert_with(|| HashMap::with_capacity(2));
+    if let Some(Variant::String(s)) = meta.get_mut("obj") {
+      s.clear();
+      s.push_str(obj);
+    } else {
+      meta.insert("obj".to_string(), Variant::String(obj.to_string()));
+    }
+    if let Some(Variant::String(s)) = meta.get_mut("table") {
+      if s != table {
+        s.clear();
+        s.push_str(table);
+      }
+    } else {
+      meta.insert("table".to_string(), Variant::String(table.to_string()));
+    }
+  }
+
   /// attach metadata to the table
   pub fn with_metadata(mut self, metadata: HashMap<String, Variant>) -> Self {
     match self.metadata {
@@ -973,4 +1028,345 @@ impl<'t> Iterator for RowIter<'t> {
   fn next(&mut self) -> Option<Self::Item> {
     self.next_cached().map(|row| row.to_vec())
   }
+}
+
+#[allow(dead_code)]
+#[derive(bincode_next::BorrowDecode)]
+enum SkipVariant<'a> {
+  Null,
+  DateTime(i64),
+  Int64(i64),
+  Float64(f64),
+  Decimal64(crate::D64),
+  String(&'a str),
+  Bool(bool),
+  Int32(i32),
+  UInt32(u32),
+  UInt64(u64),
+  Float32(f32),
+  Bytes(&'a [u8]),
+}
+
+struct PosSliceReader<'a> {
+  slice: &'a [u8],
+}
+
+impl<'a> PosSliceReader<'a> {
+  #[inline]
+  fn new(slice: &'a [u8]) -> Self {
+    Self { slice }
+  }
+}
+
+impl<'a> bincode_next::de::read::Reader for PosSliceReader<'a> {
+  #[inline(always)]
+  fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode_next::error::DecodeError> {
+    if bytes.len() > self.slice.len() {
+      return Err(bincode_next::error::DecodeError::UnexpectedEnd {
+        additional: bytes.len() - self.slice.len(),
+      });
+    }
+    let (read_slice, remaining) = self.slice.split_at(bytes.len());
+    bytes.copy_from_slice(read_slice);
+    self.slice = remaining;
+    Ok(())
+  }
+
+  #[inline]
+  fn peek_read(&mut self, n: usize) -> Option<&[u8]> {
+    self.slice.get(..n)
+  }
+
+  #[inline]
+  fn consume(&mut self, n: usize) {
+    self.slice = self.slice.get(n..).unwrap_or_default();
+  }
+}
+
+impl<'a> bincode_next::de::read::BorrowReader<'a> for PosSliceReader<'a> {
+  #[inline(always)]
+  fn take_bytes(&mut self, length: usize) -> Result<&'a [u8], bincode_next::error::DecodeError> {
+    if length > self.slice.len() {
+      return Err(bincode_next::error::DecodeError::UnexpectedEnd {
+        additional: length - self.slice.len(),
+      });
+    }
+    let (read_slice, remaining) = self.slice.split_at(length);
+    self.slice = remaining;
+    Ok(read_slice)
+  }
+}
+
+#[inline]
+fn skip_field_header<'de, D>(decoder: &mut D) -> Result<(), bincode_next::error::DecodeError>
+where
+  D: bincode_next::de::BorrowDecoder<'de, Context = ()>,
+{
+  use bincode_next::de::read::BorrowReader;
+  use bincode_next::{BorrowDecode, Decode};
+  decoder.decode_struct_header(4)?;
+  // name: String
+  let name_len = decoder.decode_slice_len()?;
+  decoder.claim_bytes_read(name_len)?;
+  let _ = decoder.borrow_reader().take_bytes(name_len)?;
+  // kind: DataType
+  let _ = u32::decode(decoder)?;
+  // metadata: Option<HashMap<String, Variant>>
+  let opt_tag = u32::decode(decoder)?;
+  if opt_tag == 1 {
+    decoder.decode_struct_header(1)?;
+    let map_len = decoder.decode_map_len()?;
+    for _ in 0..map_len {
+      let key_len = decoder.decode_slice_len()?;
+      decoder.claim_bytes_read(key_len)?;
+      let _ = decoder.borrow_reader().take_bytes(key_len)?;
+      let _ = SkipVariant::borrow_decode(decoder)?;
+    }
+  }
+  Ok(())
+}
+
+#[inline]
+fn skip_series<'de, D>(decoder: &mut D) -> Result<usize, bincode_next::error::DecodeError>
+where
+  D: bincode_next::de::BorrowDecoder<'de, Context = ()>,
+{
+  use bincode_next::Decode;
+  use bincode_next::de::read::BorrowReader;
+  let variant_index = u32::decode(decoder)?;
+  match variant_index {
+    0u32 => Ok(0),
+    1u32 | 4u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      if len == 0 {
+        return Ok(0);
+      }
+      for _ in 0..len {
+        let _ = decoder.decode_i64()?;
+      }
+      Ok(len - 1)
+    }
+    2u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      for _ in 0..len {
+        let _ = decoder.decode_i64()?;
+      }
+      Ok(len)
+    }
+    3u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      let byte_len = len
+        .checked_mul(8)
+        .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(len as u64))?;
+      decoder.claim_bytes_read(byte_len)?;
+      let _ = decoder.borrow_reader().take_bytes(byte_len)?;
+      Ok(len)
+    }
+    5u32 | 11u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      for _ in 0..len {
+        let byte_len = decoder.decode_slice_len()?;
+        decoder.claim_bytes_read(byte_len)?;
+        let _ = decoder.borrow_reader().take_bytes(byte_len)?;
+      }
+      Ok(len)
+    }
+    6u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      decoder.claim_bytes_read(len)?;
+      let _ = decoder.borrow_reader().take_bytes(len)?;
+      Ok(len)
+    }
+    7u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      for _ in 0..len {
+        let _ = decoder.decode_i32()?;
+      }
+      Ok(len)
+    }
+    8u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      for _ in 0..len {
+        let _ = decoder.decode_u32()?;
+      }
+      Ok(len)
+    }
+    9u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      for _ in 0..len {
+        let _ = decoder.decode_u64()?;
+      }
+      Ok(len)
+    }
+    10u32 => {
+      decoder.decode_struct_header(1)?;
+      let len = decoder.decode_slice_len()?;
+      let byte_len = len
+        .checked_mul(4)
+        .ok_or(bincode_next::error::DecodeError::OutsideUsizeRange(len as u64))?;
+      decoder.claim_bytes_read(byte_len)?;
+      let _ = decoder.borrow_reader().take_bytes(byte_len)?;
+      Ok(len)
+    }
+    variant => bincode_next::error::cold_decode_error_unexpected_variant(
+      "Series",
+      &bincode_next::error::AllowedEnumVariants::Range { min: 0, max: 11 },
+      variant,
+    ),
+  }
+}
+
+/// Lazily decodes individual column `Series` from a bincode-encoded `Table` buffer on demand.
+#[derive(Debug, Clone)]
+pub struct LazyChunk {
+  raw: Box<[u8]>,
+  series_offsets: Vec<u32>,
+  cols: Vec<Option<Series>>,
+  row_count: usize,
+  scanned: bool,
+}
+
+impl LazyChunk {
+  pub fn new(raw: Box<[u8]>) -> Self {
+    Self {
+      raw,
+      series_offsets: Vec::new(),
+      cols: Vec::new(),
+      row_count: 0,
+      scanned: false,
+    }
+  }
+
+  pub fn raw_bytes(&self) -> &[u8] {
+    &self.raw
+  }
+
+  fn ensure_scanned(&mut self) -> Result<(), TableError> {
+    if self.scanned {
+      return Ok(());
+    }
+    use bincode_next::Decode;
+    use bincode_next::de::Decoder;
+    let total_len = self.raw.len();
+    let reader = PosSliceReader::new(&self.raw);
+    let mut decoder =
+      bincode_next::de::DecoderImpl::new(reader, bincode_next::config::standard(), ());
+
+    decoder
+      .decode_struct_header(4)
+      .map_err(|e| TableError::DecodeError(e.to_string()))?;
+    let _version = u32::decode(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+    let col_count = decoder
+      .decode_slice_len()
+      .map_err(|e| TableError::DecodeError(e.to_string()))?;
+
+    self.series_offsets = Vec::with_capacity(col_count);
+    self.cols = vec![None; col_count];
+    let mut rows = 0usize;
+
+    for col_idx in 0..col_count {
+      skip_field_header(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+      let series_offset = total_len - decoder.reader().slice.len();
+      self.series_offsets.push(series_offset as u32);
+      let r = skip_series(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+      if col_idx == 0 {
+        rows = r;
+      }
+    }
+
+    self.row_count = rows;
+    self.scanned = true;
+    Ok(())
+  }
+
+  pub fn row_count(&mut self) -> Result<usize, TableError> {
+    self.ensure_scanned()?;
+    Ok(self.row_count)
+  }
+
+  pub fn get_col(&mut self, col_idx: usize) -> Result<&Series, TableError> {
+    self.ensure_scanned()?;
+    if col_idx >= self.cols.len() {
+      return Err(TableError::ColumnIndexOutOfBounds(col_idx, self.cols.len()));
+    }
+    if self.cols[col_idx].is_none() {
+      let offset = self.series_offsets[col_idx] as usize;
+      let (series, _): (Series, usize) =
+        bincode_next::decode_from_slice(&self.raw[offset..], bincode_next::config::standard())
+          .map_err(|e| TableError::DecodeError(e.to_string()))?;
+      self.cols[col_idx] = Some(series);
+    }
+    Ok(self.cols[col_idx].as_ref().unwrap())
+  }
+
+  pub fn decode_full_table(&self) -> Result<Table, TableError> {
+    let (table, _): (Table, usize) =
+      bincode_next::decode_from_slice(&self.raw, bincode_next::config::standard())
+        .map_err(|e| TableError::DecodeError(e.to_string()))?;
+    Ok(table)
+  }
+}
+
+/// Decodes only the requested column `Series` (at `col_indices`) from a borrowed bincode-encoded `Table` buffer.
+pub fn decode_projected_series(
+  raw: &[u8],
+  col_indices: &[usize],
+) -> Result<(usize, Vec<Series>), TableError> {
+  use bincode_next::Decode;
+  use bincode_next::de::Decoder;
+
+  let reader = PosSliceReader::new(raw);
+  let mut decoder =
+    bincode_next::de::DecoderImpl::new(reader, bincode_next::config::standard(), ());
+
+  decoder
+    .decode_struct_header(4)
+    .map_err(|e| TableError::DecodeError(e.to_string()))?;
+  let _version = u32::decode(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+  let col_count = decoder
+    .decode_slice_len()
+    .map_err(|e| TableError::DecodeError(e.to_string()))?;
+
+  let max_col = col_indices.iter().copied().max().unwrap_or(0);
+  let mut decoded_cols: Vec<Option<Series>> = (0..col_indices.len()).map(|_| None).collect();
+  let mut rows = 0usize;
+
+  for col_idx in 0..col_count {
+    skip_field_header(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+    if let Some(first_pos) = col_indices.iter().position(|&c| c == col_idx) {
+      let s = Series::decode(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+      if col_idx == 0 {
+        rows = s.len();
+      }
+      for (pos, &c) in col_indices.iter().enumerate().skip(first_pos + 1) {
+        if c == col_idx {
+          decoded_cols[pos] = Some(s.clone());
+        }
+      }
+      decoded_cols[first_pos] = Some(s);
+    } else {
+      let r = skip_series(&mut decoder).map_err(|e| TableError::DecodeError(e.to_string()))?;
+      if col_idx == 0 {
+        rows = r;
+      }
+    }
+    if col_idx >= max_col {
+      break;
+    }
+  }
+
+  let mut out = Vec::with_capacity(col_indices.len());
+  for (i, opt) in decoded_cols.into_iter().enumerate() {
+    let s = opt.ok_or_else(|| TableError::ColumnIndexOutOfBounds(col_indices[i], col_count))?;
+    out.push(s);
+  }
+  Ok((rows, out))
 }

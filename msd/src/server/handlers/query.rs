@@ -1,7 +1,9 @@
 // Copyright 2026 MSD-RS Project LiJia
 // SPDX-License-Identifier: agpl-3.0-only
 
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 
 use super::is_msd_client;
 use crate::{
@@ -18,15 +20,17 @@ use axum::{
 use axum_streams::{StreamBodyAs, StreamBodyAsOptions, StreamingFormat};
 use futures::{StreamExt, stream::BoxStream};
 use http_body::Frame;
-use msd_db::{errors::DbError, request::MsdRequest};
+use msd_db::{
+  errors::DbError,
+  request::{MsdRequest, RequestReceiver},
+};
 use msd_request::{
   DeleteRequest, InsertRequest, ListObjectsRequest, QueryRequest, RequestKey, SqlRequest,
   sql_to_request,
 };
 use msd_store::MsdStore;
 use msd_table::{
-  Table, pack_table_frame, pack_table_frame_into, pack_table_frame_v2, pack_table_frame_v2_into,
-  table,
+  Table, pack_table_frame, pack_table_frame_v2, pack_table_frame_v2_into, table,
 };
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
@@ -48,10 +52,8 @@ pub async fn handle_data(
   headers: HeaderMap,
   Json(body): Json<DataRequest>,
 ) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
-  let total_start = std::time::Instant::now();
   debug!(remote_addr = %remote_addr, sql= body.query, "query");
 
-  let parse_start = std::time::Instant::now();
   let requests = sql_to_request(&body.query).map_err(|e| {
     (
       axum::http::StatusCode::BAD_REQUEST,
@@ -62,17 +64,13 @@ pub async fn handle_data(
   for req in &requests {
     Permission::check(&headers, &remote_addr, req)?;
   }
-  let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
-  let expand_start = std::time::Instant::now();
   let requests = flatten_requests_by_object(state.clone(), requests);
-  let expand_ms = expand_start.elapsed().as_secs_f64() * 1000.0;
 
   debug!(count = requests.len(), "start to handle requests");
 
   let client_ver = is_msd_client(&headers);
-  let dispatch_start = std::time::Instant::now();
-  let mut resp = if client_ver > 0 {
+  let resp = if client_ver > 0 {
     let body = TableFrameBody::new(state.clone(), requests, client_ver);
     body.into_response()
   } else {
@@ -83,15 +81,6 @@ pub async fn handle_data(
 
     StreamBodyAs::new(TableNdJsonFormat {}, s).into_response()
   };
-  let dispatch_ms = dispatch_start.elapsed().as_secs_f64() * 1000.0;
-  let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
-  let timing_val = format!(
-    "parse;dur={:.2}, expand;dur={:.2}, dispatch;dur={:.2}, total;dur={:.2}",
-    parse_ms, expand_ms, dispatch_ms, total_ms
-  );
-  if let Ok(hv) = axum::http::header::HeaderValue::from_str(&timing_val) {
-    resp.headers_mut().insert("server-timing", hv);
-  }
   Ok(resp)
 }
 
@@ -143,10 +132,8 @@ fn flatten_requests_by_object(state: AppStateRef, requests: Vec<SqlRequest>) -> 
             .collect();
         }
         // KV tables: pass through without object expansion
-        if let Ok(schema) = state.db.get_schema(&query_req.table) {
-          if schema.is_kv() {
-            return vec![SqlRequest::Query(query_req)];
-          }
+        if state.db.is_kv_table(&query_req.table) {
+          return vec![SqlRequest::Query(query_req)];
         }
 
         let objects = query_req.objects.take().unwrap_or_default();
@@ -200,8 +187,8 @@ fn matched_objects(state: AppStateRef, table: &str, pattern: &str) -> Vec<SmolSt
     let req = ListObjectsRequest {
       key: RequestKey::new(table, pattern),
     };
-    match state.db.matched_objects(&req) {
-      Ok(objects) => objects.into_iter().collect(),
+    match state.db.matched_objects_vec(&req) {
+      Ok(objects) => objects,
       Err(e) => {
         warn!(%e, table, pattern, "Failed to get matched objects");
         vec![]
@@ -247,11 +234,7 @@ async fn handle_schema(state: AppStateRef, name: String) -> Result<Table, DbErro
 async fn handle_query(state: AppStateRef, req: QueryRequest) -> Result<Table, DbError> {
   if is_list_objects(&req) {
     let req = ListObjectsRequest { key: req.key };
-    let mut objs = state
-      .db
-      .matched_objects(&req)?
-      .into_iter()
-      .collect::<Vec<_>>();
+    let mut objs = state.db.matched_objects_vec(&req)?;
     objs.sort();
     return Ok(table!({name : "obj", kind : string, data : objs}));
   }
@@ -347,12 +330,14 @@ fn expand_query_requests_for_ndjson(requests: Vec<SqlRequest>) -> Vec<SqlRequest
 
 #[derive(Debug)]
 struct TableFrameBody {
+  frame_rxs: Vec<RequestReceiver<Vec<u8>>>,
   set: JoinSet<Result<Vec<u8>, DbError>>,
   version: u32,
 }
 
 impl TableFrameBody {
   fn new(db: AppStateRef, requests: Vec<SqlRequest>, version: u32) -> Self {
+    let mut frame_rxs = Vec::new();
     let mut set = JoinSet::new();
     for req in requests {
       match req {
@@ -360,25 +345,32 @@ impl TableFrameBody {
           if !is_list_objects(&query_req) && query_req.objects.is_some() =>
         {
           let objects = query_req.objects.take().unwrap_or_default();
-          match db.db.query_batch(&query_req, objects) {
-            Ok(receivers) => {
-              for rx in receivers {
-                set.spawn(async move {
-                  let tables = rx.await.map_err(|e| DbError::from(e))??;
-                  let mut buf = Vec::with_capacity(tables.len() * 256);
-                  for t in &tables {
-                    if version == 2 {
-                      pack_table_frame_v2_into(t, &mut buf);
-                    } else {
-                      pack_table_frame_into(t, &mut buf);
-                    }
-                  }
-                  Ok(buf)
-                });
+          if version != 2 {
+            match db.db.query_batch_frames(&query_req, objects) {
+              Ok(mut receivers) => {
+                frame_rxs.append(&mut receivers);
+              }
+              Err(e) => {
+                set.spawn(async move { Err(e) });
               }
             }
-            Err(e) => {
-              set.spawn(async move { Err(e) });
+          } else {
+            match db.db.query_batch(&query_req, objects) {
+              Ok(receivers) => {
+                for rx in receivers {
+                  set.spawn(async move {
+                    let tables = rx.await.map_err(DbError::from)??;
+                    let mut buf = Vec::with_capacity(tables.len() * 256);
+                    for t in &tables {
+                      pack_table_frame_v2_into(t, &mut buf);
+                    }
+                    Ok(buf)
+                  });
+                }
+              }
+              Err(e) => {
+                set.spawn(async move { Err(e) });
+              }
             }
           }
         }
@@ -396,7 +388,11 @@ impl TableFrameBody {
         }
       }
     }
-    Self { set, version }
+    Self {
+      frame_rxs,
+      set,
+      version,
+    }
   }
 }
 
@@ -409,8 +405,35 @@ impl HttpBody for TableFrameBody {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
     let this = self.get_mut();
+
+    let mut i = 0;
+    while i < this.frame_rxs.len() {
+      match Pin::new(&mut this.frame_rxs[i]).poll(cx) {
+        std::task::Poll::Ready(res) => {
+          let _ = this.frame_rxs.swap_remove(i);
+          return match res {
+            Ok(Ok(buf)) => {
+              let frame = Frame::data(axum::body::Bytes::from(buf));
+              std::task::Poll::Ready(Some(Ok(frame)))
+            }
+            Ok(Err(e)) => std::task::Poll::Ready(Some(Err(axum::Error::new(e)))),
+            Err(e) => std::task::Poll::Ready(Some(Err(axum::Error::new(DbError::from(e))))),
+          };
+        }
+        std::task::Poll::Pending => {
+          i += 1;
+        }
+      }
+    }
+
     match this.set.poll_join_next(cx) {
-      std::task::Poll::Ready(None) => std::task::Poll::Ready(None),
+      std::task::Poll::Ready(None) => {
+        if this.frame_rxs.is_empty() {
+          std::task::Poll::Ready(None)
+        } else {
+          std::task::Poll::Pending
+        }
+      }
       std::task::Poll::Pending => std::task::Poll::Pending,
       std::task::Poll::Ready(Some(Ok(Ok(table)))) => {
         let frame = Frame::data(axum::body::Bytes::from(table));

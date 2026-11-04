@@ -60,6 +60,233 @@ impl Series {
     }
   }
 
+  pub fn with_capacity(data_type: DataType, cap: usize) -> Self {
+    match data_type {
+      DataType::Null => Series::Null,
+      DataType::String => Series::String(Vec::with_capacity(cap)),
+      DataType::Bytes => Series::Bytes(Vec::with_capacity(cap)),
+      DataType::Int32 => Series::Int32(Vec::with_capacity(cap)),
+      DataType::UInt32 => Series::UInt32(Vec::with_capacity(cap)),
+      DataType::Int64 => Series::Int64(Vec::with_capacity(cap)),
+      DataType::UInt64 => Series::UInt64(Vec::with_capacity(cap)),
+      DataType::Float32 => Series::Float32(Vec::with_capacity(cap)),
+      DataType::Float64 => Series::Float64(Vec::with_capacity(cap)),
+      DataType::Decimal64 => Series::Decimal64(Vec::with_capacity(cap)),
+      DataType::Bool => Series::Bool(Vec::with_capacity(cap)),
+      DataType::DateTime => Series::DateTime(Vec::with_capacity(cap)),
+    }
+  }
+
+  pub fn clear(&mut self) {
+    match self {
+      Series::Null => {}
+      Series::String(v) => v.clear(),
+      Series::Bytes(v) => v.clear(),
+      Series::Int32(v) => v.clear(),
+      Series::UInt32(v) => v.clear(),
+      Series::Int64(v) => v.clear(),
+      Series::UInt64(v) => v.clear(),
+      Series::Float32(v) => v.clear(),
+      Series::Float64(v) => v.clear(),
+      Series::Decimal64(v) => v.clear(),
+      Series::Bool(v) => v.clear(),
+      Series::DateTime(v) => v.clear(),
+    }
+  }
+
+  pub fn extend_range(
+    &mut self,
+    other: &Series,
+    start: usize,
+    end: usize,
+    rev: bool,
+  ) -> Result<(), TableError> {
+    if start >= end {
+      return Ok(());
+    }
+    match (self, other) {
+      (Series::String(v), Series::String(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().cloned());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Bytes(v), Series::Bytes(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().cloned());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Int32(v), Series::Int32(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::UInt32(v), Series::UInt32(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Int64(v), Series::Int64(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::UInt64(v), Series::UInt64(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Float32(v), Series::Float32(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Float64(v), Series::Float64(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Decimal64(v), Series::Decimal64(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::Bool(v), Series::Bool(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (Series::DateTime(v), Series::DateTime(o)) => {
+        if rev {
+          v.extend(o[start..end].iter().rev().copied());
+        } else {
+          v.extend_from_slice(&o[start..end]);
+        }
+        Ok(())
+      }
+      (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+    }
+  }
+
+  pub fn extend_by_indices(
+    &mut self,
+    other: &Series,
+    indices: &[usize],
+  ) -> Result<(), TableError> {
+    if indices.is_empty() {
+      return Ok(());
+    }
+    match (self, other) {
+      (Series::String(v), Series::String(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i].clone());
+        }
+        Ok(())
+      }
+      (Series::Bytes(v), Series::Bytes(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i].clone());
+        }
+        Ok(())
+      }
+      (Series::Int32(v), Series::Int32(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::UInt32(v), Series::UInt32(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::Int64(v), Series::Int64(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::UInt64(v), Series::UInt64(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::Float32(v), Series::Float32(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::Float64(v), Series::Float64(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::Decimal64(v), Series::Decimal64(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::Bool(v), Series::Bool(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (Series::DateTime(v), Series::DateTime(o)) => {
+        v.reserve(indices.len());
+        for &i in indices {
+          v.push(o[i]);
+        }
+        Ok(())
+      }
+      (a, b) => Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+    }
+  }
+
   pub fn extend(&mut self, other: &Series, rev: bool) -> Result<(), TableError> {
     match (self, other) {
       (Series::String(v), Series::String(o)) => {

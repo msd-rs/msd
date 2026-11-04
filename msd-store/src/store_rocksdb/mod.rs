@@ -29,7 +29,7 @@ impl RocksDbStore {
       path.as_ref(),
       Env::new()?,
       true,
-      Cache::new_lru_cache(1024 * 8),
+      Cache::new_lru_cache(256 * 1024 * 1024),
     )
     .unwrap_or_else(|_e| {
       // create a new options and column families if the database does not exist
@@ -82,6 +82,19 @@ impl MsdStore for RocksDbStore {
   fn get<K: AsRef<[u8]>>(&self, key: K, table: &str) -> Result<Option<Vec<u8>>, StoreError> {
     let cf = self.cf_handle(table)?;
     self.db.get_cf(&cf, key.as_ref()).map_err(StoreError::from)
+  }
+
+  fn get_with<K: AsRef<[u8]>, R, F: FnOnce(&[u8]) -> R>(
+    &self,
+    key: K,
+    table: &str,
+    f: F,
+  ) -> Result<Option<R>, StoreError> {
+    let cf = self.cf_handle(table)?;
+    match self.db.get_pinned_cf(&cf, key.as_ref()).map_err(StoreError::from)? {
+      Some(slice) => Ok(Some(f(&slice))),
+      None => Ok(None),
+    }
   }
 
   fn get_next<K: AsRef<[u8]>>(

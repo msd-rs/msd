@@ -90,6 +90,14 @@ impl<S: MsdStore> Worker<S> {
             None => Ok(results),
           });
         }
+        MsdRequest::BatchQueryFrame {
+          mut req,
+          objects,
+          resp_tx,
+        } => {
+          let res = self.handle_batch_query_frame(&mut req, objects);
+          let _ = resp_tx.send(res);
+        }
         MsdRequest::Delete { req, resp_tx } => {
           let res = self.handle_delete(req);
           let _ = resp_tx.send(res);
@@ -145,7 +153,10 @@ impl<S: MsdStore> Worker<S> {
         let now = now();
         let store = self.store.clone();
         self.cache.iter_mut().for_each(|(key, cache_item)| {
-          if cache_item.last_changed + self.refresh_interval >= now {
+          if cache_item.last_changed > 0
+            && cache_item.lazy_last.is_none()
+            && cache_item.last_changed + self.refresh_interval >= now
+          {
             trace!(?key, "Flushing cache");
             if let Err(err) = Self::flush_index(store.clone(), key, &cache_item.index) {
               warn!(%key, %err, "Failed to flush index for key");
@@ -168,7 +179,11 @@ impl<S: MsdStore> Worker<S> {
 
   fn handle_shutdown(&self) {
     info!(id = self.id, "worker stopping");
+    let mut flushed = 0usize;
     for (key, cache_item) in &self.cache {
+      if cache_item.last_changed == 0 || cache_item.lazy_last.is_some() {
+        continue;
+      }
       debug!(?key, "Flushing cache before shutdown");
       if let Err(err) = Self::flush_index(self.store.clone(), key, &cache_item.index) {
         warn!(%key, %err, "Failed to flush index for key during shutdown");
@@ -181,12 +196,9 @@ impl<S: MsdStore> Worker<S> {
       ) {
         warn!(%key, %err, "Failed to flush chunk for key during shutdown");
       }
+      flushed += 1;
     }
-    info!(
-      id = self.id,
-      flushed = self.cache.len(),
-      "worker cache flushed"
-    );
+    info!(id = self.id, flushed, "worker cache flushed");
   }
 }
 

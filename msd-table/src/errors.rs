@@ -45,4 +45,7 @@ pub enum TableError {
 
   #[error("field {0} not found")]
   FieldNotFound(String),
+
+  #[error("decode error: {0}")]
+  DecodeError(String),
 }

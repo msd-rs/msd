@@ -81,13 +81,16 @@ impl<S: MsdStore> Worker<S> {
       .unwrap_or(200) as usize;
 
     // Get cache for this key
-    let cache = self.cache.entry(req.key.clone()).or_insert(CacheValue {
+    let cache = self.cache.entry(req.key.clone()).or_insert_with(|| CacheValue {
       index: vec![IndexItem::default()],
       cached: schema.to_empty(),
+      lazy_last: None,
+      lazy_prev: None,
       state: AggState::table_states(schema),
       chan: Chan::parse_from_table(schema),
       last_changed: 0,
     });
+    cache.materialize_for_write(schema)?;
 
     // Get the min pk from cached table (first row's pk)
     let cached_last_pk = cache.last_pk();
@@ -249,6 +252,7 @@ impl<S: MsdStore> Worker<S> {
           );
           let seq = (cache.index.len() - 1) as u32;
           let old_chunk = std::mem::replace(&mut cache.cached, schema.to_empty());
+          cache.lazy_prev = None;
           // Add new index item
           cache.index.push(IndexItem::default());
 
@@ -316,6 +320,9 @@ impl<S: MsdStore> Worker<S> {
 
     // Flush all new or modified historical chunks to storage
     for (seq, chunk) in new_chunks.iter() {
+      if cache.lazy_prev.as_ref().is_some_and(|(s, _)| s == seq) {
+        cache.lazy_prev = None;
+      }
       Self::flush_chunk(self.store.clone(), &req.key, chunk, *seq)?;
     }
     // Update last changed time, this will trigger flush in next flush interval

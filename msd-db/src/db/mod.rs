@@ -236,6 +236,38 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(receivers)
   }
 
+  pub fn query_batch_frames(
+    &self,
+    req: &QueryRequest,
+    objects: Vec<SmolStr>,
+  ) -> Result<Vec<crate::request::RequestReceiver<Vec<u8>>>, DbError> {
+    let worker_count = self.workers.worker_count();
+    let mut buckets: Vec<Vec<SmolStr>> = (0..worker_count)
+      .map(|_| Vec::with_capacity(objects.len() / worker_count.max(1) + 1))
+      .collect();
+
+    let mut key = req.key.clone();
+    for obj in objects {
+      key.obj = obj;
+      let idx = self.workers.worker_index(&key);
+      buckets[idx].push(std::mem::take(&mut key.obj));
+    }
+
+    const BATCH_CHUNK_SIZE: usize = 256;
+    let mut receivers = Vec::with_capacity(worker_count * 4);
+    for (idx, objs) in buckets.into_iter().enumerate() {
+      if objs.is_empty() {
+        continue;
+      }
+      for chunk in objs.chunks(BATCH_CHUNK_SIZE) {
+        let (msd_req, rx) = MsdRequest::batch_query_frame(req.clone(), chunk.to_vec());
+        self.workers.send_to(idx, msd_req)?;
+        receivers.push(rx);
+      }
+    }
+    Ok(receivers)
+  }
+
   fn delete_objects(
     &self,
     req: DeleteRequest,
@@ -408,6 +440,57 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
       Ok::<HashSet<SmolStr>, DbError>(objects)
     })();
     result
+  }
+
+  pub fn matched_objects_vec(&self, req: &ListObjectsRequest) -> Result<Vec<SmolStr>, DbError> {
+    if self.is_kv_table(&req.table) {
+      let wildcard = if req.obj.is_empty() {
+        None
+      } else {
+        Some(Wildcard::new(req.obj.as_bytes()).map_err(DbError::KeyPatternError)?)
+      };
+      let mut objects = Vec::new();
+      self
+        .store
+        .prefix_with(b"", None, &req.table, false, |k, _v| {
+          let obj: SmolStr = unsafe { str::from_utf8_unchecked(k).into() };
+          match &wildcard {
+            Some(wc) => {
+              if wc.is_match(obj.as_bytes()) {
+                objects.push(obj);
+              }
+            }
+            None => {
+              objects.push(obj);
+            }
+          }
+          true
+        })?;
+      return Ok(objects);
+    }
+
+    let guard = self
+      .objects
+      .read()
+      .map_err(|_| DbError::InternalError("Lock poisoned".into()))?;
+    let set = guard
+      .get(&req.table)
+      .ok_or_else(|| DbError::TableNotFound(req.table.clone()))?;
+
+    if req.obj.is_empty() || req.obj == "*" {
+      let mut objects = Vec::with_capacity(set.len());
+      objects.extend(set.iter().cloned());
+      return Ok(objects);
+    }
+
+    let wildcard = Wildcard::new(req.obj.as_bytes()).map_err(DbError::KeyPatternError)?;
+    let mut objects = Vec::new();
+    for obj in set {
+      if wildcard.is_match(obj.as_bytes()) {
+        objects.push(obj.clone());
+      }
+    }
+    Ok(objects)
   }
 }
 
@@ -586,8 +669,8 @@ impl<S: MsdStore + Send + Sync + 'static> MsdDb<S> {
     Ok(())
   }
 
-  /// get the appropriate worker for a given hashable object
-  fn is_kv_table(&self, table_name: &str) -> bool {
+  /// Check whether the given table is a KV table without cloning its schema
+  pub fn is_kv_table(&self, table_name: &str) -> bool {
     self
       .schemas
       .read()

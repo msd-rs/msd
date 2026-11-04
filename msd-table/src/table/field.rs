@@ -59,6 +59,15 @@ impl Field {
     }
   }
 
+  pub fn to_empty_with_capacity(&self, cap: usize) -> Self {
+    Self {
+      name: self.name.clone(),
+      kind: self.kind.clone(),
+      metadata: self.metadata.clone(),
+      data: Series::with_capacity(self.kind.clone(), cap),
+    }
+  }
+
   pub fn with_data(&self, data: Series) -> Self {
     Self {
       name: self.name.clone(),
