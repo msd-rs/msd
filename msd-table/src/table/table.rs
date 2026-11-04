@@ -46,6 +46,20 @@ impl Table {
     }
   }
 
+  pub fn from_parts(
+    version: u32,
+    columns: Vec<Field>,
+    metadata: Option<HashMap<String, Variant>>,
+    is_kv: bool,
+  ) -> Self {
+    Self {
+      version,
+      columns,
+      metadata,
+      is_kv,
+    }
+  }
+
   pub fn to_empty(&self) -> Self {
     let columns = self.columns.iter().map(|col| col.to_empty()).collect();
     Self {
@@ -868,6 +882,82 @@ fn select_with_fill<T: Clone>(data: &[T], indices: &[usize], fill_val: T) -> Vec
   result
 }
 
+#[inline]
+fn extend_vec_with_fill<T: Clone>(dst: &mut Vec<T>, data: &[T], indices: &[usize], fill_val: T) {
+  for &i in indices {
+    if let Some(val) = data.get(i) {
+      dst.push(val.clone());
+    } else {
+      dst.push(fill_val.clone());
+    }
+  }
+}
+
+pub fn extend_series_with_fill(dst: &mut Series, src: &Series, indices: &[usize], fill: FillMethod) {
+  let use_zero = matches!(fill, FillMethod::Zero);
+  match (dst, src) {
+    (Series::Null, _) => {}
+    (Series::String(d), Series::String(v)) => extend_vec_with_fill(d, v, indices, String::new()),
+    (Series::Bytes(d), Series::Bytes(v)) => extend_vec_with_fill(d, v, indices, Vec::new()),
+    (Series::Int32(d), Series::Int32(v)) => extend_vec_with_fill(d, v, indices, 0),
+    (Series::UInt32(d), Series::UInt32(v)) => extend_vec_with_fill(d, v, indices, 0),
+    (Series::Int64(d), Series::Int64(v)) => extend_vec_with_fill(d, v, indices, 0),
+    (Series::UInt64(d), Series::UInt64(v)) => extend_vec_with_fill(d, v, indices, 0),
+    (Series::Float32(d), Series::Float32(v)) => {
+      let fill_val = if use_zero { 0.0 } else { f32::NAN };
+      extend_vec_with_fill(d, v, indices, fill_val);
+    }
+    (Series::Float64(d), Series::Float64(v)) => {
+      let fill_val = if use_zero { 0.0 } else { f64::NAN };
+      extend_vec_with_fill(d, v, indices, fill_val);
+    }
+    (Series::Decimal64(d), Series::Decimal64(v)) => {
+      let fill_val = if use_zero {
+        v.iter()
+          .find(|x| !x.is_nan() && !x.is_inf())
+          .map(|x| x.to_zero())
+          .unwrap_or_default()
+      } else {
+        D64_NAN
+      };
+      extend_vec_with_fill(d, v, indices, fill_val);
+    }
+    (Series::Bool(d), Series::Bool(v)) => extend_vec_with_fill(d, v, indices, false),
+    (Series::DateTime(d), Series::DateTime(v)) => extend_vec_with_fill(d, v, indices, 0),
+    _ => {}
+  }
+}
+
+pub fn compute_joined_indices(
+  self_pk: &Field,
+  other_pk: &Field,
+  fill: FillMethod,
+  indices: &mut Vec<usize>,
+) -> Result<(), TableError> {
+  if self_pk.kind != other_pk.kind {
+    return Err(TableError::TypeMismatch(self_pk.kind, other_pk.kind));
+  }
+  match (&self_pk.data, &other_pk.data) {
+    (Series::Null, Series::Null) => {
+      indices.clear();
+      indices.resize(self_pk.data.len(), usize::MAX);
+    }
+    (Series::DateTime(l), Series::DateTime(r)) => joined_index(l, r, fill, indices),
+    (Series::Int64(l), Series::Int64(r)) => joined_index(l, r, fill, indices),
+    (Series::Float64(l), Series::Float64(r)) => joined_index(l, r, fill, indices),
+    (Series::Decimal64(l), Series::Decimal64(r)) => joined_index(l, r, fill, indices),
+    (Series::String(l), Series::String(r)) => joined_index(l, r, fill, indices),
+    (Series::Bool(l), Series::Bool(r)) => joined_index(l, r, fill, indices),
+    (Series::Int32(l), Series::Int32(r)) => joined_index(l, r, fill, indices),
+    (Series::UInt32(l), Series::UInt32(r)) => joined_index(l, r, fill, indices),
+    (Series::UInt64(l), Series::UInt64(r)) => joined_index(l, r, fill, indices),
+    (Series::Float32(l), Series::Float32(r)) => joined_index(l, r, fill, indices),
+    (Series::Bytes(l), Series::Bytes(r)) => joined_index(l, r, fill, indices),
+    (a, b) => return Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+  }
+  Ok(())
+}
+
 fn select_series_with_fill(series: &Series, indices: &[usize], fill: FillMethod) -> Series {
   let use_zero = matches!(fill, FillMethod::Zero);
   match series {
@@ -1032,7 +1122,7 @@ impl<'t> Iterator for RowIter<'t> {
 
 #[allow(dead_code)]
 #[derive(bincode_next::BorrowDecode)]
-enum SkipVariant<'a> {
+pub(crate) enum SkipVariant<'a> {
   Null,
   DateTime(i64),
   Int64(i64),
@@ -1047,13 +1137,13 @@ enum SkipVariant<'a> {
   Bytes(&'a [u8]),
 }
 
-struct PosSliceReader<'a> {
+pub(crate) struct PosSliceReader<'a> {
   slice: &'a [u8],
 }
 
 impl<'a> PosSliceReader<'a> {
   #[inline]
-  fn new(slice: &'a [u8]) -> Self {
+  pub(crate) fn new(slice: &'a [u8]) -> Self {
     Self { slice }
   }
 }

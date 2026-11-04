@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use msd_table::DataType;
 use msd_table::Field;
@@ -8,7 +9,9 @@ use msd_table::Table;
 use msd_table::Variant;
 use msd_table::bail;
 use msd_table::check_table_frame;
-use msd_table::unpack_table_frame;
+use msd_table::compute_joined_indices;
+use msd_table::extend_series_with_fill;
+use msd_table::unpack_frame_batch;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
@@ -23,10 +26,8 @@ use reqwest::{
   Client, ClientBuilder,
   header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::bytes::Bytes;
 
@@ -36,7 +37,7 @@ use crate::runtime::get_runtime;
 
 // grouped table {obj: {table_name: table}}
 type GroupedTables = HashMap<String, HashMap<String, Table>>;
-type GroupedPyTables = HashMap<String, HashMap<String, PyTable>>;
+type FrameBatch = Vec<(String, Arc<str>, Table)>;
 
 #[pyclass(name = "MsdConnection")]
 pub struct PyMsdConnection {
@@ -57,20 +58,83 @@ impl PyMsdConnection {
   /// level 2 : table name
   /// value: a table
   #[pyo3(signature = (sql))]
-  fn query(&self, sql: String) -> PyResult<GroupedPyTables> {
-    let m = self.inner.async_query(sql)?;
+  fn query<'py>(&self, py: Python<'py>, sql: String) -> PyResult<Bound<'py, PyDict>> {
+    let batches = py.detach(|| self.inner.async_query_batches(sql))?;
 
-    let g = m
-      .into_iter()
-      .map(|(obj, tables)| {
-        let tables = tables
-          .into_iter()
-          .map(|(name, table)| (name, PyTable { inner: table }))
-          .collect();
-        (obj, tables)
-      })
-      .collect::<HashMap<_, _>>();
-    Ok(g)
+    let outer = PyDict::new(py);
+    let mut cached_table: Option<(Arc<str>, Bound<'py, PyString>)> = None;
+
+    // Check if all batches share a single table name (the common single-table query case)
+    let mut single_table_name: Option<&str> = None;
+    let mut is_single_table = true;
+    'check: for batch in &batches {
+      for (_, tname, _) in batch {
+        match single_table_name {
+          None => single_table_name = Some(tname.as_ref()),
+          Some(prev) if prev == tname.as_ref() => {}
+          Some(_) => {
+            is_single_table = false;
+            break 'check;
+          }
+        }
+      }
+    }
+
+    if is_single_table {
+      for batch in batches {
+        for (obj, table_name, table) in batch {
+          if cached_table.is_none() {
+            let pystr = PyString::new(py, &table_name);
+            cached_table = Some((Arc::clone(&table_name), pystr));
+          }
+          let (_, table_pystr) = cached_table.as_ref().unwrap();
+          let inner = PyDict::new(py);
+          let obj_pystr = PyString::new(py, &obj);
+          let py_table = Py::new(
+            py,
+            PyTable {
+              inner: table,
+              obj,
+              table_name,
+            },
+          )?;
+          inner.set_item(table_pystr, py_table)?;
+          outer.set_item(obj_pystr, inner)?;
+        }
+      }
+    } else {
+      for batch in batches {
+        for (obj, table_name, table) in batch {
+          let use_cached = cached_table
+            .as_ref()
+            .is_some_and(|(k, _)| k.as_ref() == table_name.as_ref());
+          if !use_cached {
+            let pystr = PyString::new(py, &table_name);
+            cached_table = Some((Arc::clone(&table_name), pystr));
+          }
+          let (_, table_pystr) = cached_table.as_ref().unwrap();
+          let obj_pystr = PyString::new(py, &obj);
+          let py_table = Py::new(
+            py,
+            PyTable {
+              inner: table,
+              obj,
+              table_name,
+            },
+          )?;
+          if let Some(existing) = outer.get_item(&obj_pystr)? {
+            let inner = existing.cast::<PyDict>()?;
+            inner.set_item(table_pystr, py_table)?;
+          } else {
+            let inner = PyDict::new(py);
+            inner.set_item(table_pystr, py_table)?;
+            outer.set_item(obj_pystr, inner)?;
+          }
+        }
+      }
+    }
+
+    Ok(outer)
   }
 
   /// query and join the result to one table
@@ -81,8 +145,9 @@ impl PyMsdConnection {
   ///
   /// fill is map of table name and fill method, it can have a "*" as key for any table not found in map
   #[pyo3(signature = (sql, base_table, fill, base_obj))]
-  fn query_join(
+  fn query_join<'py>(
     &self,
+    py: Python<'py>,
     sql: String,
     base_table: String,
     fill: HashMap<String, String>,
@@ -92,8 +157,9 @@ impl PyMsdConnection {
       .into_iter()
       .map(|(k, v)| (k, FillMethod::from(v)))
       .collect::<HashMap<String, FillMethod>>();
-    let (table, objs, bars) = self.inner.query_join(sql, base_table, fill, base_obj)?;
-    Ok((PyTable { inner: table }, objs, bars))
+    let (table, objs, bars) =
+      py.detach(|| self.inner.query_join(sql, base_table, fill, base_obj))?;
+    Ok((PyTable::from_table(table), objs, bars))
   }
 
   /// take last snapshot of multiple tables of a set of objects,
@@ -106,27 +172,59 @@ impl PyMsdConnection {
   /// - pattern: eg. SH600*
   /// - block: eg. @stock_block:上证A股
   #[pyo3(signature = (tables, objects, date = None))]
-  fn snapshot(
+  fn snapshot<'py>(
     &self,
+    py: Python<'py>,
     tables: Vec<String>,
     objects: Vec<String>,
     date: Option<String>,
   ) -> PyResult<PyTable> {
-    let table = self.inner.snapshot(tables, objects, date.as_deref())?;
-    Ok(PyTable { inner: table })
+    let table = py.detach(|| self.inner.snapshot(tables, objects, date.as_deref()))?;
+    Ok(PyTable::from_table(table))
   }
 
   /// query and call handler for each table
   #[pyo3(signature = (sql, handler))]
-  fn query_map(&self, sql: String, handler: Bound<'_, PyAny>) -> PyResult<()> {
+  fn query_map<'py>(&self, py: Python<'py>, sql: String, handler: Bound<'py, PyAny>) -> PyResult<()> {
     if !handler.is_callable() {
       return Err(PyTypeError::new_err("handler must be callable"));
     }
-    self.inner.query_map(sql, |table| {
-      handler.call1((PyTable { inner: table },))?;
+    self.inner.query_map(py, sql, |(obj, table_name, table)| {
+      handler.call1((PyTable {
+        inner: table,
+        obj,
+        table_name,
+      },))?;
       Ok(())
     })?;
     Ok(())
+  }
+
+  /// Execute raw query and return a list of `(table_name, obj, MsdTable)` tuples.
+  #[pyo3(signature = (sql))]
+  fn query_raw<'py>(&self, py: Python<'py>, sql: String) -> PyResult<Bound<'py, PyList>> {
+    let batches = py.detach(|| self.inner.async_query_batches(sql))?;
+    let total: usize = batches.iter().map(|b| b.len()).sum();
+    let mut items = Vec::with_capacity(total);
+    let mut cached_table: Option<(Arc<str>, Bound<'py, PyString>)> = None;
+
+    for batch in batches {
+      for (obj, table_name, table) in batch {
+        let use_cached = cached_table
+          .as_ref()
+          .is_some_and(|(k, _)| k.as_ref() == table_name.as_ref());
+        if !use_cached {
+          let pystr = PyString::new(py, &table_name);
+          cached_table = Some((Arc::clone(&table_name), pystr));
+        }
+        let (_, table_pystr) = cached_table.as_ref().unwrap();
+        let obj_pystr = PyString::new(py, &obj);
+        let py_list = table_to_py_list(py, table);
+        items.push((table_pystr.clone(), obj_pystr, py_list));
+      }
+    }
+
+    PyList::new(py, items)
   }
 
   /// import csv data to msd table
@@ -393,6 +491,56 @@ impl PyMsdConnection {
 #[pyclass(name = "Table")]
 pub struct PyTable {
   inner: Table,
+  obj: String,
+  table_name: Arc<str>,
+}
+
+impl PyTable {
+  fn from_table(table: Table) -> Self {
+    let obj = table
+      .get_table_meta("obj")
+      .and_then(|v| v.get_string())
+      .cloned()
+      .unwrap_or_default();
+    let table_name = table
+      .get_table_meta("table")
+      .and_then(|v| v.get_string())
+      .map(|s| Arc::from(s.as_str()))
+      .unwrap_or_else(|| Arc::from(""));
+    Self {
+      inner: table,
+      obj,
+      table_name,
+    }
+  }
+}
+
+fn defer_drop_table(table: Table, obj: String) {
+  static DROP_TX: std::sync::OnceLock<std::sync::mpsc::Sender<(Table, String)>> =
+    std::sync::OnceLock::new();
+  let tx = DROP_TX.get_or_init(|| {
+    let (tx, rx) = std::sync::mpsc::channel::<(Table, String)>();
+    std::thread::Builder::new()
+      .name("pymsd-drop".into())
+      .spawn(move || {
+        while let Ok(item) = rx.recv() {
+          drop(item);
+        }
+      })
+      .expect("failed to spawn pymsd-drop thread");
+    tx
+  });
+  let _ = tx.send((table, obj));
+}
+
+impl Drop for PyTable {
+  fn drop(&mut self) {
+    if self.inner.column_count() > 0 {
+      let table = std::mem::take(&mut self.inner);
+      let obj = std::mem::take(&mut self.obj);
+      defer_drop_table(table, obj);
+    }
+  }
 }
 
 #[pymethods]
@@ -407,6 +555,9 @@ impl PyTable {
   }
   #[getter]
   fn name(&self) -> String {
+    if !self.table_name.is_empty() {
+      return self.table_name.as_ref().to_owned();
+    }
     self
       .inner
       .get_table_meta("table")
@@ -416,6 +567,9 @@ impl PyTable {
   }
   #[getter]
   fn obj(&self) -> String {
+    if !self.obj.is_empty() {
+      return self.obj.clone();
+    }
     self
       .inner
       .get_table_meta("obj")
@@ -484,7 +638,11 @@ struct MsdConnection {
 
 impl MsdConnection {
   fn new(url: &str, token: &str, compress: bool) -> Result<Self> {
-    let builder = ClientBuilder::new().user_agent("msd-client").zstd(compress);
+    let builder = ClientBuilder::new()
+      .user_agent("msd-client")
+      .tcp_nodelay(true)
+      .no_proxy()
+      .zstd(compress);
 
     let url = url.trim_end_matches('/').to_string();
 
@@ -529,43 +687,99 @@ impl MsdConnection {
     other_tables.sort();
 
     let pk_idx = base.pk_column();
-    let base_pk_table = Table::from_columns(vec![base.columns()[pk_idx].clone()]);
-    let base_empty = base.to_empty();
+    let base_pk_col = &base.columns()[pk_idx];
+    let bars = base_pk_col.data.len();
+    let total_rows = objs.len() * bars;
+
     let default_fill = fill.get("*").copied().unwrap_or_default();
     let base_fill = fill.get(&base_table).copied().unwrap_or(default_fill);
 
-    let mut result: Option<Table> = None;
-
-    let bars = base_pk_table.row_count();
-
-    for obj in &objs {
-      let obj_tables = &full[obj];
-      let mut obj_joined = if obj == &base_obj {
-        base.clone()
-      } else if let Some(t) = obj_tables.get(&base_table) {
-        base_pk_table.join_asof(t, base_fill)?
-      } else {
-        base_pk_table.join_asof(&base_empty, base_fill)?
-      };
-
-      for t_name in &other_tables {
-        let method = fill.get(t_name).copied().unwrap_or(default_fill);
-        if let Some(t) = obj_tables.get(t_name) {
-          obj_joined = obj_joined.join_asof(t, method)?;
-        } else {
-          let empty_t = base_obj_tables[t_name].to_empty();
-          obj_joined = obj_joined.join_asof(&empty_t, method)?;
+    let mut result_cols = Vec::new();
+    for col in base.columns() {
+      result_cols.push(col.to_empty_with_capacity(total_rows));
+    }
+    for t_name in &other_tables {
+      let t_schema = &base_obj_tables[t_name];
+      let other_pk_idx = t_schema.pk_column();
+      for (idx, col) in t_schema.columns().iter().enumerate() {
+        if idx != other_pk_idx {
+          result_cols.push(col.to_empty_with_capacity(total_rows));
         }
-      }
-
-      if let Some(ref mut res) = result {
-        res.v_concat(&obj_joined)?;
-      } else {
-        result = Some(obj_joined);
       }
     }
 
-    Ok((result.unwrap_or_default(), objs, bars))
+    let mut indices = Vec::with_capacity(bars);
+    let empty_indices = vec![usize::MAX; bars];
+
+    for obj in &objs {
+      let obj_tables = &full[obj];
+      result_cols[pk_idx].data.extend(&base_pk_col.data, false)?;
+
+      if obj == &base_obj {
+        for (idx, col) in base.columns().iter().enumerate() {
+          if idx != pk_idx {
+            result_cols[idx].data.extend(&col.data, false)?;
+          }
+        }
+      } else if let Some(t) = obj_tables.get(&base_table)
+        && !t.columns().is_empty()
+      {
+        let t_pk = &t.columns()[t.pk_column()];
+        compute_joined_indices(base_pk_col, t_pk, base_fill, &mut indices)?;
+        for (idx, col) in t.columns().iter().enumerate() {
+          if idx != pk_idx {
+            extend_series_with_fill(&mut result_cols[idx].data, &col.data, &indices, base_fill);
+          }
+        }
+      } else {
+        for (idx, col) in base.columns().iter().enumerate() {
+          if idx != pk_idx {
+            extend_series_with_fill(
+              &mut result_cols[idx].data,
+              &col.data,
+              &empty_indices,
+              base_fill,
+            );
+          }
+        }
+      }
+
+      let mut col_offset = base.column_count();
+      for t_name in &other_tables {
+        let method = fill.get(t_name).copied().unwrap_or(default_fill);
+        let t_schema = &base_obj_tables[t_name];
+        let other_pk_idx = t_schema.pk_column();
+
+        if let Some(t) = obj_tables.get(t_name)
+          && !t.columns().is_empty()
+        {
+          let t_pk = &t.columns()[other_pk_idx];
+          compute_joined_indices(base_pk_col, t_pk, method, &mut indices)?;
+          for (idx, col) in t.columns().iter().enumerate() {
+            if idx == other_pk_idx {
+              continue;
+            }
+            extend_series_with_fill(&mut result_cols[col_offset].data, &col.data, &indices, method);
+            col_offset += 1;
+          }
+        } else {
+          for (idx, col) in t_schema.columns().iter().enumerate() {
+            if idx == other_pk_idx {
+              continue;
+            }
+            extend_series_with_fill(
+              &mut result_cols[col_offset].data,
+              &col.data,
+              &empty_indices,
+              method,
+            );
+            col_offset += 1;
+          }
+        }
+      }
+    }
+
+    Ok((Table::from_columns(result_cols), objs, bars))
   }
 
   fn snapshot(
@@ -581,49 +795,65 @@ impl MsdConnection {
     objs.sort();
 
     let pk_meta = HashMap::from([("primary_key".to_string(), Variant::Bool(true))]);
-    let mut result = Table::from_columns(vec![
-      Field::new_with_data("obj", DataType::String, objs.clone().into())
-        .with_metadata(pk_meta.clone()),
-    ]);
+    let mut result_cols = vec![
+      Field::new_with_data("obj", DataType::String, objs.clone().into()).with_metadata(pk_meta),
+    ];
 
     for t in &tables {
       let t_name = t.split_once(':').map_or(t.as_str(), |(name, _)| name);
-      let Some(mut sub_table) = full
-        .values()
-        .find_map(|m| m.get(t_name))
-        .map(|t| t.to_empty())
-      else {
+      let Some(t_schema) = full.values().find_map(|m| m.get(t_name)) else {
         continue;
       };
 
-      let mut sub_objs = Vec::with_capacity(objs.len());
+      let mut table_cols: Vec<Field> = t_schema
+        .columns()
+        .iter()
+        .map(|col| col.to_empty_with_capacity(objs.len()))
+        .collect();
+
       for obj in &objs {
         if let Some(obj_table) = full[obj].get(t_name)
           && obj_table.row_count() > 0
         {
-          sub_table.extend(obj_table, false)?;
-          sub_objs.push(obj.clone());
+          for (dst, src) in table_cols.iter_mut().zip(obj_table.columns().iter()) {
+            extend_series_with_fill(&mut dst.data, &src.data, &[0], FillMethod::Nan);
+          }
+        } else {
+          for (dst, src) in table_cols.iter_mut().zip(t_schema.columns().iter()) {
+            extend_series_with_fill(&mut dst.data, &src.data, &[usize::MAX], FillMethod::Nan);
+          }
         }
       }
 
-      sub_table.insert_column(
-        0,
-        Field::new_with_data("obj", DataType::String, sub_objs.into())
-          .with_metadata(pk_meta.clone()),
-      );
-
-      result = result.join_asof(&sub_table, FillMethod::Nan)?;
+      result_cols.extend(table_cols);
     }
 
-    Ok(result)
+    Ok(Table::from_columns(result_cols))
   }
 
   fn async_query(&self, sql: String) -> Result<GroupedTables> {
+    let batches = self.async_query_batches(sql)?;
+    let total: usize = batches.iter().map(|b| b.len()).sum();
+    let mut m = HashMap::with_capacity(total);
+    for batch in batches {
+      for (obj, table_name, table) in batch {
+        if !obj.is_empty() && !table_name.is_empty() {
+          let mm = m
+            .entry(obj)
+            .or_insert_with(|| HashMap::with_capacity(1));
+          mm.insert(table_name.as_ref().to_owned(), table);
+        }
+      }
+    }
+    Ok(m)
+  }
+
+  fn async_query_batches(&self, sql: String) -> Result<Vec<FrameBatch>> {
     let (tx, rx) = oneshot::channel();
 
     let conn = self.clone();
     get_runtime().spawn(async {
-      let result = query_msd(conn, sql).await;
+      let result = query_msd_batches(conn, sql).await;
       let _ = tx.send(result);
     });
 
@@ -634,11 +864,11 @@ impl MsdConnection {
     }
   }
 
-  fn query_map<F>(&self, sql: String, mut handler: F) -> Result<()>
+  fn query_map<'py, F>(&self, py: Python<'py>, sql: String, mut handler: F) -> Result<()>
   where
-    F: FnMut(Table) -> Result<()>,
+    F: FnMut((String, Arc<str>, Table)) -> Result<()>,
   {
-    let (tx, mut rx) = mpsc::channel(32);
+    let (tx, mut rx) = mpsc::channel(16);
 
     let conn = self.clone();
     get_runtime().spawn(async move {
@@ -647,9 +877,11 @@ impl MsdConnection {
       }
     });
 
-    while let Some(res) = rx.blocking_recv() {
-      let table = res?;
-      handler(table)?;
+    while let Some(res) = py.detach(|| rx.blocking_recv()) {
+      let batch = res?;
+      for item in batch {
+        handler(item)?;
+      }
     }
 
     Ok(())
@@ -770,7 +1002,7 @@ impl MsdConnection {
   }
 }
 
-async fn query_msd(conn: MsdConnection, sql: String) -> Result<GroupedTables> {
+async fn query_msd_batches(conn: MsdConnection, sql: String) -> Result<Vec<FrameBatch>> {
   let url = format!("{}/query", conn.url);
 
   let req = conn
@@ -778,50 +1010,74 @@ async fn query_msd(conn: MsdConnection, sql: String) -> Result<GroupedTables> {
     .post(&url)
     .json(&serde_json::json!({ "query": sql }));
 
-  let resp = req.send().await?;
+  let mut resp = req.send().await?;
 
-  let stream = resp.bytes_stream();
-  let stream_reader = tokio_util::io::StreamReader::new(
-    stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
-  );
+  let mut buf = Vec::with_capacity(128 * 1024);
+  let mut scan_pos = 0usize;
+  let mut frames_in_buf = 0usize;
+  let mut tasks = Vec::new();
 
-  let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
+  while let Some(chunk) = resp.chunk().await? {
+    buf.extend_from_slice(&chunk);
 
-  let mut buf = Vec::with_capacity(8 * 1024);
-
-  let mut m = HashMap::new();
-  buf.resize(8, 0);
-  while rd.read_exact(&mut buf).await.is_ok() {
-    let (header_size, data_size) = match check_table_frame(&buf) {
-      Ok(size) => size,
-      Err(err) => {
-        bail!("invalid table frame: {}", err);
+    while buf.len() - scan_pos >= 8 {
+      let (header_size, data_size) = match check_table_frame(&buf[scan_pos..scan_pos + 8]) {
+        Ok(size) => size,
+        Err(err) => {
+          bail!("invalid table frame: {}", err);
+        }
+      };
+      let frame_end = scan_pos + header_size + data_size;
+      if buf.len() < frame_end {
+        break;
       }
-    };
-
-    buf.resize(header_size + data_size, 0);
-    rd.read_exact(&mut buf[header_size..]).await?;
-    let table = unpack_table_frame(&buf, false)?;
-
-    let obj = table.get_table_meta("obj").and_then(|v| v.get_string());
-    let table_name = table.get_table_meta("table").and_then(|v| v.get_string());
-
-    if let Some((obj, table_name)) = obj.zip(table_name) {
-      let mm = m.entry(obj.clone()).or_insert(HashMap::new());
-      mm.insert(table_name.to_string(), table);
+      scan_pos = frame_end;
+      frames_in_buf += 1;
     }
 
-    buf.clear();
-    buf.resize(header_size, 0);
+    if frames_in_buf >= 128 || scan_pos >= 64 * 1024 {
+      let mut next_buf = Vec::with_capacity(128 * 1024);
+      if scan_pos < buf.len() {
+        next_buf.extend_from_slice(&buf[scan_pos..]);
+        buf.truncate(scan_pos);
+      }
+      let batch_buf = std::mem::replace(&mut buf, next_buf);
+      let count = frames_in_buf;
+      scan_pos = 0;
+      frames_in_buf = 0;
+
+      tasks.push(tokio::spawn(async move {
+        unpack_frame_batch(&batch_buf, count)
+      }));
+    }
   }
 
-  Ok(m)
+  if scan_pos != buf.len() {
+    bail!("unexpected EOF in table frame");
+  }
+
+  let tail_batch = if frames_in_buf > 0 {
+    Some(unpack_frame_batch(&buf, frames_in_buf)?)
+  } else {
+    None
+  };
+
+  let mut batches = Vec::with_capacity(tasks.len() + usize::from(tail_batch.is_some()));
+  for task in tasks {
+    let batch = task.await??;
+    batches.push(batch);
+  }
+  if let Some(tail) = tail_batch {
+    batches.push(tail);
+  }
+
+  Ok(batches)
 }
 
 async fn query_msd_stream(
   conn: MsdConnection,
   sql: String,
-  tx: &mpsc::Sender<Result<Table>>,
+  tx: &mpsc::Sender<Result<FrameBatch>>,
 ) -> Result<()> {
   let url = format!("{}/query", conn.url);
 
@@ -830,36 +1086,71 @@ async fn query_msd_stream(
     .post(&url)
     .json(&serde_json::json!({ "query": sql }));
 
-  let resp = req.send().await?;
+  let mut resp = req.send().await?;
 
-  let stream = resp.bytes_stream();
-  let stream_reader = tokio_util::io::StreamReader::new(
-    stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
-  );
+  let mut buf = Vec::with_capacity(128 * 1024);
+  let mut scan_pos = 0usize;
+  let mut frames_in_buf = 0usize;
+  let mut tasks = std::collections::VecDeque::with_capacity(16);
 
-  let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
+  while let Some(chunk) = resp.chunk().await? {
+    buf.extend_from_slice(&chunk);
 
-  let mut buf = Vec::with_capacity(8 * 1024);
-
-  buf.resize(8, 0);
-  while rd.read_exact(&mut buf).await.is_ok() {
-    let (header_size, data_size) = match check_table_frame(&buf) {
-      Ok(size) => size,
-      Err(err) => {
-        bail!("invalid table frame: {}", err);
+    while buf.len() - scan_pos >= 8 {
+      let (header_size, data_size) = match check_table_frame(&buf[scan_pos..scan_pos + 8]) {
+        Ok(size) => size,
+        Err(err) => {
+          bail!("invalid table frame: {}", err);
+        }
+      };
+      let frame_end = scan_pos + header_size + data_size;
+      if buf.len() < frame_end {
+        break;
       }
-    };
-
-    buf.resize(header_size + data_size, 0);
-    rd.read_exact(&mut buf[header_size..]).await?;
-    let table = unpack_table_frame(&buf, false)?;
-
-    if tx.send(Ok(table)).await.is_err() {
-      return Ok(());
+      scan_pos = frame_end;
+      frames_in_buf += 1;
     }
 
-    buf.clear();
-    buf.resize(header_size, 0);
+    if frames_in_buf >= 128 || scan_pos >= 64 * 1024 {
+      let mut next_buf = Vec::with_capacity(128 * 1024);
+      if scan_pos < buf.len() {
+        next_buf.extend_from_slice(&buf[scan_pos..]);
+        buf.truncate(scan_pos);
+      }
+      let batch_buf = std::mem::replace(&mut buf, next_buf);
+      let count = frames_in_buf;
+      scan_pos = 0;
+      frames_in_buf = 0;
+
+      tasks.push_back(tokio::spawn(async move {
+        unpack_frame_batch(&batch_buf, count)
+      }));
+
+      if tasks.len() >= 8
+        && let Some(task) = tasks.pop_front()
+      {
+        let batch = task.await??;
+        if tx.send(Ok(batch)).await.is_err() {
+          return Ok(());
+        }
+      }
+    }
+  }
+
+  if scan_pos != buf.len() {
+    bail!("unexpected EOF in table frame");
+  }
+
+  for task in tasks {
+    let batch = task.await??;
+    if tx.send(Ok(batch)).await.is_err() {
+      return Ok(());
+    }
+  }
+
+  if frames_in_buf > 0 {
+    let tail = unpack_frame_batch(&buf, frames_in_buf)?;
+    let _ = tx.send(Ok(tail)).await;
   }
 
   Ok(())

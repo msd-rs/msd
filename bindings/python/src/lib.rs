@@ -13,7 +13,7 @@ mod _msd {
 
   use msd_table::{
     FieldRef, FillMethod, TableRef, UtcOffset, joined_index, pack_table_ref_frame,
-    unpack_table_frame,
+    unpack_table_frame_meta,
   };
   use numpy::{PyArray1, PyReadonlyArray1};
   use pyo3::{
@@ -60,18 +60,8 @@ mod _msd {
   #[pyfunction]
   #[pyo3(signature = (buffer, /))]
   fn parse_table_frame<'py>(py: Python<'py>, buffer: &[u8]) -> PyResult<Bound<'py, PyTuple>> {
-    let table =
-      unpack_table_frame(buffer, true).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let obj = table
-      .get_table_meta("obj")
-      .and_then(|v| v.get_str())
-      .map(|v| v.to_string())
-      .unwrap_or_default();
-    let table_name = table
-      .get_table_meta("table")
-      .and_then(|v| v.get_str())
-      .map(|v| v.to_string())
-      .unwrap_or_default();
+    let (obj, table_name, table) =
+      unpack_table_frame_meta(buffer, true).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     (table_name, obj, table_to_py_list(py, table)).into_pyobject(py)
   }

@@ -22,7 +22,7 @@ pub use serde::csv::*;
 pub use serde::opt;
 pub use table::{
   DataType, Field, FieldRef, FillMethod, LazyChunk, RowsTable, Series, SeriesRef, Table, TableRef,
-  decode_projected_series, joined_index,
+  compute_joined_indices, decode_projected_series, extend_series_with_fill, joined_index,
 };
 pub use table_frame::*;
 pub use table_frame_v2::*;

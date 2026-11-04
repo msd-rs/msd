@@ -97,6 +97,12 @@ class MsdConnection:
     """
     ...
 
+  def query_raw(self, sql: str) -> list[tuple[str, str, MsdTable]]:
+    """
+    Execute raw query and return a list of (table_name, obj, MsdTable) tuples.
+    """
+    ...
+
   def query_map(self, sql: str, h: Callable[[Table],Any]) -> None:
     """
     Execute raw query with a handler which can process each result table

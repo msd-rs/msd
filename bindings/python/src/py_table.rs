@@ -20,17 +20,16 @@ use pyo3::{
 };
 
 pub(crate) fn table_to_py_list<'py>(py: Python<'py>, table: Table) -> Bound<'py, PyList> {
-  let dict = PyList::empty(py);
-
   let rows = table.row_count();
   let fields: Vec<Field> = table.into();
 
-  fields.into_iter().for_each(|field| {
-    let name = field.name;
-    let _ = dict.append((name, series_to_array(py, field.data, rows).into_any()));
-  });
-
-  dict
+  PyList::new(
+    py,
+    fields
+      .into_iter()
+      .map(|field| (field.name, series_to_array(py, field.data, rows))),
+  )
+  .unwrap()
 }
 
 pub(crate) fn table_to_py_dict<'py>(py: Python<'py>, table: Table) -> Bound<'py, PyDict> {

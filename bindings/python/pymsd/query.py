@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: agpl-3.0-only
 
 from typing import AsyncGenerator, Callable, Generator, Tuple, overload, TypeVar
-from .reader import parse_reader, parse_reader_async
-from .const import MSD_QUERY_PATH, MSD_USER_AGENT
+from ._msd import MsdConnection
+from .reader import parse_reader_async
+from .const import MSD_USER_AGENT
 from .dataframe_adaptor import MsdTable
 import logging
 
@@ -11,7 +12,8 @@ logger = logging.getLogger("MSD")
 
 R = TypeVar("R")
 
-querySession = None
+_query_connections: dict[str, MsdConnection] = {}
+
 
 def query(
   baseURL: str, sql: str, h: Callable[[MsdTable], R] | None = None
@@ -26,34 +28,13 @@ def query(
   Returns:
     A generator of (table, obj, data)
   """
+  conn = _query_connections.get(baseURL)
+  if conn is None:
+    conn = MsdConnection(baseURL)
+    _query_connections[baseURL] = conn
 
   try:
-    import requests
-  except ImportError:
-    raise ImportError("requests is required for msd_query")
-
-  global querySession
-  if querySession is None:
-    querySession = requests.Session()
-
-  #logger.debug(f"query {baseURL}, sql: {sql}")
-
-  endpoint = f"{baseURL}{MSD_QUERY_PATH}"
-  response = querySession.post(
-    endpoint,
-    json={"query": sql},
-    stream=True,
-    headers={
-      # msd server will use this to identify the client, and return binary format if it's set.
-      "User-Agent": MSD_USER_AGENT,
-      # don't compress the response, compress is too slow, when internal network is used, bandwidth is not the bottleneck.
-      "Accept-Encoding": "identity",
-    },
-  )
-  if response.status_code != 200:
-    raise Exception(f"Query failed: {response.text}")
-  try:
-    for table, obj, data in parse_reader(response.raw):  # type: ignore
+    for table, obj, data in conn.query_raw(sql):
       if h is not None:
         yield (table, obj, h(data))
       else:

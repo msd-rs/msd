@@ -117,15 +117,41 @@ curl -v -w "total: %{time_total}s" http://127.0.0.1:50510/query \
   1. `flatten_requests_by_object` 改用 `state.db.is_kv_table` 与 `state.db.matched_objects_vec`。
   2. `TableFrameBody` 直接持有并轮询 `query_batch_frames` 返回的 `Vec<RequestReceiver<Vec<u8>>>`，省去为每个分块派生 Tokio 任务的调度开销。
 
+### 3.5 Python 客户端绑定优化（`bindings/python` & `msd-table`）
+- **文件**:
+  - `msd-table/src/table_frame.rs`
+  - `msd-table/src/table/table.rs`
+  - `bindings/python/src/conn.rs`
+  - `bindings/python/src/py_table.rs`
+  - `bindings/python/src/lib.rs`
+  - `bindings/python/pymsd/query.py`
+  - `bindings/python/pymsd/_msd.pyi`
+- **改动**:
+  1. **免 `HashMap` 元数据解包（`unpack_table_frame_meta` / `unpack_frame_batch`）**：利用 `PosSliceReader` 与 `SkipVariant` 直接从二进制流中提取 `obj` 与 `table` 字符串（同批次内复用 `Arc<str>` 共享表名），跳过 `Table.metadata` 和第 0 列主键 `Field.metadata` 的 `HashMap` 分配（单次查询省去数万次 `HashMap` 与 `String` 堆分配）。
+  2. **流式分块并行解包（`query_msd_batches` / `query_msd_stream`）**：移除逐帧 `BufReader::read_exact` 循环，直接基于 `resp.chunk().await` 扫描完整帧边界并按批次派生到 Tokio 多线程运行时并行解包，使 `conn.query`、`conn.query_map`、`conn.query_join`、`conn.snapshot` 与 `pymsd.query` 的客户端解包均与服务端流式发送完全重叠。
+  3. **释放 GIL 与直接构建 `PyDict`（`PyMsdConnection::query`）**：在网络请求与解包阶段通过 `py.detach` 释放 GIL；移除两层 Rust 中间 `HashMap`（`GroupedTables` / `GroupedPyTables`），直接在 Python 侧构建结果字典并缓存复用内层字典的 `table_name` `PyString` 键。
+  4. **异步后台释放 `PyTable`（`Drop for PyTable`）**：当 Python 侧覆盖或销毁大规模查询结果字典时，将非空 `Table` 移交后台线程释放，避免在持有 GIL 的主线程同步执行数万次 `free()`。
+  5. **优化其余 `query_*` 变种（`query_map` / `query_join` / `snapshot` / `pymsd.query`）**：
+     - `conn.query_map`：`query_msd_stream` 改为按批次并行解包并通过有界通道流式传递 `FrameBatch`，等待批次时通过 `py.detach` 释放 GIL。
+     - `conn.query_join`：预分配最终行数 `objs.len() * bars` 的结果列，使用 `compute_joined_indices` 与 `extend_series_with_fill` 直接追加至目标列，消除每个标的对象构造中间 `Table`、`join_asof` 克隆已有列及 `v_concat` 多次扩容拷贝。
+     - `conn.snapshot`：预分配 `objs.len()` 容量并直接按标的顺序填充各表首行或 `NaN` 缺失值，省去构造中间 `sub_table` 与基于字符串主键的 `join_asof`。
+     - `pymsd.query`（生成器接口）：新增 `MsdConnection.query_raw` 方法并复用连接实例，替代原 Python `requests` + 逐帧 `r.read(8)` / `parse_table_frame` 循环。
+
 ---
 
 ## 4. 优化前后性能对比
 
-在相同环境下使用上述 `curl` 命令对 `stock_financial`（5,228 个标的）执行测试：
+在相同环境下执行 `curl` 与 `uv run pytest -s tests/test_conn.py` 测试：
 
-| 测试场景 | 优化前 (`b7c8726`) | 优化后 | 性能提升 |
+| 测试场景 | 优化前 | 优化后 | 性能提升 |
 | :--- | :---: | :---: | :---: |
-| **冷启动首次查询 (Cold Cache)** | `0.1129s` (~112.9 ms) | **`0.0701s - 0.0730s`** (~70.1 ms) | **~1.6x** |
-| **热缓存查询 (Warm Cache)** | `0.0681s - 0.1039s` (~68.1 - 103.9 ms) | **`0.00355s`** (**3.55 ms**) | **~19x - 29x** |
-| **热查询吞吐速率** | ~23 - 35 MB/s | **~652.8 MB/s** | **~19x - 28x** |
+| **冷启动首次查询 (`curl` Cold Cache)** | `0.1129s` (~112.9 ms) | **`0.0701s - 0.0730s`** (~70.1 ms) | **~1.6x** |
+| **热缓存查询 (`curl` Warm Cache)** | `0.0681s - 0.1039s` (~68.1 - 103.9 ms) | **`0.00355s`** (**3.55 ms**) | **~19x - 29x** |
+| **热查询吞吐速率 (`curl`)** | ~23 - 35 MB/s | **~652.8 MB/s** | **~19x - 28x** |
+| **Python `conn.query` (`test_financial`, 5,228 标的)** | `0.015s - 0.017s` (~15 - 17 ms) | **`0.003s - 0.004s`** (**3 - 4 ms**) | **~4x - 5x** |
+| **Python `conn.query_map` (`test_query_map`, 875 标的 × 1,000 行)** | `0.0221s` (~22.1 ms) | **`0.00998s`** (**9.98 ms**) | **~2.2x** |
+| **Python `pymsd.query` (`test_query_many_ndarray`, 16,728 帧)** | `0.1052s` (~105.2 ms) | **`0.0524s`** (**52.4 ms**) | **~2.0x** |
+| **Python `conn.snapshot` (`test_query_many_conn`, 5,576 标的 × 3 表)** | `0.0263s` (~26.3 ms) | **`0.0163s`** (**16.3 ms**) | **~1.6x** |
+| **Python `conn.query_join` (`test_query_kline`, 875,000 行 × 12 列)** | `0.0546s` (~54.6 ms) | **`0.0423s`** (**42.3 ms**) | **~1.3x** |
+
 

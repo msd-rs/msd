@@ -86,12 +86,23 @@ def test_snapshot():
 
   print(df)
 
+def test_financial():
+  conn = pymsd.MsdConnection(BASE_URL, "", False)
+  sql = "select f001,f007,f095, f130,f203 from stock_financial limit -8 "
+
+  for i in range(0, 5):
+    t1 = time.time()
+    table = conn.query(sql)
+    print(f"query financial used: {time.time() - t1:.3f}s")
+
+
 
 if __name__ == "__main__":
   #test_query_many_ndarray()
   #test_query_many_conn()
   #test_query_kline()
   #test_query_map()
-  test_snapshot()
+  #test_snapshot()
+  test_financial()
   
 

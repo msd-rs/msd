@@ -283,6 +283,184 @@ pub fn unpack_table_frame(buf: &[u8], skip_header: bool) -> Result<Table, TableF
   Ok(table)
 }
 
+/// Unpack a single table frame and return `(obj, table_name, Table)` without allocating
+/// a `HashMap` for `Table.metadata` or `Field[0].metadata`.
+pub fn unpack_table_frame_meta(
+  buf: &[u8],
+  skip_header: bool,
+) -> Result<(String, String, Table), TableFrameError> {
+  let mut table_cache: Option<std::sync::Arc<str>> = None;
+  let (obj, table_arc, table) = unpack_table_frame_meta_cached(buf, skip_header, &mut table_cache)?;
+  Ok((obj, table_arc.as_ref().to_owned(), table))
+}
+
+/// Unpack a buffer containing one or more complete table frames into `(obj, table_name, Table)`.
+pub fn unpack_frame_batch(
+  buf: &[u8],
+  expected_frames: usize,
+) -> Result<Vec<(String, std::sync::Arc<str>, Table)>, TableFrameError> {
+  let mut out = Vec::with_capacity(expected_frames);
+  let mut table_cache: Option<std::sync::Arc<str>> = None;
+  let mut pos = 0usize;
+  while pos < buf.len() {
+    if buf.len() - pos < 8 {
+      return Err(TableFrameError::BufferTooSmall(8, buf.len() - pos));
+    }
+    let frame_size = u32::from_le_bytes(buf[pos + 4..pos + 8].try_into().unwrap()) as usize;
+    let frame_end = pos + 8 + frame_size;
+    if buf.len() < frame_end {
+      return Err(TableFrameError::BufferTooSmall(frame_end - pos, buf.len() - pos));
+    }
+    let item = unpack_table_frame_meta_cached(&buf[pos..frame_end], false, &mut table_cache)?;
+    out.push(item);
+    pos = frame_end;
+  }
+  Ok(out)
+}
+
+#[inline]
+fn unpack_table_frame_meta_cached(
+  buf: &[u8],
+  skip_header: bool,
+  table_cache: &mut Option<std::sync::Arc<str>>,
+) -> Result<(String, std::sync::Arc<str>, Table), TableFrameError> {
+  use crate::table::{PosSliceReader, SkipVariant};
+  use crate::{DataType, Field};
+  use bincode_next::de::read::BorrowReader;
+  use bincode_next::de::{BorrowDecoder, Decoder};
+  use bincode_next::{BorrowDecode, Decode};
+  use std::collections::HashMap;
+
+  let content_and_footer = if skip_header {
+    buf
+  } else {
+    if buf.len() < 8 {
+      return Err(TableFrameError::BufferTooSmall(8, buf.len()));
+    }
+    let magic = u16::from_le_bytes(buf[0..2].try_into().unwrap());
+    if magic != MAGIC {
+      return Err(TableFrameError::InvalidTableFrame(format!(
+        "Invalid magic: {}",
+        magic
+      )));
+    }
+    let version = u16::from_le_bytes(buf[2..4].try_into().unwrap());
+    if version != VERSION {
+      return Err(TableFrameError::InvalidTableFrame(format!(
+        "Invalid version: {}",
+        version
+      )));
+    }
+    let frame_size = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
+    if buf.len() < 8 + frame_size {
+      return Err(TableFrameError::BufferTooSmall(8 + frame_size, buf.len()));
+    }
+    &buf[8..8 + frame_size]
+  };
+
+  if content_and_footer.len() < 4 {
+    return Err(TableFrameError::InvalidTableFrame(
+      "Content and footer too short".to_string(),
+    ));
+  }
+  let (table_data, footer) = content_and_footer.split_at(content_and_footer.len() - 4);
+
+  let stored_crc = u32::from_le_bytes(footer.try_into().unwrap());
+  let computed_crc = crc32(table_data);
+  if stored_crc != computed_crc {
+    return Err(TableFrameError::InvalidCrc);
+  }
+
+  let reader = PosSliceReader::new(table_data);
+  let mut decoder =
+    bincode_next::de::DecoderImpl::new(reader, bincode_next::config::standard(), ());
+
+  let map_err = |e: bincode_next::error::DecodeError| {
+    TableFrameError::InvalidTableFrame(format!("Failed to decode table: {}", e))
+  };
+
+  decoder.decode_struct_header(4).map_err(map_err)?;
+  let version = u32::decode(&mut decoder).map_err(map_err)?;
+  let col_count = decoder.decode_slice_len().map_err(map_err)?;
+  let mut columns = Vec::with_capacity(col_count);
+
+  for col_idx in 0..col_count {
+    decoder.decode_struct_header(4).map_err(map_err)?;
+    let name_len = decoder.decode_slice_len().map_err(map_err)?;
+    decoder.claim_bytes_read(name_len).map_err(map_err)?;
+    let name_bytes = decoder.borrow_reader().take_bytes(name_len).map_err(map_err)?;
+    let name = std::str::from_utf8(name_bytes)
+      .map_err(|e| TableFrameError::InvalidTableFrame(e.to_string()))?
+      .to_owned();
+    let kind = DataType::decode(&mut decoder).map_err(map_err)?;
+
+    let opt_tag = u32::decode(&mut decoder).map_err(map_err)?;
+    let metadata = if opt_tag == 1 {
+      if col_idx == 0 {
+        decoder.decode_struct_header(1).map_err(map_err)?;
+        let map_len = decoder.decode_map_len().map_err(map_err)?;
+        for _ in 0..map_len {
+          let key_len = decoder.decode_slice_len().map_err(map_err)?;
+          decoder.claim_bytes_read(key_len).map_err(map_err)?;
+          let _ = decoder.borrow_reader().take_bytes(key_len).map_err(map_err)?;
+          let _ = SkipVariant::borrow_decode(&mut decoder).map_err(map_err)?;
+        }
+        None
+      } else {
+        decoder.decode_struct_header(1).map_err(map_err)?;
+        Some(HashMap::<String, Variant>::decode(&mut decoder).map_err(map_err)?)
+      }
+    } else {
+      None
+    };
+
+    let data = Series::decode(&mut decoder).map_err(map_err)?;
+    columns.push(Field {
+      name,
+      kind,
+      metadata,
+      data,
+    });
+  }
+
+  let mut obj = String::new();
+  let mut table_arc: Option<std::sync::Arc<str>> = None;
+  let meta_opt = u32::decode(&mut decoder).map_err(map_err)?;
+  if meta_opt == 1 {
+    decoder.decode_struct_header(1).map_err(map_err)?;
+    let map_len = decoder.decode_map_len().map_err(map_err)?;
+    for _ in 0..map_len {
+      let key_len = decoder.decode_slice_len().map_err(map_err)?;
+      decoder.claim_bytes_read(key_len).map_err(map_err)?;
+      let key_bytes = decoder.borrow_reader().take_bytes(key_len).map_err(map_err)?;
+      let val = SkipVariant::borrow_decode(&mut decoder).map_err(map_err)?;
+      match (key_bytes, val) {
+        (b"obj", SkipVariant::String(s)) => obj = s.to_owned(),
+        (b"table", SkipVariant::String(s)) => {
+          if let Some(cached) = table_cache.as_ref()
+            && cached.as_ref() == s
+          {
+            table_arc = Some(std::sync::Arc::clone(cached));
+          } else {
+            let arc: std::sync::Arc<str> = std::sync::Arc::from(s);
+            *table_cache = Some(std::sync::Arc::clone(&arc));
+            table_arc = Some(arc);
+          }
+        }
+        _ => {}
+      }
+    }
+  }
+  let is_kv = bool::decode(&mut decoder).map_err(map_err)?;
+
+  let table_arc = table_arc.unwrap_or_else(|| std::sync::Arc::from(""));
+  Ok((
+    obj,
+    table_arc,
+    Table::from_parts(version, columns, None, is_kv),
+  ))
+}
+
 fn crc32(buf: &[u8]) -> u32 {
   crc_fast::checksum(crc_fast::CrcAlgorithm::Crc32IsoHdlc, buf) as u32
 }
@@ -394,5 +572,23 @@ mod tests {
       unpacked.get_table_meta("table"),
       Some(&Variant::String("stock_financial".to_string()))
     );
+
+    let (obj, tbl, unpacked_meta) = unpack_table_frame_meta(&frame, false).unwrap();
+    assert_eq!(obj, "000001.SZ");
+    assert_eq!(tbl, "stock_financial");
+    assert_eq!(unpacked_meta.column_count(), 3);
+    assert_eq!(unpacked_meta.row_count(), 3);
+    assert_eq!(unpacked_meta.pk_column(), 0);
+    assert_eq!(unpacked_meta.columns()[0].data, table.columns()[0].data);
+    assert_eq!(unpacked_meta.columns()[1].data, table.columns()[1].data);
+    assert_eq!(unpacked_meta.columns()[2].data, table.columns()[2].data);
+
+    let mut batch_frames = frame.clone();
+    packer.pack_series_into(&cols, "000002.SZ", &mut batch_frames);
+    let batch = unpack_frame_batch(&batch_frames, 2).unwrap();
+    assert_eq!(batch.len(), 2);
+    assert_eq!(batch[0].0, "000001.SZ");
+    assert_eq!(batch[1].0, "000002.SZ");
+    assert!(std::sync::Arc::ptr_eq(&batch[0].1, &batch[1].1));
   }
 }
