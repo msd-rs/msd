@@ -16,6 +16,7 @@ use msd_request::{SqlRequestType, sql_request_type};
 use msd_table::{Table, check_table_frame, unpack_table_frame};
 use reqwest::header;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+use tokio::sync::mpsc;
 use tracing::error;
 
 pub async fn execute_schema(opts: &ShellOptions, table: &str) -> Result<()> {
@@ -79,48 +80,87 @@ pub async fn execute(opts: &ShellOptions, query: &str) -> Result<()> {
   let stream_reader = tokio_util::io::StreamReader::new(
     stream.map(|res| res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
   );
-  if is_table_frame {
-    let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
+  let (tx, mut rx) = mpsc::channel::<tokio::task::JoinHandle<Result<Table>>>(128);
 
-    let mut buf = Vec::with_capacity(8 * 1024);
+  let reader_handle = tokio::spawn(async move {
+    if is_table_frame {
+      let mut rd = tokio::io::BufReader::with_capacity(64 * 1024, stream_reader);
+      let mut header_buf = vec![0u8; 8];
 
-    buf.resize(8, 0);
-    while rd.read_exact(&mut buf).await.is_ok() {
-      let (header_size, data_size) = match check_table_frame(&buf) {
-        Ok(size) => size,
-        Err(err) => {
-          error!(%err, "invalid table frame");
+      while rd.read_exact(&mut header_buf).await.is_ok() {
+        let (header_size, data_size) = match check_table_frame(&header_buf) {
+          Ok(size) => size,
+          Err(err) => {
+            error!(%err, "invalid table frame");
+            break;
+          }
+        };
+
+        if header_buf.len() < header_size {
+          let old_len = header_buf.len();
+          header_buf.resize(header_size, 0);
+          rd.read_exact(&mut header_buf[old_len..]).await?;
+        }
+
+        let mut buf = vec![0u8; header_size + data_size];
+        buf[..header_size].copy_from_slice(&header_buf[..header_size]);
+        rd.read_exact(&mut buf[header_size..]).await?;
+
+        let handle =
+          tokio::spawn(
+            async move { unpack_table_frame(&buf, false).map_err(|e| anyhow::anyhow!(e)) },
+          );
+        if tx.send(handle).await.is_err() {
           break;
         }
-      };
 
-      buf.resize(header_size + data_size, 0);
-      rd.read_exact(&mut buf[header_size..]).await?;
-      let table = unpack_table_frame(&buf, false)?;
-
-      fetched_rows += table.row_count();
-      fetched_cols += table.column_count();
-      objects += 1;
-      handler.handle(&table)?;
-
-      buf.clear();
-      buf.resize(header_size, 0);
-    }
-  } else {
-    // response is ndjson
-    let mut reader = tokio::io::BufReader::new(stream_reader).lines();
-
-    while let Some(line) = reader.next_line().await? {
-      if line.trim().is_empty() {
-        continue;
+        header_buf.truncate(8);
       }
-      let table: Table =
-        serde_json::from_str(&line).context("Failed to parse table from response")?;
-      fetched_rows += table.row_count();
-      fetched_cols += table.column_count();
-      objects += 1;
-      handler.handle(&table)?;
+    } else {
+      let mut reader = tokio::io::BufReader::new(stream_reader).lines();
+
+      while let Some(line) = reader.next_line().await? {
+        if line.trim().is_empty() {
+          continue;
+        }
+
+        let handle = tokio::spawn(async move {
+          serde_json::from_str::<Table>(&line).context("Failed to parse table from response")
+        });
+        if tx.send(handle).await.is_err() {
+          break;
+        }
+      }
     }
+    Ok::<(), anyhow::Error>(())
+  });
+
+  while let Some(handle) = rx.recv().await {
+    let table = match handle.await {
+      Ok(Ok(t)) => t,
+      Ok(Err(e)) => {
+        reader_handle.abort();
+        return Err(e);
+      }
+      Err(e) => {
+        reader_handle.abort();
+        return Err(e.into());
+      }
+    };
+
+    fetched_rows += table.row_count();
+    fetched_cols += table.column_count();
+    objects += 1;
+    if let Err(e) = handler.handle(&table) {
+      reader_handle.abort();
+      return Err(e);
+    }
+  }
+
+  match reader_handle.await {
+    Ok(res) => res?,
+    Err(e) if e.is_cancelled() => {}
+    Err(e) => return Err(e.into()),
   }
 
   if opts.verbose {
