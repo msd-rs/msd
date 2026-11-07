@@ -7,6 +7,7 @@ use msd_table::FillMethod;
 use msd_table::Result;
 use msd_table::Table;
 use msd_table::Variant;
+use msd_table::anyhow;
 use msd_table::bail;
 use msd_table::check_table_frame;
 use msd_table::compute_joined_indices;
@@ -792,6 +793,116 @@ struct MsdConnection {
   url: String,
 }
 
+fn join_objs_chunk(
+  chunk_objs: &[String],
+  full: &GroupedTables,
+  base: &Table,
+  base_obj: &str,
+  base_table: &str,
+  base_obj_tables: &HashMap<String, Table>,
+  other_tables: &[String],
+  fill: &HashMap<String, FillMethod>,
+  bars: usize,
+) -> Result<Vec<Field>> {
+  let chunk_rows = chunk_objs.len() * bars;
+  let pk_idx = base.pk_column();
+  let base_pk_col = &base.columns()[pk_idx];
+  let default_fill = fill.get("*").copied().unwrap_or_default();
+  let base_fill = fill.get(base_table).copied().unwrap_or(default_fill);
+
+  let mut local_cols = Vec::new();
+  for col in base.columns() {
+    local_cols.push(col.to_empty_with_capacity(chunk_rows));
+  }
+  for t_name in other_tables {
+    let t_schema = &base_obj_tables[t_name];
+    let other_pk_idx = t_schema.pk_column();
+    for (idx, col) in t_schema.columns().iter().enumerate() {
+      if idx != other_pk_idx {
+        local_cols.push(col.to_empty_with_capacity(chunk_rows));
+      }
+    }
+  }
+
+  let mut indices = Vec::with_capacity(bars);
+  let empty_indices = vec![usize::MAX; bars];
+
+  for obj in chunk_objs {
+    let obj_tables = &full[obj];
+    local_cols[pk_idx].data.extend(&base_pk_col.data, false)?;
+
+    if obj == base_obj {
+      for (idx, col) in base.columns().iter().enumerate() {
+        if idx != pk_idx {
+          local_cols[idx].data.extend(&col.data, false)?;
+        }
+      }
+    } else if let Some(t) = obj_tables.get(base_table)
+      && !t.columns().is_empty()
+    {
+      let t_pk = &t.columns()[t.pk_column()];
+      compute_joined_indices(base_pk_col, t_pk, base_fill, &mut indices)?;
+      for (idx, col) in t.columns().iter().enumerate() {
+        if idx != pk_idx {
+          extend_series_with_fill(&mut local_cols[idx].data, &col.data, &indices, base_fill);
+        }
+      }
+    } else {
+      for (idx, col) in base.columns().iter().enumerate() {
+        if idx != pk_idx {
+          extend_series_with_fill(
+            &mut local_cols[idx].data,
+            &col.data,
+            &empty_indices,
+            base_fill,
+          );
+        }
+      }
+    }
+
+    let mut col_offset = base.column_count();
+    for t_name in other_tables {
+      let method = fill.get(t_name).copied().unwrap_or(default_fill);
+      let t_schema = &base_obj_tables[t_name];
+      let other_pk_idx = t_schema.pk_column();
+
+      if let Some(t) = obj_tables.get(t_name)
+        && !t.columns().is_empty()
+      {
+        let t_pk = &t.columns()[other_pk_idx];
+        compute_joined_indices(base_pk_col, t_pk, method, &mut indices)?;
+        for (idx, col) in t.columns().iter().enumerate() {
+          if idx == other_pk_idx {
+            continue;
+          }
+          extend_series_with_fill(
+            &mut local_cols[col_offset].data,
+            &col.data,
+            &indices,
+            method,
+          );
+          col_offset += 1;
+        }
+      } else {
+        for (idx, col) in t_schema.columns().iter().enumerate() {
+          if idx == other_pk_idx {
+            continue;
+          }
+          extend_series_with_fill(
+            &mut local_cols[col_offset].data,
+            &col.data,
+            &empty_indices,
+            method,
+          );
+          col_offset += 1;
+        }
+      }
+    }
+  }
+
+  Ok(local_cols)
+}
+
 impl MsdConnection {
   fn new(url: &str, token: &str, compress: bool) -> Result<Self> {
     let builder = ClientBuilder::new()
@@ -831,6 +942,7 @@ impl MsdConnection {
     let Some(base) = base_obj_tables.get(&base_table) else {
       bail!("base_table {} not found in {}", base_table, base_obj);
     };
+    let base = base.clone();
 
     let mut objs = full.keys().cloned().collect::<Vec<_>>();
     objs.sort();
@@ -847,98 +959,92 @@ impl MsdConnection {
     let bars = base_pk_col.data.len();
     let total_rows = objs.len() * bars;
 
-    let default_fill = fill.get("*").copied().unwrap_or_default();
-    let base_fill = fill.get(&base_table).copied().unwrap_or(default_fill);
+    let num_workers = std::thread::available_parallelism()
+      .map(|n| n.get())
+      .unwrap_or(4)
+      .min(objs.len());
 
-    let mut result_cols = Vec::new();
-    for col in base.columns() {
-      result_cols.push(col.to_empty_with_capacity(total_rows));
-    }
-    for t_name in &other_tables {
-      let t_schema = &base_obj_tables[t_name];
-      let other_pk_idx = t_schema.pk_column();
-      for (idx, col) in t_schema.columns().iter().enumerate() {
-        if idx != other_pk_idx {
-          result_cols.push(col.to_empty_with_capacity(total_rows));
+    let result_cols = if num_workers <= 1 {
+      join_objs_chunk(
+        &objs,
+        &full,
+        &base,
+        &base_obj,
+        &base_table,
+        base_obj_tables,
+        &other_tables,
+        &fill,
+        bars,
+      )?
+    } else {
+      let chunk_size = (objs.len() + num_workers - 1) / num_workers;
+      let chunks: Vec<Vec<String>> = objs.chunks(chunk_size).map(|c| c.to_vec()).collect();
+
+      let full_arc = Arc::new(full);
+      let base_arc = Arc::new(base);
+      let other_tables_arc = Arc::new(other_tables);
+      let fill_arc = Arc::new(fill);
+      let base_table_arc = Arc::new(base_table);
+      let base_obj_arc = Arc::new(base_obj);
+
+      let chunk_results = get_runtime().block_on(async move {
+        let mut handles = Vec::with_capacity(chunks.len());
+        for chunk_objs in chunks {
+          let full = full_arc.clone();
+          let base = base_arc.clone();
+          let other_tables = other_tables_arc.clone();
+          let fill = fill_arc.clone();
+          let base_table = base_table_arc.clone();
+          let base_obj = base_obj_arc.clone();
+
+          let handle = tokio::spawn(async move {
+            let base_obj_tables = &full[&*base_obj];
+            join_objs_chunk(
+              &chunk_objs,
+              &full,
+              &base,
+              &base_obj,
+              &base_table,
+              base_obj_tables,
+              &other_tables,
+              &fill,
+              bars,
+            )
+          });
+          handles.push(handle);
+        }
+
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+          results.push(
+            handle
+              .await
+              .map_err(|e| anyhow!("Join task panicked: {}", e))??,
+          );
+        }
+        Ok::<_, anyhow::Error>(results)
+      })?;
+
+      let mut chunk_iter = chunk_results.into_iter();
+      let mut merged_cols = match chunk_iter.next() {
+        Some(mut first) => {
+          for col in &mut first {
+            let rem = total_rows.saturating_sub(col.data.len());
+            col.reserve(rem);
+          }
+          first
+        }
+        None => Vec::new(),
+      };
+
+      for chunk_cols in chunk_iter {
+        for (col_idx, field) in chunk_cols.into_iter().enumerate() {
+          merged_cols[col_idx].data.extend(&field.data, false)?;
         }
       }
-    }
 
-    let mut indices = Vec::with_capacity(bars);
-    let empty_indices = vec![usize::MAX; bars];
-
-    for obj in &objs {
-      let obj_tables = &full[obj];
-      result_cols[pk_idx].data.extend(&base_pk_col.data, false)?;
-
-      if obj == &base_obj {
-        for (idx, col) in base.columns().iter().enumerate() {
-          if idx != pk_idx {
-            result_cols[idx].data.extend(&col.data, false)?;
-          }
-        }
-      } else if let Some(t) = obj_tables.get(&base_table)
-        && !t.columns().is_empty()
-      {
-        let t_pk = &t.columns()[t.pk_column()];
-        compute_joined_indices(base_pk_col, t_pk, base_fill, &mut indices)?;
-        for (idx, col) in t.columns().iter().enumerate() {
-          if idx != pk_idx {
-            extend_series_with_fill(&mut result_cols[idx].data, &col.data, &indices, base_fill);
-          }
-        }
-      } else {
-        for (idx, col) in base.columns().iter().enumerate() {
-          if idx != pk_idx {
-            extend_series_with_fill(
-              &mut result_cols[idx].data,
-              &col.data,
-              &empty_indices,
-              base_fill,
-            );
-          }
-        }
-      }
-
-      let mut col_offset = base.column_count();
-      for t_name in &other_tables {
-        let method = fill.get(t_name).copied().unwrap_or(default_fill);
-        let t_schema = &base_obj_tables[t_name];
-        let other_pk_idx = t_schema.pk_column();
-
-        if let Some(t) = obj_tables.get(t_name)
-          && !t.columns().is_empty()
-        {
-          let t_pk = &t.columns()[other_pk_idx];
-          compute_joined_indices(base_pk_col, t_pk, method, &mut indices)?;
-          for (idx, col) in t.columns().iter().enumerate() {
-            if idx == other_pk_idx {
-              continue;
-            }
-            extend_series_with_fill(
-              &mut result_cols[col_offset].data,
-              &col.data,
-              &indices,
-              method,
-            );
-            col_offset += 1;
-          }
-        } else {
-          for (idx, col) in t_schema.columns().iter().enumerate() {
-            if idx == other_pk_idx {
-              continue;
-            }
-            extend_series_with_fill(
-              &mut result_cols[col_offset].data,
-              &col.data,
-              &empty_indices,
-              method,
-            );
-            col_offset += 1;
-          }
-        }
-      }
-    }
+      merged_cols
+    };
 
     Ok((Table::from_columns(result_cols), objs, bars))
   }
