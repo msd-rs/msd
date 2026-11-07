@@ -4,19 +4,16 @@ build-backend = "maturin"
 
 [project]
 name = "pymsd"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
-dependencies = [
-    "numpy>=1.24.4",
-]
+dependencies = ["numpy>=1.24.4"]
 readme = "README.md"
 description = "Python binding for msd"
-
 
 
 [project.urls]
@@ -39,7 +36,7 @@ module-name = "pymsd._msd"
 
 
 [tool.pytest.ini_options]
-pythonpath = [ "." ]
+pythonpath = ["."]
 log_format = "%(asctime)s %(levelname)s %(message)s"
 log_date_format = "%Y-%m-%d %H:%M:%S"
 log_cli_level = "INFO"

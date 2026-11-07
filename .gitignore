@@ -19,6 +19,8 @@
 *.bak
 *.tmp
 
+.ruff_cache
+
 # Byebug command history
 .byebug_history
 
