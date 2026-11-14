@@ -1,18 +1,23 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use msd_table::DataType;
 use msd_table::Field;
 use msd_table::FillMethod;
+use msd_table::JoinPlan;
 use msd_table::Result;
+use msd_table::Series;
+use msd_table::SeriesMutSlice;
 use msd_table::Table;
 use msd_table::Variant;
 use msd_table::anyhow;
 use msd_table::bail;
 use msd_table::check_table_frame;
-use msd_table::compute_joined_indices;
+use msd_table::compute_join_plan;
 use msd_table::extend_series_with_fill;
+use msd_table::fill_series_slice_missing;
 use msd_table::unpack_frame_batch;
+use msd_table::write_series_slice_with_fill;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
@@ -793,114 +798,176 @@ struct MsdConnection {
   url: String,
 }
 
-fn join_objs_chunk(
-  chunk_objs: &[String],
-  full: &GroupedTables,
-  base: &Table,
-  base_obj: &str,
-  base_table: &str,
-  base_obj_tables: &HashMap<String, Table>,
-  other_tables: &[String],
-  fill: &HashMap<String, FillMethod>,
-  bars: usize,
-) -> Result<Vec<Field>> {
-  let chunk_rows = chunk_objs.len() * bars;
-  let pk_idx = base.pk_column();
-  let base_pk_col = &base.columns()[pk_idx];
-  let default_fill = fill.get("*").copied().unwrap_or_default();
-  let base_fill = fill.get(base_table).copied().unwrap_or(default_fill);
+struct JoinBaseContext {
+  pk_col: Field,
+  pk_strictly_increasing: bool,
+}
 
-  let mut local_cols = Vec::new();
-  for col in base.columns() {
-    local_cols.push(col.to_empty_with_capacity(chunk_rows));
+struct JoinBatchItem {
+  obj: String,
+  table_name: Arc<str>,
+  table: Table,
+  plan: Option<JoinPlan>,
+}
+
+struct TableEntry {
+  table: Table,
+  plan: Option<JoinPlan>,
+}
+
+struct TableJoinSpec<'a> {
+  table_id: usize,
+  fill: FillMethod,
+  schema: &'a Table,
+  schema_pk_idx: usize,
+  dst_cols: Vec<usize>,
+}
+
+fn defer_drop_join_entries(entries: Vec<(String, Vec<Option<TableEntry>>)>) {
+  static DROP_TX: OnceLock<std::sync::mpsc::Sender<Vec<(String, Vec<Option<TableEntry>>)>>> =
+    OnceLock::new();
+  let tx = DROP_TX.get_or_init(|| {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<(String, Vec<Option<TableEntry>>)>>();
+    std::thread::Builder::new()
+      .name("pymsd-join-drop".into())
+      .spawn(move || {
+        while let Ok(item) = rx.recv() {
+          drop(item);
+        }
+      })
+      .expect("failed to spawn pymsd-join-drop thread");
+    tx
+  });
+  let _ = tx.send(entries);
+}
+
+#[inline]
+fn resolve_fill(
+  fill: &HashMap<String, FillMethod>,
+  default_fill: FillMethod,
+  table_name: &Arc<str>,
+  cache: &mut Option<(Arc<str>, FillMethod)>,
+) -> FillMethod {
+  if let Some((cached_name, cached_fill)) = cache
+    && (Arc::ptr_eq(cached_name, table_name) || cached_name.as_ref() == table_name.as_ref())
+  {
+    return *cached_fill;
   }
-  for t_name in other_tables {
-    let t_schema = &base_obj_tables[t_name];
-    let other_pk_idx = t_schema.pk_column();
-    for (idx, col) in t_schema.columns().iter().enumerate() {
-      if idx != other_pk_idx {
-        local_cols.push(col.to_empty_with_capacity(chunk_rows));
+  let method = fill
+    .get(table_name.as_ref())
+    .copied()
+    .unwrap_or(default_fill);
+  *cache = Some((Arc::clone(table_name), method));
+  method
+}
+
+fn write_table_to_slices(
+  local_slices: &mut [SeriesMutSlice<'_>],
+  start: usize,
+  end: usize,
+  spec: &TableJoinSpec<'_>,
+  entry: Option<&TableEntry>,
+  base_ctx: &JoinBaseContext,
+) -> Result<()> {
+  if let Some(entry) = entry
+    && !entry.table.columns().is_empty()
+  {
+    let t = &entry.table;
+    let t_pk_idx = t.pk_column();
+    let computed_plan;
+    let plan = match &entry.plan {
+      Some(p) => p,
+      None => {
+        let t_pk = &t.columns()[t_pk_idx];
+        computed_plan = compute_join_plan(
+          &base_ctx.pk_col,
+          t_pk,
+          base_ctx.pk_strictly_increasing,
+          spec.fill,
+        )?;
+        &computed_plan
+      }
+    };
+
+    let src_cols = t.columns().iter().enumerate().filter(|&(i, _)| i != t_pk_idx);
+    for (&dst_col, (_, col)) in spec.dst_cols.iter().zip(src_cols) {
+      match plan {
+        JoinPlan::ExactMatch => {
+          local_slices[dst_col].copy_range_from_series(start, end, &col.data)?;
+        }
+        JoinPlan::Indices {
+          indices,
+          has_missing,
+        } => {
+          write_series_slice_with_fill(
+            &mut local_slices[dst_col],
+            start,
+            end,
+            &col.data,
+            indices,
+            *has_missing,
+            spec.fill,
+          );
+        }
       }
     }
+  } else {
+    let schema_cols = spec
+      .schema
+      .columns()
+      .iter()
+      .enumerate()
+      .filter(|&(i, _)| i != spec.schema_pk_idx);
+    for (&dst_col, (_, col)) in spec.dst_cols.iter().zip(schema_cols) {
+      fill_series_slice_missing(
+        &mut local_slices[dst_col],
+        start,
+        end,
+        &col.data,
+        spec.fill,
+      );
+    }
   }
+  Ok(())
+}
 
-  let mut indices = Vec::with_capacity(bars);
-  let empty_indices = vec![usize::MAX; bars];
+fn process_join_chunk(
+  chunk_entries: &[(String, Vec<Option<TableEntry>>)],
+  local_slices: &mut [SeriesMutSlice<'_>],
+  base_obj: &str,
+  base_ctx: &JoinBaseContext,
+  base_pk_idx: usize,
+  base_spec: &TableJoinSpec<'_>,
+  other_specs: &[TableJoinSpec<'_>],
+  bars: usize,
+) -> Result<()> {
+  for (local_i, (obj_name, slots)) in chunk_entries.iter().enumerate() {
+    let start = local_i * bars;
+    let end = start + bars;
 
-  for obj in chunk_objs {
-    let obj_tables = &full[obj];
-    local_cols[pk_idx].data.extend(&base_pk_col.data, false)?;
+    local_slices[base_pk_idx].copy_range_from_series(start, end, &base_ctx.pk_col.data)?;
 
-    if obj == base_obj {
-      for (idx, col) in base.columns().iter().enumerate() {
-        if idx != pk_idx {
-          local_cols[idx].data.extend(&col.data, false)?;
-        }
-      }
-    } else if let Some(t) = obj_tables.get(base_table)
-      && !t.columns().is_empty()
-    {
-      let t_pk = &t.columns()[t.pk_column()];
-      compute_joined_indices(base_pk_col, t_pk, base_fill, &mut indices)?;
-      for (idx, col) in t.columns().iter().enumerate() {
-        if idx != pk_idx {
-          extend_series_with_fill(&mut local_cols[idx].data, &col.data, &indices, base_fill);
-        }
+    if obj_name == base_obj {
+      let src_cols = base_spec
+        .schema
+        .columns()
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != base_spec.schema_pk_idx);
+      for (&dst_col, (_, col)) in base_spec.dst_cols.iter().zip(src_cols) {
+        local_slices[dst_col].copy_range_from_series(start, end, &col.data)?;
       }
     } else {
-      for (idx, col) in base.columns().iter().enumerate() {
-        if idx != pk_idx {
-          extend_series_with_fill(
-            &mut local_cols[idx].data,
-            &col.data,
-            &empty_indices,
-            base_fill,
-          );
-        }
-      }
+      let base_entry = slots.get(base_spec.table_id).and_then(|o| o.as_ref());
+      write_table_to_slices(local_slices, start, end, base_spec, base_entry, base_ctx)?;
     }
 
-    let mut col_offset = base.column_count();
-    for t_name in other_tables {
-      let method = fill.get(t_name).copied().unwrap_or(default_fill);
-      let t_schema = &base_obj_tables[t_name];
-      let other_pk_idx = t_schema.pk_column();
-
-      if let Some(t) = obj_tables.get(t_name)
-        && !t.columns().is_empty()
-      {
-        let t_pk = &t.columns()[other_pk_idx];
-        compute_joined_indices(base_pk_col, t_pk, method, &mut indices)?;
-        for (idx, col) in t.columns().iter().enumerate() {
-          if idx == other_pk_idx {
-            continue;
-          }
-          extend_series_with_fill(
-            &mut local_cols[col_offset].data,
-            &col.data,
-            &indices,
-            method,
-          );
-          col_offset += 1;
-        }
-      } else {
-        for (idx, col) in t_schema.columns().iter().enumerate() {
-          if idx == other_pk_idx {
-            continue;
-          }
-          extend_series_with_fill(
-            &mut local_cols[col_offset].data,
-            &col.data,
-            &empty_indices,
-            method,
-          );
-          col_offset += 1;
-        }
-      }
+    for spec in other_specs {
+      let entry = slots.get(spec.table_id).and_then(|o| o.as_ref());
+      write_table_to_slices(local_slices, start, end, spec, entry, base_ctx)?;
     }
   }
-
-  Ok(local_cols)
+  Ok(())
 }
 
 impl MsdConnection {
@@ -935,116 +1002,258 @@ impl MsdConnection {
     fill: HashMap<String, FillMethod>,
     base_obj: String,
   ) -> Result<(Table, Vec<String>, usize)> {
-    let full = self.async_query(sql)?;
-    let Some(base_obj_tables) = full.get(&base_obj) else {
+    let default_fill = fill.get("*").copied().unwrap_or_default();
+    let base_fill = fill.get(&base_table).copied().unwrap_or(default_fill);
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let base_ctx_lock = Arc::new(OnceLock::<Arc<JoinBaseContext>>::new());
+
+    let conn = self.clone();
+    let base_obj_stream = base_obj.clone();
+    let base_table_stream = base_table.clone();
+    let fill_arc = Arc::new(fill);
+    let fill_stream = Arc::clone(&fill_arc);
+    let base_ctx_stream = Arc::clone(&base_ctx_lock);
+
+    get_runtime().spawn(async move {
+      if let Err(err) = query_msd_join_stream(
+        conn,
+        sql,
+        base_obj_stream,
+        base_table_stream,
+        fill_stream,
+        default_fill,
+        base_ctx_stream,
+        &tx,
+      )
+      .await
+      {
+        let _ = tx.send(Err(err)).await;
+      }
+    });
+
+    let mut table_names: Vec<Arc<str>> = Vec::new();
+    let mut table_id_by_name: HashMap<Arc<str>, usize> = HashMap::new();
+    let mut obj_id_by_name: HashMap<String, usize> = HashMap::new();
+    let mut obj_entries: Vec<(String, Vec<Option<TableEntry>>)> = Vec::new();
+
+    while let Some(res) = rx.blocking_recv() {
+      let batch = res?;
+      for item in batch {
+        if item.obj.is_empty() || item.table_name.is_empty() {
+          continue;
+        }
+        let table_id = if let Some(&id) = table_id_by_name.get(&item.table_name) {
+          id
+        } else {
+          let id = table_names.len();
+          table_id_by_name.insert(Arc::clone(&item.table_name), id);
+          table_names.push(item.table_name);
+          id
+        };
+
+        let obj_id = if let Some(&id) = obj_id_by_name.get(&item.obj) {
+          id
+        } else {
+          let id = obj_entries.len();
+          obj_id_by_name.insert(item.obj.clone(), id);
+          obj_entries.push((item.obj, Vec::with_capacity(table_names.len().max(1))));
+          id
+        };
+
+        let slots = &mut obj_entries[obj_id].1;
+        if slots.len() <= table_id {
+          slots.resize_with(table_id + 1, || None);
+        }
+        slots[table_id] = Some(TableEntry {
+          table: item.table,
+          plan: item.plan,
+        });
+      }
+    }
+
+    let Some(&base_obj_idx) = obj_id_by_name.get(&base_obj) else {
       bail!("base_obj {} not found", base_obj);
     };
-    let Some(base) = base_obj_tables.get(&base_table) else {
+    let Some(&base_table_id) = table_id_by_name.get(base_table.as_str()) else {
       bail!("base_table {} not found in {}", base_table, base_obj);
     };
-    let base = base.clone();
+    if obj_entries[base_obj_idx]
+      .1
+      .get(base_table_id)
+      .and_then(|o| o.as_ref())
+      .is_none()
+    {
+      bail!("base_table {} not found in {}", base_table, base_obj);
+    }
 
-    let mut objs = full.keys().cloned().collect::<Vec<_>>();
-    objs.sort();
+    drop(obj_id_by_name);
+    drop(table_id_by_name);
 
-    let mut other_tables = base_obj_tables
-      .keys()
-      .filter(|&k| k != &base_table)
-      .cloned()
-      .collect::<Vec<_>>();
-    other_tables.sort();
+    obj_entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let base_obj_idx = obj_entries
+      .binary_search_by(|e| e.0.as_str().cmp(base_obj.as_str()))
+      .expect("base_obj must exist after sort");
+
+    let base_slots = &obj_entries[base_obj_idx].1;
+    let base = &base_slots[base_table_id]
+      .as_ref()
+      .expect("base_table must exist")
+      .table;
+
+    if base.columns().is_empty() {
+      bail!("base_table {} in {} has no columns", base_table, base_obj);
+    }
 
     let pk_idx = base.pk_column();
-    let base_pk_col = &base.columns()[pk_idx];
-    let bars = base_pk_col.data.len();
-    let total_rows = objs.len() * bars;
-
-    let num_workers = std::thread::available_parallelism()
-      .map(|n| n.get())
-      .unwrap_or(4)
-      .min(objs.len());
-
-    let result_cols = if num_workers <= 1 {
-      join_objs_chunk(
-        &objs,
-        &full,
-        &base,
-        &base_obj,
-        &base_table,
-        base_obj_tables,
-        &other_tables,
-        &fill,
-        bars,
-      )?
+    let base_ctx = if let Some(ctx) = base_ctx_lock.get() {
+      Arc::clone(ctx)
     } else {
-      let chunk_size = (objs.len() + num_workers - 1) / num_workers;
-      let chunks: Vec<Vec<String>> = objs.chunks(chunk_size).map(|c| c.to_vec()).collect();
+      let pk_col = base.columns()[pk_idx].clone();
+      let pk_strictly_increasing = pk_col.data.is_strictly_increasing();
+      Arc::new(JoinBaseContext {
+        pk_col,
+        pk_strictly_increasing,
+      })
+    };
 
-      let full_arc = Arc::new(full);
-      let base_arc = Arc::new(base);
-      let other_tables_arc = Arc::new(other_tables);
-      let fill_arc = Arc::new(fill);
-      let base_table_arc = Arc::new(base_table);
-      let base_obj_arc = Arc::new(base_obj);
+    let bars = base_ctx.pk_col.data.len();
+    let num_objs = obj_entries.len();
+    let total_rows = num_objs * bars;
 
-      let chunk_results = get_runtime().block_on(async move {
-        let mut handles = Vec::with_capacity(chunks.len());
-        for chunk_objs in chunks {
-          let full = full_arc.clone();
-          let base = base_arc.clone();
-          let other_tables = other_tables_arc.clone();
-          let fill = fill_arc.clone();
-          let base_table = base_table_arc.clone();
-          let base_obj = base_obj_arc.clone();
+    let mut other_table_ids: Vec<usize> = base_slots
+      .iter()
+      .enumerate()
+      .filter_map(|(tid, slot)| (tid != base_table_id && slot.is_some()).then_some(tid))
+      .collect();
+    other_table_ids.sort_unstable_by(|&a, &b| table_names[a].cmp(&table_names[b]));
 
-          let handle = tokio::spawn(async move {
-            let base_obj_tables = &full[&*base_obj];
-            join_objs_chunk(
-              &chunk_objs,
-              &full,
-              &base,
-              &base_obj,
-              &base_table,
-              base_obj_tables,
-              &other_tables,
-              &fill,
-              bars,
-            )
-          });
-          handles.push(handle);
+    let total_col_count = base.column_count()
+      + other_table_ids
+        .iter()
+        .map(|&tid| {
+          let t = &base_slots[tid].as_ref().unwrap().table;
+          t.column_count().saturating_sub(usize::from(!t.columns().is_empty()))
+        })
+        .sum::<usize>();
+
+    let mut result_cols = Vec::with_capacity(total_col_count);
+    let mut base_dst_cols = Vec::with_capacity(base.column_count().saturating_sub(1));
+    for (idx, col) in base.columns().iter().enumerate() {
+      if idx != pk_idx {
+        base_dst_cols.push(result_cols.len());
+      }
+      result_cols.push(col.with_data(Series::new(col.kind, total_rows)));
+    }
+
+    let base_spec = TableJoinSpec {
+      table_id: base_table_id,
+      fill: base_fill,
+      schema: base,
+      schema_pk_idx: pk_idx,
+      dst_cols: base_dst_cols,
+    };
+
+    let mut other_specs = Vec::with_capacity(other_table_ids.len());
+    for tid in other_table_ids {
+      let t_schema = &base_slots[tid].as_ref().unwrap().table;
+      let other_pk_idx = t_schema.pk_column();
+      let method = fill_arc
+        .get(table_names[tid].as_ref())
+        .copied()
+        .unwrap_or(default_fill);
+      let mut dst_cols = Vec::with_capacity(t_schema.column_count().saturating_sub(1));
+      for (idx, col) in t_schema.columns().iter().enumerate() {
+        if idx != other_pk_idx {
+          dst_cols.push(result_cols.len());
+          result_cols.push(col.with_data(Series::new(col.kind, total_rows)));
         }
+      }
+      other_specs.push(TableJoinSpec {
+        table_id: tid,
+        fill: method,
+        schema: t_schema,
+        schema_pk_idx: other_pk_idx,
+        dst_cols,
+      });
+    }
 
-        let mut results = Vec::with_capacity(handles.len());
-        for handle in handles {
-          results.push(
-            handle
-              .await
-              .map_err(|e| anyhow!("Join task panicked: {}", e))??,
-          );
-        }
-        Ok::<_, anyhow::Error>(results)
-      })?;
+    if total_rows > 0 {
+      let num_workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(num_objs);
+      let chunk_objs_len = (num_objs + num_workers - 1) / num_workers;
+      let num_chunks = (num_objs + chunk_objs_len - 1) / chunk_objs_len;
+      let chunk_rows = chunk_objs_len * bars;
 
-      let mut chunk_iter = chunk_results.into_iter();
-      let mut merged_cols = match chunk_iter.next() {
-        Some(mut first) => {
-          for col in &mut first {
-            let rem = total_rows.saturating_sub(col.data.len());
-            col.reserve(rem);
-          }
-          first
-        }
-        None => Vec::new(),
-      };
-
-      for chunk_cols in chunk_iter {
-        for (col_idx, field) in chunk_cols.into_iter().enumerate() {
-          merged_cols[col_idx].data.extend(&field.data, false)?;
+      let mut worker_cols: Vec<Vec<SeriesMutSlice<'_>>> = (0..num_chunks)
+        .map(|_| Vec::with_capacity(result_cols.len()))
+        .collect();
+      for col in &mut result_cols {
+        for (w_idx, slice) in col
+          .data
+          .chunks_mut(chunk_rows, num_chunks)
+          .into_iter()
+          .enumerate()
+        {
+          worker_cols[w_idx].push(slice);
         }
       }
 
-      merged_cols
-    };
+      if num_chunks == 1 {
+        let mut slices = worker_cols.into_iter().next().unwrap();
+        process_join_chunk(
+          &obj_entries,
+          &mut slices,
+          &base_obj,
+          &base_ctx,
+          pk_idx,
+          &base_spec,
+          &other_specs,
+          bars,
+        )?;
+      } else {
+        std::thread::scope(|s| -> Result<()> {
+          let mut handles = Vec::with_capacity(num_chunks);
+          let base_obj_ref = base_obj.as_str();
+          let base_ctx_ref = &*base_ctx;
+          let base_spec_ref = &base_spec;
+          let other_specs_ref = &other_specs;
+
+          for (chunk_entries, mut local_slices) in obj_entries
+            .chunks(chunk_objs_len)
+            .zip(worker_cols.into_iter())
+          {
+            handles.push(s.spawn(move || {
+              process_join_chunk(
+                chunk_entries,
+                &mut local_slices,
+                base_obj_ref,
+                base_ctx_ref,
+                pk_idx,
+                base_spec_ref,
+                other_specs_ref,
+                bars,
+              )
+            }));
+          }
+
+          for handle in handles {
+            handle
+              .join()
+              .map_err(|_| anyhow!("Join worker thread panicked"))??;
+          }
+          Ok(())
+        })?;
+      }
+    }
+
+    let objs: Vec<String> = obj_entries
+      .iter_mut()
+      .map(|(obj, _)| std::mem::take(obj))
+      .collect();
+    defer_drop_join_entries(obj_entries);
 
     Ok((Table::from_columns(result_cols), objs, bars))
   }
@@ -1267,6 +1476,48 @@ impl MsdConnection {
   }
 }
 
+const STREAM_BATCH_MAX_FRAMES: usize = 128;
+const STREAM_BATCH_MAX_BYTES: usize = 512 * 1024;
+
+fn scan_complete_frames(buf: &[u8], scan_pos: &mut usize, frames_in_buf: &mut usize) -> Result<()> {
+  while buf.len() - *scan_pos >= 8 {
+    let (header_size, data_size) = match check_table_frame(&buf[*scan_pos..*scan_pos + 8]) {
+      Ok(size) => size,
+      Err(err) => {
+        bail!("invalid table frame: {}", err);
+      }
+    };
+    let frame_end = *scan_pos + header_size + data_size;
+    if buf.len() < frame_end {
+      break;
+    }
+    *scan_pos = frame_end;
+    *frames_in_buf += 1;
+  }
+  Ok(())
+}
+
+fn take_ready_batch(
+  buf: &mut Vec<u8>,
+  scan_pos: &mut usize,
+  frames_in_buf: &mut usize,
+) -> Option<(Vec<u8>, usize)> {
+  if *frames_in_buf < STREAM_BATCH_MAX_FRAMES && *scan_pos < STREAM_BATCH_MAX_BYTES {
+    return None;
+  }
+  let rem = buf.len() - *scan_pos;
+  let mut next_buf = Vec::with_capacity(rem.max(128 * 1024));
+  if *scan_pos < buf.len() {
+    next_buf.extend_from_slice(&buf[*scan_pos..]);
+    buf.truncate(*scan_pos);
+  }
+  let batch_buf = std::mem::replace(buf, next_buf);
+  let count = *frames_in_buf;
+  *scan_pos = 0;
+  *frames_in_buf = 0;
+  Some((batch_buf, count))
+}
+
 async fn query_msd_batches(conn: MsdConnection, sql: String) -> Result<Vec<FrameBatch>> {
   let url = format!("{}/query", conn.url);
 
@@ -1284,33 +1535,9 @@ async fn query_msd_batches(conn: MsdConnection, sql: String) -> Result<Vec<Frame
 
   while let Some(chunk) = resp.chunk().await? {
     buf.extend_from_slice(&chunk);
+    scan_complete_frames(&buf, &mut scan_pos, &mut frames_in_buf)?;
 
-    while buf.len() - scan_pos >= 8 {
-      let (header_size, data_size) = match check_table_frame(&buf[scan_pos..scan_pos + 8]) {
-        Ok(size) => size,
-        Err(err) => {
-          bail!("invalid table frame: {}", err);
-        }
-      };
-      let frame_end = scan_pos + header_size + data_size;
-      if buf.len() < frame_end {
-        break;
-      }
-      scan_pos = frame_end;
-      frames_in_buf += 1;
-    }
-
-    if frames_in_buf >= 128 || scan_pos >= 64 * 1024 {
-      let mut next_buf = Vec::with_capacity(128 * 1024);
-      if scan_pos < buf.len() {
-        next_buf.extend_from_slice(&buf[scan_pos..]);
-        buf.truncate(scan_pos);
-      }
-      let batch_buf = std::mem::replace(&mut buf, next_buf);
-      let count = frames_in_buf;
-      scan_pos = 0;
-      frames_in_buf = 0;
-
+    if let Some((batch_buf, count)) = take_ready_batch(&mut buf, &mut scan_pos, &mut frames_in_buf) {
       tasks.push(tokio::spawn(async move {
         unpack_frame_batch(&batch_buf, count)
       }));
@@ -1339,11 +1566,16 @@ async fn query_msd_batches(conn: MsdConnection, sql: String) -> Result<Vec<Frame
   Ok(batches)
 }
 
-async fn query_msd_stream(
+async fn stream_query_batches<T, F>(
   conn: MsdConnection,
   sql: String,
-  tx: &mpsc::Sender<Result<FrameBatch>>,
-) -> Result<()> {
+  tx: &mpsc::Sender<Result<T>>,
+  mut unpack_fn: F,
+) -> Result<()>
+where
+  T: Send + 'static,
+  F: FnMut(Vec<u8>, usize) -> tokio::task::JoinHandle<Result<T>>,
+{
   let url = format!("{}/query", conn.url);
 
   let req = conn
@@ -1360,36 +1592,10 @@ async fn query_msd_stream(
 
   while let Some(chunk) = resp.chunk().await? {
     buf.extend_from_slice(&chunk);
+    scan_complete_frames(&buf, &mut scan_pos, &mut frames_in_buf)?;
 
-    while buf.len() - scan_pos >= 8 {
-      let (header_size, data_size) = match check_table_frame(&buf[scan_pos..scan_pos + 8]) {
-        Ok(size) => size,
-        Err(err) => {
-          bail!("invalid table frame: {}", err);
-        }
-      };
-      let frame_end = scan_pos + header_size + data_size;
-      if buf.len() < frame_end {
-        break;
-      }
-      scan_pos = frame_end;
-      frames_in_buf += 1;
-    }
-
-    if frames_in_buf >= 128 || scan_pos >= 64 * 1024 {
-      let mut next_buf = Vec::with_capacity(128 * 1024);
-      if scan_pos < buf.len() {
-        next_buf.extend_from_slice(&buf[scan_pos..]);
-        buf.truncate(scan_pos);
-      }
-      let batch_buf = std::mem::replace(&mut buf, next_buf);
-      let count = frames_in_buf;
-      scan_pos = 0;
-      frames_in_buf = 0;
-
-      tasks.push_back(tokio::spawn(async move {
-        unpack_frame_batch(&batch_buf, count)
-      }));
+    if let Some((batch_buf, count)) = take_ready_batch(&mut buf, &mut scan_pos, &mut frames_in_buf) {
+      tasks.push_back(unpack_fn(batch_buf, count));
 
       if tasks.len() >= 8
         && let Some(task) = tasks.pop_front()
@@ -1414,11 +1620,118 @@ async fn query_msd_stream(
   }
 
   if frames_in_buf > 0 {
-    let tail = unpack_frame_batch(&buf, frames_in_buf)?;
+    let tail = unpack_fn(buf, frames_in_buf).await??;
     let _ = tx.send(Ok(tail)).await;
   }
 
   Ok(())
+}
+
+async fn query_msd_stream(
+  conn: MsdConnection,
+  sql: String,
+  tx: &mpsc::Sender<Result<FrameBatch>>,
+) -> Result<()> {
+  stream_query_batches(conn, sql, tx, |batch_buf, count| {
+    tokio::spawn(async move { Ok(unpack_frame_batch(&batch_buf, count)?) })
+  })
+  .await
+}
+
+fn unpack_and_plan_join_batch(
+  batch_buf: &[u8],
+  count: usize,
+  base_obj: &str,
+  base_table: &str,
+  fill: &HashMap<String, FillMethod>,
+  default_fill: FillMethod,
+  base_ctx: &OnceLock<Arc<JoinBaseContext>>,
+) -> Result<Vec<JoinBatchItem>> {
+  let frames = unpack_frame_batch(batch_buf, count)?;
+
+  let mut cached_ctx = base_ctx.get().cloned();
+  if cached_ctx.is_none() {
+    for (obj, table_name, table) in &frames {
+      if obj == base_obj && table_name.as_ref() == base_table && !table.columns().is_empty() {
+        let pk_idx = table.pk_column();
+        let pk_col = table.columns()[pk_idx].clone();
+        let pk_strictly_increasing = pk_col.data.is_strictly_increasing();
+        let ctx = Arc::new(JoinBaseContext {
+          pk_col,
+          pk_strictly_increasing,
+        });
+        let _ = base_ctx.set(ctx);
+        cached_ctx = base_ctx.get().cloned();
+        break;
+      }
+    }
+  }
+
+  let mut fill_cache: Option<(Arc<str>, FillMethod)> = None;
+  let mut items = Vec::with_capacity(frames.len());
+  for (obj, table_name, table) in frames {
+    let plan = if let Some(ctx) = cached_ctx.as_ref()
+      && !(obj == base_obj && table_name.as_ref() == base_table)
+      && !table.columns().is_empty()
+    {
+      let t_pk = &table.columns()[table.pk_column()];
+      if t_pk.kind == ctx.pk_col.kind {
+        let method = resolve_fill(fill, default_fill, &table_name, &mut fill_cache);
+        Some(compute_join_plan(
+          &ctx.pk_col,
+          t_pk,
+          ctx.pk_strictly_increasing,
+          method,
+        )?)
+      } else {
+        None
+      }
+    } else {
+      None
+    };
+    items.push(JoinBatchItem {
+      obj,
+      table_name,
+      table,
+      plan,
+    });
+  }
+
+  Ok(items)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn query_msd_join_stream(
+  conn: MsdConnection,
+  sql: String,
+  base_obj: String,
+  base_table: String,
+  fill: Arc<HashMap<String, FillMethod>>,
+  default_fill: FillMethod,
+  base_ctx: Arc<OnceLock<Arc<JoinBaseContext>>>,
+  tx: &mpsc::Sender<Result<Vec<JoinBatchItem>>>,
+) -> Result<()> {
+  let base_obj_arc: Arc<str> = Arc::from(base_obj.as_str());
+  let base_table_arc: Arc<str> = Arc::from(base_table.as_str());
+
+  stream_query_batches(conn, sql, tx, |batch_buf, count| {
+    let base_obj = Arc::clone(&base_obj_arc);
+    let base_table = Arc::clone(&base_table_arc);
+    let fill = Arc::clone(&fill);
+    let base_ctx = Arc::clone(&base_ctx);
+    tokio::spawn(async move {
+      unpack_and_plan_join_batch(
+        &batch_buf,
+        count,
+        &base_obj,
+        &base_table,
+        &fill,
+        default_fill,
+        &base_ctx,
+      )
+    })
+  })
+  .await
 }
 
 async fn put_import(
@@ -1698,5 +2011,145 @@ mod tests {
 
     let result2 = concat_batches(vec![vec![]]).unwrap();
     assert!(result2.is_empty());
+  }
+
+  fn make_test_frame(obj: &str, table_name: &str, ts: Vec<i64>, vals: Vec<f64>) -> Vec<u8> {
+    let pk_meta = HashMap::from([("primary_key".to_string(), Variant::Bool(true))]);
+    let mut t = Table::from_columns(vec![
+      Field::new_with_data("ts", DataType::DateTime, ts.into()).with_metadata(pk_meta),
+      Field::new_with_data("val", DataType::Float64, vals.into()),
+    ]);
+    let _ = t.set_table_meta("table", table_name.into());
+    let _ = t.set_table_meta("obj", obj.into());
+    pack_table_frame(&t)
+  }
+
+  fn serve_frames_once(payload: Vec<u8>, chunk_size: usize) -> (String, tokio::task::JoinHandle<()>) {
+    unsafe {
+      std::env::set_var("no_proxy", "127.0.0.1,localhost");
+      std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
+    }
+
+    get_runtime().block_on(async move {
+      let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let port = listener.local_addr().unwrap().port();
+      let url = format!("http://127.0.0.1:{}", port);
+
+      let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut req_buf = vec![0u8; 4096];
+        let _ = socket.read(&mut req_buf).await.unwrap();
+
+        let header = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-msd-table-frame\r\n\r\n",
+          payload.len()
+        );
+        socket.write_all(header.as_bytes()).await.unwrap();
+        for piece in payload.chunks(chunk_size) {
+          socket.write_all(piece).await.unwrap();
+        }
+      });
+
+      (url, handle)
+    })
+  }
+
+  fn build_join_test_frames(base_first: bool) -> Vec<u8> {
+    let base_ts = vec![100i64, 200, 300, 400];
+    let mut frames: Vec<Vec<u8>> = Vec::new();
+
+    if base_first {
+      frames.push(make_test_frame("SH600000", "kline", base_ts.clone(), vec![1.0, 2.0, 3.0, 4.0]));
+      frames.push(make_test_frame("SH600000", "shares", vec![50, 250], vec![10.0, 20.0]));
+    }
+
+    // 18 objects across multiple workers, mixed exact-match, partial ts, missing base_table, missing shares
+    for i in 1..=18 {
+      let obj = format!("SH6000{:02}", i);
+      if i == 5 {
+        // Missing kline entirely, only has shares
+        frames.push(make_test_frame(&obj, "shares", vec![150], vec![55.0]));
+        continue;
+      }
+      if i % 3 == 0 {
+        // Missing ts=200 in kline
+        frames.push(make_test_frame(&obj, "kline", vec![100, 300, 400], vec![10.0, 30.0, 40.0]));
+      } else {
+        // Exact match with base_obj
+        let base_v = (i as f64) * 100.0;
+        frames.push(make_test_frame(
+          &obj,
+          "kline",
+          base_ts.clone(),
+          vec![base_v + 1.0, base_v + 2.0, base_v + 3.0, base_v + 4.0],
+        ));
+      }
+      if i != 7 {
+        frames.push(make_test_frame(&obj, "shares", vec![150, 350], vec![i as f64, (i * 2) as f64]));
+      }
+    }
+
+    if !base_first {
+      frames.push(make_test_frame("SH600000", "shares", vec![50, 250], vec![10.0, 20.0]));
+      frames.push(make_test_frame("SH600000", "kline", base_ts, vec![1.0, 2.0, 3.0, 4.0]));
+    }
+
+    frames.into_iter().flatten().collect()
+  }
+
+  #[test]
+  fn test_query_join_streaming_base_first_and_base_last() {
+    for base_first in [true, false] {
+      let payload = build_join_test_frames(base_first);
+      let (url, handle) = serve_frames_once(payload, 97);
+
+      let conn = MsdConnection::new(&url, "", false).unwrap();
+      let fill = HashMap::from([("shares".to_string(), FillMethod::Backward)]);
+      let (table, objs, bars) = conn
+        .query_join(
+          "SELECT * FROM kline; SELECT * FROM shares;".to_string(),
+          "kline".to_string(),
+          fill,
+          "SH600000".to_string(),
+        )
+        .unwrap();
+
+      get_runtime().block_on(handle).unwrap();
+
+      assert_eq!(bars, 4);
+      assert_eq!(objs.len(), 19);
+      assert_eq!(objs[0], "SH600000");
+      assert_eq!(objs[18], "SH600018");
+      assert_eq!(table.row_count(), 19 * 4);
+      assert_eq!(table.column_count(), 3);
+
+      // SH600000 (rows 0..4): exact kline [1,2,3,4], backward shares [10,10,20,20]
+      let ts_col = table.columns()[0].data.get_datetime().unwrap();
+      let kline_val = table.columns()[1].data.get_float64().unwrap();
+      let shares_val = table.columns()[2].data.get_float64().unwrap();
+
+      assert_eq!(&ts_col[0..4], &[100, 200, 300, 400]);
+      assert_eq!(&kline_val[0..4], &[1.0, 2.0, 3.0, 4.0]);
+      assert_eq!(&shares_val[0..4], &[10.0, 10.0, 20.0, 20.0]);
+
+      // SH600003 (obj_idx = 3, rows 12..16): kline missing ts=200 (default FillMethod::Zero => 0.0)
+      let r3 = 3 * 4;
+      assert_eq!(&ts_col[r3..r3 + 4], &[100, 200, 300, 400]);
+      assert_eq!(&kline_val[r3..r3 + 4], &[10.0, 0.0, 30.0, 40.0]);
+      // shares at [150, 350] joined backward onto [100, 200, 300, 400] => [NaN, 3.0, 3.0, 6.0]
+      assert!(shares_val[r3].is_nan());
+      assert_eq!(&shares_val[r3 + 1..r3 + 4], &[3.0, 3.0, 6.0]);
+
+      // SH600005 (obj_idx = 5, rows 20..24): missing kline entirely => [0,0,0,0], shares=[NaN,55,55,55]
+      let r5 = 5 * 4;
+      assert_eq!(&kline_val[r5..r5 + 4], &[0.0, 0.0, 0.0, 0.0]);
+      assert!(shares_val[r5].is_nan());
+      assert_eq!(&shares_val[r5 + 1..r5 + 4], &[55.0, 55.0, 55.0]);
+
+      // SH600007 (obj_idx = 7, rows 28..32): exact match kline, missing shares => all NaN
+      let r7 = 7 * 4;
+      assert_eq!(&kline_val[r7..r7 + 4], &[701.0, 702.0, 703.0, 704.0]);
+      assert!(shares_val[r7..r7 + 4].iter().all(|v| v.is_nan()));
+    }
   }
 }

@@ -21,8 +21,10 @@ pub use errors::TableError;
 pub use serde::csv::*;
 pub use serde::opt;
 pub use table::{
-  DataType, Field, FieldRef, FillMethod, LazyChunk, RowsTable, Series, SeriesRef, Table, TableRef,
-  compute_joined_indices, decode_projected_series, extend_series_with_fill, joined_index,
+  DataType, Field, FieldRef, FillMethod, JoinIndex, JoinPlan, LazyChunk, RowsTable, Series,
+  SeriesMutSlice, SeriesRef, Table, TableRef, compute_join_plan, compute_joined_indices,
+  decode_projected_series, extend_series_with_fill, fill_series_slice_missing, joined_index,
+  joined_index_into, write_series_slice_with_fill,
 };
 pub use table_frame::*;
 pub use table_frame_v2::*;

@@ -438,6 +438,63 @@ impl Series {
     }
   }
 
+  /// Return `true` if all elements are non-NaN and strictly increasing (`a[i] < a[i + 1]`).
+  pub fn is_strictly_increasing(&self) -> bool {
+    fn slice_strictly_inc<T: PartialOrd>(s: &[T]) -> bool {
+      let Some(first) = s.first() else {
+        return true;
+      };
+      if first.partial_cmp(first).is_none() {
+        return false;
+      }
+      s.windows(2)
+        .all(|w| w[0].partial_cmp(&w[1]) == Some(Ordering::Less))
+    }
+
+    match self {
+      Series::Null => false,
+      Series::DateTime(v) => slice_strictly_inc(v),
+      Series::Int64(v) => slice_strictly_inc(v),
+      Series::Float64(v) => slice_strictly_inc(v),
+      Series::Decimal64(v) => slice_strictly_inc(v),
+      Series::String(v) => slice_strictly_inc(v),
+      Series::Bool(v) => slice_strictly_inc(v),
+      Series::Int32(v) => slice_strictly_inc(v),
+      Series::UInt32(v) => slice_strictly_inc(v),
+      Series::UInt64(v) => slice_strictly_inc(v),
+      Series::Float32(v) => slice_strictly_inc(v),
+      Series::Bytes(v) => slice_strictly_inc(v),
+    }
+  }
+
+  /// Split this series into disjoint mutable slices of up to `chunk_len` elements each.
+  pub fn chunks_mut(&mut self, chunk_len: usize, num_chunks: usize) -> Vec<SeriesMutSlice<'_>> {
+    if chunk_len == 0 || matches!(self, Series::Null) {
+      return std::iter::repeat_with(|| SeriesMutSlice::Null)
+        .take(num_chunks)
+        .collect();
+    }
+    match self {
+      Series::Null => std::iter::repeat_with(|| SeriesMutSlice::Null)
+        .take(num_chunks)
+        .collect(),
+      Series::DateTime(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::DateTime).collect(),
+      Series::Int64(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Int64).collect(),
+      Series::Float64(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Float64).collect(),
+      Series::Decimal64(v) => v
+        .chunks_mut(chunk_len)
+        .map(SeriesMutSlice::Decimal64)
+        .collect(),
+      Series::String(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::String).collect(),
+      Series::Bool(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Bool).collect(),
+      Series::Int32(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Int32).collect(),
+      Series::UInt32(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::UInt32).collect(),
+      Series::UInt64(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::UInt64).collect(),
+      Series::Float32(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Float32).collect(),
+      Series::Bytes(v) => v.chunks_mut(chunk_len).map(SeriesMutSlice::Bytes).collect(),
+    }
+  }
+
   getter!(Series, get_string, String, Vec<String>);
   getter!(Series, get_bytes, Bytes, Vec<Vec<u8>>);
   getter!(Series, get_int32, Int32, Vec<i32>);
@@ -1391,6 +1448,98 @@ impl<'__de, __Context> ::bincode_next::BorrowDecode<'__de, __Context> for Series
         &::bincode_next::error::AllowedEnumVariants::Range { min: 0, max: 11 },
         variant,
       ),
+    }
+  }
+}
+
+/// Disjoint mutable slice view into a pre-allocated [`Series`].
+pub enum SeriesMutSlice<'a> {
+  Null,
+  DateTime(&'a mut [i64]),
+  Int64(&'a mut [i64]),
+  Float64(&'a mut [f64]),
+  Decimal64(&'a mut [D64]),
+  String(&'a mut [String]),
+  Bool(&'a mut [bool]),
+  Int32(&'a mut [i32]),
+  UInt32(&'a mut [u32]),
+  UInt64(&'a mut [u64]),
+  Float32(&'a mut [f32]),
+  Bytes(&'a mut [Vec<u8>]),
+}
+
+impl<'a> SeriesMutSlice<'a> {
+  /// Copy `src` into `self[start..end]` directly when lengths match.
+  pub fn copy_range_from_series(
+    &mut self,
+    start: usize,
+    end: usize,
+    src: &Series,
+  ) -> Result<(), TableError> {
+    match (self, src) {
+      (SeriesMutSlice::Null, _) => Ok(()),
+      (SeriesMutSlice::DateTime(d), Series::DateTime(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Int64(d), Series::Int64(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Float64(d), Series::Float64(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Decimal64(d), Series::Decimal64(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::String(d), Series::String(s)) => {
+        d[start..end].clone_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Bool(d), Series::Bool(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Int32(d), Series::Int32(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::UInt32(d), Series::UInt32(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::UInt64(d), Series::UInt64(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Float32(d), Series::Float32(s)) => {
+        d[start..end].copy_from_slice(s);
+        Ok(())
+      }
+      (SeriesMutSlice::Bytes(d), Series::Bytes(s)) => {
+        d[start..end].clone_from_slice(s);
+        Ok(())
+      }
+      (d, s) => Err(TableError::TypeMismatch(d.data_type(), s.data_type())),
+    }
+  }
+
+  pub fn data_type(&self) -> DataType {
+    match self {
+      SeriesMutSlice::Null => DataType::Null,
+      SeriesMutSlice::String(_) => DataType::String,
+      SeriesMutSlice::Bytes(_) => DataType::Bytes,
+      SeriesMutSlice::Int32(_) => DataType::Int32,
+      SeriesMutSlice::UInt32(_) => DataType::UInt32,
+      SeriesMutSlice::Int64(_) => DataType::Int64,
+      SeriesMutSlice::UInt64(_) => DataType::UInt64,
+      SeriesMutSlice::Float32(_) => DataType::Float32,
+      SeriesMutSlice::Float64(_) => DataType::Float64,
+      SeriesMutSlice::Decimal64(_) => DataType::Decimal64,
+      SeriesMutSlice::Bool(_) => DataType::Bool,
+      SeriesMutSlice::DateTime(_) => DataType::DateTime,
     }
   }
 }

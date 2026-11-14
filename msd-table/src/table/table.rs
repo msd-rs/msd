@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{D64_NAN, Field, Series, TableError, Variant, VariantMutRef, VariantRef};
+use crate::{D64, D64_NAN, Field, Series, SeriesMutSlice, TableError, Variant, VariantMutRef, VariantRef};
 
 pub const TABLE_VERSION_1: u32 = 0x4d7c << 16 | 1;
 
@@ -700,23 +700,71 @@ impl From<FillMethod> for &'static str {
   }
 }
 
+/// Index element type supported by [`joined_index_into`].
+pub trait JoinIndex: Copy {
+  const INVALID: Self;
+  fn from_idx(i: usize) -> Self;
+}
+
+impl JoinIndex for usize {
+  const INVALID: Self = usize::MAX;
+  #[inline(always)]
+  fn from_idx(i: usize) -> Self {
+    i
+  }
+}
+
+impl JoinIndex for u32 {
+  const INVALID: Self = u32::MAX;
+  #[inline(always)]
+  fn from_idx(i: usize) -> Self {
+    i as u32
+  }
+}
+
+/// Precomputed alignment plan between a base primary key column and another table's primary key.
+#[derive(Debug, Clone)]
+pub enum JoinPlan {
+  /// Target primary key is element-wise identical to a strictly-increasing base primary key.
+  ExactMatch,
+  /// Precomputed per-row indices (`u32::MAX` marks missing rows).
+  Indices {
+    indices: Vec<u32>,
+    has_missing: bool,
+  },
+}
+
 /// Join `left` and `right` according to `method`, and return in `result` the indices of `right` that match `left`.
 /// Both `left` and `right` are already sorted in ascending order.
 pub fn joined_index<T>(left: &[T], right: &[T], method: FillMethod, result: &mut Vec<usize>)
 where
   T: PartialOrd + PartialEq,
 {
+  joined_index_into(left, right, method, result);
+}
+
+/// Join `left` and `right` according to `method` into `result`, returning whether any row is missing.
+pub fn joined_index_into<T, I>(
+  left: &[T],
+  right: &[T],
+  method: FillMethod,
+  result: &mut Vec<I>,
+) -> bool
+where
+  T: PartialOrd + PartialEq,
+  I: JoinIndex,
+{
   if result.len() != left.len() {
-    result.resize(left.len(), usize::MAX);
+    result.resize(left.len(), I::INVALID);
   }
 
   if left.is_empty() {
-    return;
+    return false;
   }
 
   if right.is_empty() {
-    result.fill(usize::MAX);
-    return;
+    result.fill(I::INVALID);
+    return true;
   }
 
   match method {
@@ -727,13 +775,19 @@ where
 }
 
 #[inline]
-fn joined_index_backward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [usize]) {
+fn joined_index_backward<T: PartialOrd, I: JoinIndex>(
+  left: &[T],
+  right: &[T],
+  result: &mut [I],
+) -> bool {
   let right_len = right.len();
   let mut curr: Option<usize> = None;
+  let mut has_missing = false;
 
   for (x, out) in left.iter().zip(result.iter_mut()) {
     if x.partial_cmp(x).is_none() {
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
 
@@ -741,7 +795,8 @@ fn joined_index_backward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [u
       Some(c) if right[c] <= *x => c,
       _ => {
         if right[0] > *x {
-          *out = usize::MAX;
+          *out = I::INVALID;
+          has_missing = true;
           continue;
         }
         0
@@ -763,19 +818,26 @@ fn joined_index_backward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [u
       }
     }
 
-    *out = cand;
+    *out = I::from_idx(cand);
     curr = Some(cand);
   }
+  has_missing
 }
 
 #[inline]
-fn joined_index_exact<T: PartialOrd + PartialEq>(left: &[T], right: &[T], result: &mut [usize]) {
+fn joined_index_exact<T: PartialOrd + PartialEq, I: JoinIndex>(
+  left: &[T],
+  right: &[T],
+  result: &mut [I],
+) -> bool {
   let right_len = right.len();
   let mut curr: Option<usize> = None;
+  let mut has_missing = false;
 
   for (x, out) in left.iter().zip(result.iter_mut()) {
     if x.partial_cmp(x).is_none() {
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
 
@@ -783,7 +845,8 @@ fn joined_index_exact<T: PartialOrd + PartialEq>(left: &[T], right: &[T], result
       Some(c) if right[c] <= *x => c,
       _ => {
         if right[0] > *x {
-          *out = usize::MAX;
+          *out = I::INVALID;
+          has_missing = true;
           continue;
         }
         0
@@ -807,53 +870,64 @@ fn joined_index_exact<T: PartialOrd + PartialEq>(left: &[T], right: &[T], result
 
     curr = Some(cand);
     if right[cand] == *x {
-      *out = cand;
+      *out = I::from_idx(cand);
     } else {
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
     }
   }
+  has_missing
 }
 
 #[inline]
-fn joined_index_forward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [usize]) {
+fn joined_index_forward<T: PartialOrd, I: JoinIndex>(
+  left: &[T],
+  right: &[T],
+  result: &mut [I],
+) -> bool {
   let right_len = right.len();
   let mut curr = 0usize;
+  let mut has_missing = false;
 
   for (x, out) in left.iter().zip(result.iter_mut()) {
     if x.partial_cmp(x).is_none() {
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
 
     if curr >= right_len {
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
 
     if right[curr] >= *x {
-      *out = curr;
+      *out = I::from_idx(curr);
       continue;
     }
 
     if curr + 1 >= right_len {
       curr = right_len;
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
     if right[curr + 1] >= *x {
       curr += 1;
-      *out = curr;
+      *out = I::from_idx(curr);
       continue;
     }
 
     if curr + 2 >= right_len {
       curr = right_len;
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
       continue;
     }
     if right[curr + 2] >= *x {
       curr += 2;
-      *out = curr;
+      *out = I::from_idx(curr);
       continue;
     }
 
@@ -870,12 +944,22 @@ fn joined_index_forward<T: PartialOrd>(left: &[T], right: &[T], result: &mut [us
 
     if found < right_len && right[found] >= *x {
       curr = found;
-      *out = found;
+      *out = I::from_idx(found);
     } else {
       curr = right_len;
-      *out = usize::MAX;
+      *out = I::INVALID;
+      has_missing = true;
     }
   }
+  has_missing
+}
+
+#[inline]
+fn decimal_zero_fill(v: &[D64]) -> D64 {
+  v.iter()
+    .find(|x| !x.is_nan() && !x.is_inf())
+    .map(|x| x.to_zero())
+    .unwrap_or_default()
 }
 
 fn select_with_fill<T: Clone>(data: &[T], indices: &[usize], fill_val: T) -> Vec<T> {
@@ -898,6 +982,136 @@ fn extend_vec_with_fill<T: Clone>(dst: &mut Vec<T>, data: &[T], indices: &[usize
     } else {
       dst.push(fill_val.clone());
     }
+  }
+}
+
+#[inline]
+fn write_slice_with_fill<T: Clone, F: FnOnce() -> T>(
+  dst: &mut [T],
+  data: &[T],
+  indices: &[u32],
+  has_missing: bool,
+  fill_val: F,
+) {
+  if !has_missing {
+    for (d, &i) in dst.iter_mut().zip(indices.iter()) {
+      if let Some(val) = data.get(i as usize) {
+        d.clone_from(val);
+      }
+    }
+  } else {
+    let fv = fill_val();
+    for (d, &i) in dst.iter_mut().zip(indices.iter()) {
+      if let Some(val) = data.get(i as usize) {
+        d.clone_from(val);
+      } else {
+        d.clone_from(&fv);
+      }
+    }
+  }
+}
+
+/// Fill `dst[start..end]` with the missing value for `fill` (using `src_hint` for `Decimal64` scale).
+pub fn fill_series_slice_missing(
+  dst: &mut SeriesMutSlice<'_>,
+  start: usize,
+  end: usize,
+  src_hint: &Series,
+  fill: FillMethod,
+) {
+  let use_zero = matches!(fill, FillMethod::Zero);
+  match dst {
+    SeriesMutSlice::Null => {}
+    SeriesMutSlice::String(d) => {
+      for s in &mut d[start..end] {
+        s.clear();
+      }
+    }
+    SeriesMutSlice::Bytes(d) => {
+      for b in &mut d[start..end] {
+        b.clear();
+      }
+    }
+    SeriesMutSlice::Int32(d) => d[start..end].fill(0),
+    SeriesMutSlice::UInt32(d) => d[start..end].fill(0),
+    SeriesMutSlice::Int64(d) => d[start..end].fill(0),
+    SeriesMutSlice::UInt64(d) => d[start..end].fill(0),
+    SeriesMutSlice::Float32(d) => d[start..end].fill(if use_zero { 0.0 } else { f32::NAN }),
+    SeriesMutSlice::Float64(d) => d[start..end].fill(if use_zero { 0.0 } else { f64::NAN }),
+    SeriesMutSlice::Decimal64(d) => {
+      let fv = if use_zero {
+        if let Series::Decimal64(v) = src_hint {
+          decimal_zero_fill(v)
+        } else {
+          D64::default()
+        }
+      } else {
+        D64_NAN
+      };
+      d[start..end].fill(fv);
+    }
+    SeriesMutSlice::Bool(d) => d[start..end].fill(false),
+    SeriesMutSlice::DateTime(d) => d[start..end].fill(0),
+  }
+}
+
+/// Write `src` rows selected by `indices` into `dst[start..end]` without intermediate `Vec::push`.
+pub fn write_series_slice_with_fill(
+  dst: &mut SeriesMutSlice<'_>,
+  start: usize,
+  end: usize,
+  src: &Series,
+  indices: &[u32],
+  has_missing: bool,
+  fill: FillMethod,
+) {
+  let use_zero = matches!(fill, FillMethod::Zero);
+  match (dst, src) {
+    (SeriesMutSlice::Null, _) => {}
+    (SeriesMutSlice::String(d), Series::String(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, String::new);
+    }
+    (SeriesMutSlice::Bytes(d), Series::Bytes(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, Vec::new);
+    }
+    (SeriesMutSlice::Int32(d), Series::Int32(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || 0);
+    }
+    (SeriesMutSlice::UInt32(d), Series::UInt32(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || 0);
+    }
+    (SeriesMutSlice::Int64(d), Series::Int64(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || 0);
+    }
+    (SeriesMutSlice::UInt64(d), Series::UInt64(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || 0);
+    }
+    (SeriesMutSlice::Float32(d), Series::Float32(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || {
+        if use_zero { 0.0 } else { f32::NAN }
+      });
+    }
+    (SeriesMutSlice::Float64(d), Series::Float64(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || {
+        if use_zero { 0.0 } else { f64::NAN }
+      });
+    }
+    (SeriesMutSlice::Decimal64(d), Series::Decimal64(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || {
+        if use_zero {
+          decimal_zero_fill(v)
+        } else {
+          D64_NAN
+        }
+      });
+    }
+    (SeriesMutSlice::Bool(d), Series::Bool(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || false);
+    }
+    (SeriesMutSlice::DateTime(d), Series::DateTime(v)) => {
+      write_slice_with_fill(&mut d[start..end], v, indices, has_missing, || 0);
+    }
+    _ => {}
   }
 }
 
@@ -926,10 +1140,7 @@ pub fn extend_series_with_fill(
     }
     (Series::Decimal64(d), Series::Decimal64(v)) => {
       let fill_val = if use_zero {
-        v.iter()
-          .find(|x| !x.is_nan() && !x.is_inf())
-          .map(|x| x.to_zero())
-          .unwrap_or_default()
+        decimal_zero_fill(v)
       } else {
         D64_NAN
       };
@@ -939,6 +1150,50 @@ pub fn extend_series_with_fill(
     (Series::DateTime(d), Series::DateTime(v)) => extend_vec_with_fill(d, v, indices, 0),
     _ => {}
   }
+}
+
+/// Compute a compact [`JoinPlan`] between `self_pk` and `other_pk`.
+/// When `self_strictly_increasing` is true and both primary key slices are identical,
+/// returns [`JoinPlan::ExactMatch`] without running index search.
+pub fn compute_join_plan(
+  self_pk: &Field,
+  other_pk: &Field,
+  self_strictly_increasing: bool,
+  fill: FillMethod,
+) -> Result<JoinPlan, TableError> {
+  if self_pk.kind != other_pk.kind {
+    return Err(TableError::TypeMismatch(self_pk.kind, other_pk.kind));
+  }
+  if self_strictly_increasing && self_pk.data == other_pk.data {
+    return Ok(JoinPlan::ExactMatch);
+  }
+  assert!(
+    other_pk.data.len() < u32::MAX as usize,
+    "join target row count exceeds u32 index range"
+  );
+  let mut indices = Vec::with_capacity(self_pk.data.len());
+  let has_missing = match (&self_pk.data, &other_pk.data) {
+    (Series::Null, Series::Null) => {
+      indices.resize(self_pk.data.len(), u32::MAX);
+      !indices.is_empty()
+    }
+    (Series::DateTime(l), Series::DateTime(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Int64(l), Series::Int64(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Float64(l), Series::Float64(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Decimal64(l), Series::Decimal64(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::String(l), Series::String(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Bool(l), Series::Bool(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Int32(l), Series::Int32(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::UInt32(l), Series::UInt32(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::UInt64(l), Series::UInt64(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Float32(l), Series::Float32(r)) => joined_index_into(l, r, fill, &mut indices),
+    (Series::Bytes(l), Series::Bytes(r)) => joined_index_into(l, r, fill, &mut indices),
+    (a, b) => return Err(TableError::TypeMismatch(a.data_type(), b.data_type())),
+  };
+  Ok(JoinPlan::Indices {
+    indices,
+    has_missing,
+  })
 }
 
 pub fn compute_joined_indices(
@@ -1478,4 +1733,78 @@ pub fn decode_projected_series(
     out.push(s);
   }
   Ok((rows, out))
+}
+
+#[cfg(test)]
+mod join_plan_tests {
+  use super::*;
+  use crate::DataType;
+
+  #[test]
+  fn test_compute_join_plan_exact_match_and_duplicates() {
+    let f1 = Field::new_with_data("ts", DataType::DateTime, vec![10i64, 20, 30].into());
+    let f2 = Field::new_with_data("ts", DataType::DateTime, vec![10i64, 20, 30].into());
+    assert!(f1.data.is_strictly_increasing());
+
+    let plan = compute_join_plan(&f1, &f2, true, FillMethod::Backward).unwrap();
+    assert!(matches!(plan, JoinPlan::ExactMatch));
+
+    // Duplicate keys must fall back to index computation rather than ExactMatch.
+    let dup = Field::new_with_data("ts", DataType::DateTime, vec![10i64, 10, 30].into());
+    assert!(!dup.data.is_strictly_increasing());
+    let plan_dup = compute_join_plan(&dup, &dup, false, FillMethod::Backward).unwrap();
+    match plan_dup {
+      JoinPlan::Indices {
+        indices,
+        has_missing,
+      } => {
+        assert!(!has_missing);
+        assert_eq!(indices, vec![1, 1, 2]);
+      }
+      JoinPlan::ExactMatch => panic!("duplicate PKs must not use ExactMatch"),
+    }
+  }
+
+  #[test]
+  fn test_series_slice_write_and_fill() {
+    let mut dst_f64 = Series::new(DataType::Float64, 6);
+    let mut dst_str = Series::new(DataType::String, 6);
+    let mut dst_d64 = Series::new(DataType::Decimal64, 6);
+
+    let src_f64: Series = vec![1.5f64, 2.5].into();
+    let src_str: Series = vec!["a".to_string(), "b".to_string()].into();
+    let src_d64 = Series::Decimal64(vec![D64::from_f64(1.25, 2), D64::from_f64(2.5, 2)]);
+
+    {
+      let mut chunks_f64 = dst_f64.chunks_mut(3, 2);
+      let mut chunks_str = dst_str.chunks_mut(3, 2);
+      let mut chunks_d64 = dst_d64.chunks_mut(3, 2);
+
+      // Chunk 0: indices with missing leading row
+      let idx0 = vec![u32::MAX, 0, 1];
+      write_series_slice_with_fill(&mut chunks_f64[0], 0, 3, &src_f64, &idx0, true, FillMethod::Nan);
+      write_series_slice_with_fill(&mut chunks_str[0], 0, 3, &src_str, &idx0, true, FillMethod::Zero);
+      write_series_slice_with_fill(&mut chunks_d64[0], 0, 3, &src_d64, &idx0, true, FillMethod::Zero);
+
+      // Chunk 1: missing all rows
+      fill_series_slice_missing(&mut chunks_f64[1], 0, 3, &src_f64, FillMethod::Zero);
+      fill_series_slice_missing(&mut chunks_str[1], 0, 3, &src_str, FillMethod::Nan);
+      fill_series_slice_missing(&mut chunks_d64[1], 0, 3, &src_d64, FillMethod::Nan);
+    }
+
+    let f64s = dst_f64.get_float64().unwrap();
+    assert!(f64s[0].is_nan());
+    assert_eq!(f64s[1], 1.5);
+    assert_eq!(f64s[2], 2.5);
+    assert_eq!(&f64s[3..6], &[0.0, 0.0, 0.0]);
+
+    let strs = dst_str.get_string().unwrap();
+    assert_eq!(strs, &["", "a", "b", "", "", ""]);
+
+    let d64s = dst_d64.get_decimal64().unwrap();
+    assert_eq!(f64::from(&d64s[0]), 0.0);
+    assert_eq!(f64::from(&d64s[1]), 1.25);
+    assert_eq!(f64::from(&d64s[2]), 2.5);
+    assert!(d64s[3].is_nan() && d64s[4].is_nan() && d64s[5].is_nan());
+  }
 }
