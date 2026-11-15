@@ -193,7 +193,7 @@ fn get_client(opts: &ShellOptions) -> &'static reqwest::Client {
   static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
   CLIENT.get_or_init(|| {
-    let mut client = reqwest::ClientBuilder::new();
+    let mut client = reqwest::ClientBuilder::new().tcp_nodelay(true);
     if opts.msd_binary_protocol {
       client = client
         .user_agent(MSD_USER_AGENT)

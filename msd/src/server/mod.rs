@@ -11,6 +11,7 @@ use anyhow::Result;
 use axum::{
   Router,
   routing::{any, get, post, put},
+  serve::ListenerExt,
 };
 use handlers::Broker;
 use msd_db::{MsdDb, MsdDbOptions};
@@ -19,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::{
   compression::CompressionLayer, cors::CorsLayer, decompression::RequestDecompressionLayer,
 };
-use tracing::info;
+use tracing::{info, trace};
 
 pub use handlers::permission::{Permission, parse_roles};
 pub use iplist::{IPList, parse_auth_whitelist};
@@ -65,7 +66,13 @@ pub async fn run(server_options: &ServerOptions) -> Result<()> {
   info!("Health Path:       {}", HEALTH_PATH);
 
   let db_path = app_options.db_path.clone();
-  let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str()).await?;
+  let listener = tokio::net::TcpListener::bind(server_options.listen_addr.as_str())
+    .await?
+    .tap_io(|tcp_stream| {
+      if let Err(err) = tcp_stream.set_nodelay(true) {
+        trace!("failed to set TCP_NODELAY on incoming connection: {err:#}");
+      }
+    });
 
   let store = RocksDbStore::new(&db_path)?;
   let options = MsdDbOptions {
