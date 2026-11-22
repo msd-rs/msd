@@ -13,7 +13,7 @@ pub use query::handle_data;
 pub use ws::{Broker, handle_ws};
 
 pub async fn handle_health() -> &'static str {
-  "OK"
+  concat!("OK, MSD v", env!("CARGO_PKG_VERSION"))
 }
 
 use crate::app_config::{MSD_TABLE_FORMAT, MSD_USER_AGENT, MSD_USER_AGENT_V2};
@@ -49,4 +49,17 @@ fn is_msd_table_format(headers: &axum::http::HeaderMap) -> bool {
     .and_then(|accept| accept.to_str().ok())
     .map(|accept| accept.contains(MSD_TABLE_FORMAT))
     .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::handle_health;
+
+  #[tokio::test]
+  async fn test_handle_health() {
+    assert_eq!(
+      handle_health().await,
+      format!("MSD v{}", env!("CARGO_PKG_VERSION"))
+    );
+  }
 }
