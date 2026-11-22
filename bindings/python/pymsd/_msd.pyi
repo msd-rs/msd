@@ -1,19 +1,50 @@
-from typing import Any, BinaryIO, Callable, Iterable, Tuple
 from pathlib import Path
-from .const import MsdTable, MsdTableFrame
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable, Tuple, TypeAlias
+
 import numpy as np
 
-def pack_table_frame(obj: str, table: MsdTable, decimal_fields: dict[str, int] | None = None) -> bytes:
+MsdTable: TypeAlias = list[tuple[str, np.ndarray]]
+
+if TYPE_CHECKING:
+  import pandas
+  import polars
+
+  SupportedDataFrame: TypeAlias = MsdTable | pandas.DataFrame | polars.DataFrame
+else:
+  SupportedDataFrame: TypeAlias = Any
+
+MsdTableFrame: TypeAlias = Tuple[str, SupportedDataFrame]
+
+
+def set_local_zone(tz: int) -> None:
+  """
+  Set default local timezone offset in hours.
+  """
+  ...
+
+
+def get_local_offset() -> int:
+  """
+  Get local timezone offset in microseconds.
+  """
+  ...
+
+
+def pack_table_frame(
+  obj: str, table: MsdTable, decimal_fields: dict[str, int] | None = None
+) -> bytes:
   """
   Pack a table frame into a bytes stream.
   """
   ...
 
-def check_table_frame(frame: bytes) -> bool:
+
+def check_table_frame(frame: bytes) -> int:
   """
-  Check if the bytes stream is a valid table frame.
+  Check if the bytes stream is a valid table frame and return its payload size.
   """
   ...
+
 
 def parse_table_frame(frame: bytes) -> Tuple[str, str, MsdTable]:
   """
@@ -21,43 +52,50 @@ def parse_table_frame(frame: bytes) -> Tuple[str, str, MsdTable]:
   """
   ...
 
+
 def aligned_index(left: np.ndarray, right: np.ndarray, method: int) -> np.ndarray:
   """
-  join right to left use method, return the index of right
+  Join right to left using method, returning the index of right.
   """
   ...
-
 
 
 class Table:
   """
   Columnar table representation returned by MSD operations.
   """
+
   @property
   def rows(self) -> int:
     """Number of rows in the table."""
     ...
+
   @property
   def columns(self) -> int:
     """Number of columns in the table."""
     ...
+
   @property
   def name(self) -> str:
     """Table name stored in metadata."""
     ...
+
   @property
   def obj(self) -> str:
     """Object name stored in metadata."""
     ...
+
   @property
   def header(self) -> list[str]:
     """List of column names in the table."""
     ...
+
   def __getitem__(self, index: tuple[int, int]) -> Any:
     """
     Get cell value at (row, column) index.
     """
     ...
+
   def to_list(self) -> MsdTable:
     """
     Transform this table to a list of (name, data) tuples, where data is a typed numpy ndarray.
@@ -67,19 +105,21 @@ class Table:
 
   def to_dict(self) -> dict[str, np.ndarray]:
     """
-    Transform this table to a dict of (name, data) , where data is a typed numpy ndarray.
+    Transform this table to a dict of (name, data), where data is a typed numpy ndarray.
     After the transform, this Table object will be reset/cleared.
 
-    For duplicate field name, the first is kept, others will be ignored 
+    For duplicate field name, the first is kept, others will be ignored.
 
-    Python 3.7+ dict implementation ensure the dict insert order
+    Python 3.7+ dict implementation ensures dict insertion order.
     """
     ...
+
 
 class MsdConnection:
   """
   Client connection for querying and snapshotting MSD database tables.
   """
+
   def __init__(self, url: str, token: str = ..., compress: bool = ...) -> None:
     """
     Initialize a new MSD connection.
@@ -90,6 +130,7 @@ class MsdConnection:
       compress: Whether to enable zstd compression on responses.
     """
     ...
+
   def query(self, sql: str) -> dict[str, dict[str, Table]]:
     """
     Execute raw query and group the results into a 2-level dict:
@@ -112,12 +153,12 @@ class MsdConnection:
     """
     ...
 
-  def query_map(self, sql: str, h: Callable[[Table],Any]) -> None:
+  def query_map(self, sql: str, handler: Callable[[Table], Any]) -> None:
     """
-    Execute raw query with a handler which can process each result table
+    Execute raw query with a handler which can process each result table.
     """
     ...
-    
+
   def query_join(
     self,
     sql: str,
@@ -130,11 +171,10 @@ class MsdConnection:
     The join result will have:
     - rows: count_of_objects * base_table.rows
     - columns: sum columns of join_asof for base_obj's tables
-    Returns (Table, list[str], bars) as 
+    Returns (Table, list[str], bars) as:
       - full data
       - objs
-      - each obj data len
-      it means len(objs) * bars == full_data.rows
+      - each obj data len (len(objs) * bars == full_data.rows)
     Raises error when base_obj or base_table is not found.
 
     Args:
@@ -144,6 +184,7 @@ class MsdConnection:
       base_obj: Base object key.
     """
     ...
+
   def snapshot(
     self,
     tables: list[str],
@@ -202,15 +243,15 @@ class MsdConnection:
   def import_dataframes(
     self,
     table: str,
-    data: Iterable[MsdTableFrame | bytes] | MsdTableFrame,
+    data: Iterable[MsdTableFrame | Table | bytes] | MsdTableFrame,
     decimal_fields: dict[str, int] | None = ...,
   ) -> dict[str, Any]:
     """
-    Import dataframes or table frames into an MSD table.
+    Import dataframes, Table instances, or pre-packed table frames into an MSD table.
 
     Args:
       table: The name of the table to import data to.
-      data: Iterable of (object name, dataframe) tuples, single (object name, dataframe) tuple, or pre-packed bytes.
+      data: Iterable of (object name, dataframe/Table) pairs, single (object name, dataframe/Table) tuple, or pre-packed bytes.
       decimal_fields: Optional dictionary mapping decimal field names to scale.
 
     Returns:
@@ -221,7 +262,7 @@ class MsdConnection:
   def import_dataframe(
     self,
     table: str,
-    data: Iterable[MsdTableFrame | bytes] | MsdTableFrame,
+    data: Iterable[MsdTableFrame | Table | bytes] | MsdTableFrame,
     decimal_fields: dict[str, int] | None = ...,
   ) -> dict[str, Any]:
     """

@@ -11,10 +11,7 @@ mod runtime;
 mod _msd {
   use std::collections::HashMap;
 
-  use msd_table::{
-    FieldRef, FillMethod, TableRef, UtcOffset, joined_index, pack_table_ref_frame,
-    unpack_table_frame_meta,
-  };
+  use msd_table::{FillMethod, UtcOffset, joined_index, unpack_table_frame_meta};
   use numpy::{PyArray1, PyReadonlyArray1};
   use pyo3::{
     exceptions::PyValueError,
@@ -22,7 +19,7 @@ mod _msd {
     types::{PyList, PyTuple},
   };
 
-  use crate::py_table::{PyArrayTyped, table_to_py_list};
+  use crate::py_table::{pack_columns_to_frame, table_to_py_list};
 
   #[pyfunction]
   fn set_local_zone(tz: i8) -> PyResult<()> {
@@ -79,31 +76,7 @@ mod _msd {
     columns: Bound<'py, PyList>,
     decimal_fields: Option<HashMap<String, usize>>,
   ) -> PyResult<Vec<u8>> {
-    let mut cols = Vec::new();
-    for col in columns.iter() {
-      let tuple = col.cast::<PyTuple>()?;
-      let name = tuple.get_item(0)?.extract::<String>()?;
-      let array = tuple.get_item(1)?;
-      let dec = decimal_fields
-        .as_ref()
-        .and_then(|df| df.get(&name))
-        .copied();
-      cols.push((name, PyArrayTyped::try_from((py, array, dec))?));
-    }
-    let meta = HashMap::from([("obj".into(), obj.into())]);
-
-    let fields = cols
-      .iter()
-      .map(|(name, series)| FieldRef {
-        name: &name,
-        data: series.into(),
-        metadata: None,
-        kind: series.kind(),
-      })
-      .collect();
-    let table = TableRef::new(fields, Some(meta), false);
-    let frame = pack_table_ref_frame(&table);
-    Ok(frame)
+    pack_columns_to_frame(py, obj, &columns, decimal_fields.as_ref())
   }
 
   #[pyfunction]

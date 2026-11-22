@@ -37,8 +37,7 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::bytes::Bytes;
 
-use crate::py_table::table_to_py_dict;
-use crate::py_table::table_to_py_list;
+use crate::py_table::{pack_dataframe_to_frame, table_to_py_dict, table_to_py_list};
 use crate::runtime::get_runtime;
 
 // grouped table {obj: {table_name: table}}
@@ -432,7 +431,7 @@ impl PyMsdConnection {
     py: Python<'py>,
     table: String,
     data: Bound<'py, PyAny>,
-    decimal_fields: Option<Bound<'py, PyAny>>,
+    decimal_fields: Option<HashMap<String, usize>>,
   ) -> PyResult<Bound<'py, PyAny>> {
     let (tx, rx) = mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(4);
     let body = reqwest::Body::wrap_stream(ReceiverStream::new(rx));
@@ -444,8 +443,6 @@ impl PyMsdConnection {
       let res = conn.async_import_table(&table_clone, body).await;
       let _ = resp_tx.send(res);
     });
-
-    let pack_dataframe = py.import("pymsd.pack")?.getattr("pack_dataframe")?;
 
     let is_single = if let Ok(tuple) = data.cast::<pyo3::types::PyTuple>() {
       tuple.len() == 2
@@ -459,30 +456,8 @@ impl PyMsdConnection {
     let pack_item = |item: &Bound<'py, PyAny>| -> PyResult<Vec<u8>> {
       if let Ok(b) = item.extract::<&[u8]>() {
         Ok(b.to_vec())
-      } else if let Ok(tuple) = item.cast::<pyo3::types::PyTuple>() {
-        let obj = tuple.get_item(0)?;
-        let df = tuple.get_item(1)?;
-        if let Ok(py_table) = df.extract::<pyo3::PyRef<PyTable>>() {
-          let mut table = py_table.inner.clone();
-          let obj_str = obj.extract::<String>()?;
-          let _ = table.set_table_meta("obj", obj_str.into());
-          Ok(msd_table::pack_table_frame(&table))
-        } else {
-          let packed = pack_dataframe.call1((obj, df, &decimal_fields))?;
-          Ok(packed.extract::<Vec<u8>>()?)
-        }
-      } else if let Ok(list) = item.cast::<PyList>() {
-        let obj = list.get_item(0)?;
-        let df = list.get_item(1)?;
-        if let Ok(py_table) = df.extract::<pyo3::PyRef<PyTable>>() {
-          let mut table = py_table.inner.clone();
-          let obj_str = obj.extract::<String>()?;
-          let _ = table.set_table_meta("obj", obj_str.into());
-          Ok(msd_table::pack_table_frame(&table))
-        } else {
-          let packed = pack_dataframe.call1((obj, df, &decimal_fields))?;
-          Ok(packed.extract::<Vec<u8>>()?)
-        }
+      } else if let Ok((obj, df)) = item.extract::<(String, Bound<'py, PyAny>)>() {
+        pack_dataframe_to_frame(py, obj, &df, decimal_fields.as_ref())
       } else {
         Err(PyTypeError::new_err(
           "each item must be a tuple of (obj_name, dataframe) or bytes",
@@ -505,7 +480,7 @@ impl PyMsdConnection {
     }
     drop(tx);
 
-    let res = if let Ok(r) = resp_rx.blocking_recv() {
+    let res = if let Ok(r) = py.detach(|| resp_rx.blocking_recv()) {
       r?
     } else {
       return Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -521,7 +496,7 @@ impl PyMsdConnection {
     py: Python<'py>,
     table: String,
     data: Bound<'py, PyAny>,
-    decimal_fields: Option<Bound<'py, PyAny>>,
+    decimal_fields: Option<HashMap<String, usize>>,
   ) -> PyResult<Bound<'py, PyAny>> {
     self.import_dataframes(py, table, data, decimal_fields)
   }
@@ -529,7 +504,7 @@ impl PyMsdConnection {
 
 #[pyclass(name = "Table")]
 pub struct PyTable {
-  inner: Table,
+  pub(crate) inner: Table,
   obj: String,
   table_name: Arc<str>,
 }

@@ -1,55 +1,30 @@
 # Prerequisites
 
-When your want to know what tables are available, call `list_tables` tool, then call `get_table` tool to get table schema detail
+When you want to know what tables are available, call `list_tables` tool, then call `get_table` tool to get table schema detail.
 
 # Starting Write Python Script
-1. ensure `msd` library is installed, you can install it by:
+1. Ensure `pymsd` library is installed, you can install it by:
 ```bash
-pip install msd
+pip install pymsd
 ```
-or 
+or
 ```bash
-uv add msd
-``` 
-2. there should be a msd server endpoint like `http://localhost:50510`
-3. use `msd.create_msd_polars` or `msd.create_msd_pandas` to create a `MsdClient` instance with endpoint, use which is depends on which DataFrame library you use
-4. use `MsdClient.load` to load data from msd server, which is defined as 
-```python
-  def load(self, 
-    objs: list[str] | str, 
-    tables: list[str] | str, 
-    join: Literal["backward", "forward", "nearest"] | None = None,
-    start: str | datetime.datetime | None = None, 
-    end: str | datetime.datetime | None = None, 
-    fields : dict[str, list[str]] | list[str] | None = None, 
-    )-> dict[str, dict[str, DF]] | dict[str, DF]:
-
-    """
-    Load data from msd, the data will be organized as {obj: {table: DF}} or {obj: DF} if join is specified.
-
-    Args:
-      objs: list of object names or a single object name
-      tables: list of table names or a single table name
-      join: join type, can be "backward", "forward", "nearest", or None
-      start: start time, can be str or datetime.datetime
-      end: end time, can be str or datetime.datetime
-      fields: fields to load, can be dict[str, list[str]] or list[str] or None
-
-    Returns:
-      dict[str, dict[str, DF]] or dict[str, DF]: the loaded data
-
-    """
+uv add pymsd
 ```
-
-5. use `MsdClient.save` to save data to msd server, which is defined as 
-
+2. There should be an msd server endpoint like `http://localhost:50510`.
+3. Create a native `MsdConnection` instance with the endpoint:
 ```python
-  def save(self, table: str, data: Iterator[MsdTableFrame] | str, /, **kwargs) -> dict:
-    """
-    Save DataFrame or file to a table
+import pymsd
 
-    Args:
-      table: table name
-      data: iterator of MsdTableFrame or csv file path
-    """
+conn = pymsd.MsdConnection("http://localhost:50510")
 ```
+4. Query data from msd server:
+- `conn.query(sql) -> dict[str, dict[str, Table]]` for grouped tables `{obj: {table_name: Table}}`
+- `conn.query_join(sql, base_table, fill, base_obj) -> tuple[Table, list[str], int]` for native multi-table as-of join
+- `conn.query_concat(sql) -> dict[str, tuple[Table, list[tuple[str, int, int]]]]` for concatenated tables
+- `conn.snapshot(tables, objects, date=None) -> Table` for latest multi-table snapshot
+- Convert any `Table` to pandas/polars DataFrame via `pd.DataFrame(table.to_dict())` or `pl.DataFrame(table.to_dict())`
+5. Import data to msd server:
+- `conn.import_csv(table, data, header=True, delimiter=None) -> dict`
+- `conn.import_table(table, data) -> dict`
+- `conn.import_dataframes(table, data, decimal_fields=None) -> dict` (where `data` is `(obj, df)` or an iterable of `(obj, df)` pairs supporting `pandas.DataFrame`, `polars.DataFrame`, `Table`, or `(col_name, ndarray)` lists)

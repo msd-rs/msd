@@ -78,26 +78,34 @@ msd shell --help
 ```bash
 pip install pymsd
 ```
-2. 安装你喜欢的数据分析库和 HTTP 客户端库，例如 pandas 和 requests
+2. 安装你喜欢的数据分析库，例如 pandas 或 polars
 ```bash
-pip install pandas requests
+pip install pandas
 ```
 
 3. 使用绑定
 ```python
+import pandas as pd
 import pymsd
 
 MSD_URL = "http://127.0.0.1:50510"
-client = pymsd.create_msd_pandas(MSD_URL)
+conn = pymsd.MsdConnection(MSD_URL)
 
-data = client.load(
-  objs=["SH600000", "SZ000001"],
-  tables=["stock_kline_1d", "stock_dividend", "stock_shares"],
-  start="2025-01-01",
-  join={"stock_dividend": "zero", "*": "backward"},
+sql = """
+SELECT * FROM stock_kline_1d WHERE obj IN ('SH600000', 'SZ000001') AND ts >= '2025-01-01';
+SELECT * FROM stock_dividend WHERE obj IN ('SH600000', 'SZ000001');
+SELECT * FROM stock_shares WHERE obj IN ('SH600000', 'SZ000001');
+"""
+
+table, objs, bars = conn.query_join(
+  sql=sql,
+  base_table="stock_kline_1d",
+  fill={"stock_dividend": "zero", "*": "backward"},
+  base_obj="SH600000",
 )
 
-sh600000 = data["SH600000"]
+df = pd.DataFrame(table.to_dict())
+sh600000 = df.iloc[:bars]
 print(sh600000[(sh600000["dividend"] > 0) | (sh600000.index < 5) | (sh600000.index > 240)])
 
 # 结果：

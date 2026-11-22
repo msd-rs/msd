@@ -59,18 +59,18 @@ This is the server-side process of the database, responsible for handling extern
             *   **Get Schema**: `DESCRIBE <table>`
             *   **List Object**: `SELECT obj FROM <table>` 
         *   **Recommended Query Methods**:
-            *   **Python SDK**: Use `pymsd.query` (synchronous) or `pymsd.async_query` (asynchronous).
+            *   **Python SDK**: Use `pymsd.MsdConnection` (`query`, `query_map`, `query_concat`, `query_join`, `snapshot`).
             *   **CLI Tool**: Use `msd shell` for interactive execution.
         *   **Response Formats**:
             *   **Binary Format** (when User-Agent contains `msd-client`):
                 *   Returns `application/x-msd-table-frame` binary stream.
-                *   Python SDK automatically handles and parses it into a Generator, where each item is an `(object_name, date_table)` tuple.
+                *   `MsdConnection` automatically streams and parses binary frames into native `Table` instances with zero-copy NumPy export via `table.to_dict()` / `table.to_list()`.
             *   **NDJSON Format** (Default):
                 *   Returns `application/x-ndjson` (Newline Delimited JSON).
                 *   Each line is a complete JSON object, representing a table data block.
     *   `PUT /table/{table_name}`: Data write interface.
         *   **Recommended Write Methods**:
-            *   **Python SDK**: Use `pymsd.import_csv` or `pymsd.import_dataframes` (located in `msd.update` module) for high-performance writing.
+            *   **Python SDK**: Use `MsdConnection.import_csv`, `MsdConnection.import_table`, or `MsdConnection.import_dataframes` for high-performance writing.
             *   **CLI Tool**: Use `.import` command in `msd shell` to import CSV files.
         *   **Underlying Protocols**:
             *   **CSV Format** (Default):
@@ -80,12 +80,12 @@ This is the server-side process of the database, responsible for handling extern
             *   **Binary Format**:
                 *   Requires setting Header `Content-Type: application/x-msd-table-frame`.
                 *   Sends MSD's custom `TableFrame` binary frame stream, which has higher performance.
-                *   **Construction Method**: Recommended to use Python binding library `pymsd` to generate.
+                *   **Construction Method**: Recommended to use Python binding library `pymsd` (`MsdConnection.import_dataframes`).
                     ```python
-                    import msd
-                    # df can be pandas.DataFrame, polars.DataFrame or list of (name, array)
-                    df_list : Iterator[Tuple[str, DataFrame]] = [(name, df)]
-                    msd.import_dataframes(baseURL, table_name, df_list)
+                    import pymsd
+                    conn = pymsd.MsdConnection(base_url)
+                    # df can be pandas.DataFrame, polars.DataFrame, Table, or list of (name, array)
+                    conn.import_dataframes(table_name, [(obj_name, df)])
                     ```
 *   **Features**:
     *   **Authentication**: Supports JWT Token authentication (`auth-token`) and role-based permission control (`read`, `write`, `admin`).

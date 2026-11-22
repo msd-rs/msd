@@ -19,7 +19,8 @@ def test_query_many_ndarray():
 
   n = 0
   t1 = time.time()
-  for table_name, obj, table in pymsd.query(BASE_URL, sql):
+  conn = pymsd.MsdConnection(BASE_URL)
+  for table_name, obj, table in conn.query_raw(sql):
     n += 1
 
   print(n, time.time() - t1)

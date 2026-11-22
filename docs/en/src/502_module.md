@@ -579,18 +579,17 @@ cargo run -p msd-db-viewer -- <db_path> [table] [key]
 
 ### 7.1 Python 绑定
 
-使用 PyO3 编译 Rust 扩展 (`_msd`)，结合 Python 层 (`pymsd`)：
+使用 PyO3 编译 Rust 原生扩展 (`_msd`) 并由 `pymsd` 直接导出：
 
 **Rust 侧**：
-- `py_table.rs`：包装 `Table`，零拷贝暴露内部 Series 为 NumPy 数组
+- `conn.rs`：实现 `MsdConnection` 与 `Table`，基于 Tokio / Reqwest 流式收发与并行解包二进制帧，支持原生 `query_join` 与 `snapshot`
+- `py_table.rs`：包装 `Table` 与 NumPy 零拷贝转换，支持将 `pandas.DataFrame`、`polars.DataFrame` 或列数组打包为 TableFrame
 
-**Python 侧关键 API**：
-- `pymsd.query(base_url, sql)` - 同步查询
-- `pymsd.async_query(base_url, sql)` - 异步查询
-- `pymsd.import_csv(base_url, table, csv_data)` - CSV 导入
-- `pymsd.import_dataframes(base_url, table, df_iter)` - DataFrame 导入
-- `create_msd_pandas()` / `create_msd_polars()` - 创建 DataFrame 工厂
-- `Client` (easy.py) - 高级易用客户端
+**Python 导出核心 API**：
+- `pymsd.MsdConnection(url, token="", compress=False)` - 原生客户端连接
+  - `query(sql)` / `query_map(sql, handler)` / `query_concat(sql)` / `query_join(...)` / `snapshot(...)` / `query_raw(sql)`
+  - `import_csv(...)` / `import_table(...)` / `import_dataframes(...)`
+- `pymsd.Table` - 原生列式表，通过 `to_dict()` / `to_list()` 零拷贝导出为 NumPy 数组
 
 ### 7.2 TypeScript 绑定
 

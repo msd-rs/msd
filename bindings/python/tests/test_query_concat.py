@@ -5,8 +5,8 @@ import pymsd
 
 
 def test_query_concat_single_table():
-  content1 = pymsd.pack_dataframe("SH600000", [("val", np.array([10, 20], dtype=np.int64))])
-  content2 = pymsd.pack_dataframe("SZ000001", [("val", np.array([30, 40, 50], dtype=np.int64))])
+  content1 = pymsd.pack_table_frame("SH600000", [("val", np.array([10, 20], dtype=np.int64))])
+  content2 = pymsd.pack_table_frame("SZ000001", [("val", np.array([30, 40, 50], dtype=np.int64))])
   full_body = content1 + content2
 
   class Handler(BaseHTTPRequestHandler):

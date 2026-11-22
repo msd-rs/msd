@@ -14,13 +14,14 @@ def create_kline_db():
   sqls = """DROP TABLE kline;
 create table kline ( ts datetime, open d64, high d64, low d64, close d64, volume DOUBLE, amount DOUBLE) with ( chunkSize = 250, round='1d');
 """.split(";")
+  conn = pymsd.MsdConnection(MSD_BASE_URL)
   for sql in sqls:
     sql = sql.strip()
     if len(sql) == 0:
       continue
     logger.info(f"execute {sql}")
-    for _, k, v in pymsd.query(MSD_BASE_URL, sql):
-      logger.info("execute done")
+    conn.query(sql)
+    logger.info("execute done")
 
 def parse_datetime(ts: str) -> int:
   kind = len(ts.split(' '))
@@ -106,7 +107,8 @@ def kline_frames(
 def insert_rows_binary(n: int, rows: int, prefix: str = "SH"):
   t1 = time.time()
   logger.info("insert binary start")
-  result = pymsd.import_dataframes(MSD_BASE_URL, "kline", kline_frames(n, rows, prefix), {
+  conn = pymsd.MsdConnection(MSD_BASE_URL)
+  result = conn.import_dataframes("kline", kline_frames(n, rows, prefix), {
     "open": 2,
     "high": 2,
     "low": 2,
