@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.29] - 2026-11-22
+
+- python: Remove python implementation, use native implementation instead
+- shell: Fix SQL parse bug handle multi-line sql that contains ';' in quoted string
+- shell: '.import' support custom delimiter
+- server: health check return server version
+
 ## [0.1.28] - 2026-11-15
 
 
