@@ -75,10 +75,164 @@ pub fn sql_request_type(sql: &str) -> SqlRequestType {
   return SqlRequestType::Unknown;
 }
 
+/// Split multi-statement SQL text on top-level semicolons, ignoring semicolons
+/// inside string literals, quoted identifiers, and SQL comments.
+pub fn split_sql_statements(sql: &str) -> Vec<&str> {
+  #[derive(Clone, Copy, PartialEq, Eq)]
+  enum State {
+    Normal,
+    SingleQuote,
+    DoubleQuote,
+    Backtick,
+    Bracket,
+  }
+
+  let bytes = sql.as_bytes();
+  let len = bytes.len();
+  let mut statements = Vec::new();
+  let mut state = State::Normal;
+  let mut stmt_start = 0;
+  let mut has_code = false;
+  let mut i = 0;
+
+  while i < len {
+    match state {
+      State::Normal => match bytes[i] {
+        b';' => {
+          if has_code {
+            let stmt = sql[stmt_start..i].trim();
+            if !stmt.is_empty() {
+              statements.push(stmt);
+            }
+          }
+          i += 1;
+          stmt_start = i;
+          has_code = false;
+        }
+        b'\'' => {
+          has_code = true;
+          state = State::SingleQuote;
+          i += 1;
+        }
+        b'"' => {
+          has_code = true;
+          state = State::DoubleQuote;
+          i += 1;
+        }
+        b'`' => {
+          has_code = true;
+          state = State::Backtick;
+          i += 1;
+        }
+        b'[' => {
+          has_code = true;
+          state = State::Bracket;
+          i += 1;
+        }
+        b'-' if bytes.get(i + 1) == Some(&b'-') => {
+          i += 2;
+          while i < len && bytes[i] != b'\n' {
+            i += 1;
+          }
+          if i < len && bytes[i] == b'\n' {
+            i += 1;
+          }
+          if !has_code {
+            stmt_start = i;
+          }
+        }
+        b'/' if bytes.get(i + 1) == Some(&b'*') => {
+          i += 2;
+          let mut depth = 1usize;
+          while i < len && depth > 0 {
+            if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'*') {
+              depth += 1;
+              i += 2;
+            } else if bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/') {
+              depth -= 1;
+              i += 2;
+            } else {
+              i += 1;
+            }
+          }
+          if !has_code {
+            stmt_start = i;
+          }
+        }
+        b if b.is_ascii_whitespace() => {
+          i += 1;
+          if !has_code {
+            stmt_start = i;
+          }
+        }
+        _ => {
+          has_code = true;
+          i += 1;
+        }
+      },
+      State::SingleQuote => match bytes[i] {
+        b'\\' => {
+          i += if i + 1 < len { 2 } else { 1 };
+        }
+        b'\'' => {
+          if bytes.get(i + 1) == Some(&b'\'') {
+            i += 2;
+          } else {
+            state = State::Normal;
+            i += 1;
+          }
+        }
+        _ => i += 1,
+      },
+      State::DoubleQuote => match bytes[i] {
+        b'\\' => {
+          i += if i + 1 < len { 2 } else { 1 };
+        }
+        b'"' => {
+          if bytes.get(i + 1) == Some(&b'"') {
+            i += 2;
+          } else {
+            state = State::Normal;
+            i += 1;
+          }
+        }
+        _ => i += 1,
+      },
+      State::Backtick => {
+        if bytes[i] == b'`' {
+          if bytes.get(i + 1) == Some(&b'`') {
+            i += 2;
+          } else {
+            state = State::Normal;
+            i += 1;
+          }
+        } else {
+          i += 1;
+        }
+      }
+      State::Bracket => {
+        if bytes[i] == b']' {
+          state = State::Normal;
+        }
+        i += 1;
+      }
+    }
+  }
+
+  if has_code && stmt_start < len {
+    let stmt = sql[stmt_start..].trim();
+    if !stmt.is_empty() {
+      statements.push(stmt);
+    }
+  }
+
+  statements
+}
+
 /// Parse SQL string to a list of SqlRequest
 pub fn sql_to_request(text: &str) -> Result<Vec<SqlRequest>, RequestError> {
   let mut requests = Vec::new();
-  for sql in text.trim().split(';') {
+  for sql in split_sql_statements(text) {
     if sql_request_type(sql) == SqlRequestType::Schema {
       requests.extend(parse_schema(sql)?);
       continue;

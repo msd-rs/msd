@@ -75,16 +75,9 @@ pub async fn run(shell_options: &ShellOptions) -> Result<()> {
   if let Some(cmd) = shell_options.command.clone() {
     let commands = if PathBuf::from(&cmd).is_file() {
       let content = std::fs::read_to_string(&cmd)?;
-      content
-        .split(';')
-        .map_while(|s| {
-          let s = s.trim();
-          if s.is_empty() {
-            None
-          } else {
-            Some(s.to_string())
-          }
-        })
+      msd_request::split_sql_statements(&content)
+        .into_iter()
+        .map(str::to_string)
         .collect::<Vec<_>>()
     } else {
       vec![cmd]
@@ -221,17 +214,13 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
       .filter(|s| !s.trim().is_empty())
       .collect::<Vec<_>>();
     if params.len() < 2 {
-      eprintln!("Usage: .import <file_path> <table> [skip]");
+      eprintln!("Usage: .import <file_path> <table> [sep] [skip]");
       return Ok(());
     }
     let file_path = params[0];
     let table = params[1];
-    let skip = params
-      .get(2)
-      .map(|s| s.trim().parse::<usize>().unwrap_or(0))
-      .unwrap_or(0);
     let delimiter = params
-      .get(3)
+      .get(2)
       .and_then(|s| {
         let s = s.trim();
         if s.is_empty() {
@@ -243,6 +232,10 @@ async fn run_command(opts: &ShellOptions, cmd: &str) -> Result<()> {
         s.parse::<u8>().ok()
       })
       .unwrap_or(b',');
+    let skip = params
+      .get(3)
+      .map(|s| s.trim().parse::<usize>().unwrap_or(0))
+      .unwrap_or(0);
 
     return import::execute(opts, table, file_path, skip, delimiter).await;
   }
@@ -284,8 +277,8 @@ fn print_help() {
     ),
     (".exit | .quit | .q", "Exit shell"),
     (
-      ".import <file_path> <table> [skip]",
-      "Import csv file to table, skip header [skip] rows",
+      ".import <file_path> <table> [sep] [skip]",
+      "Import csv file to table, with [sep] as filed delimiter, skip header [skip] rows",
     ),
     (
       ".output <file_path>",

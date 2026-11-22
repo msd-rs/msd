@@ -429,3 +429,57 @@ fn test_sql_parse_query_ts_features() -> Result<()> {
 
   Ok(())
 }
+
+#[test]
+fn test_split_sql_statements() {
+  let sql = r#"
+-- header comment; ignored
+SELECT 'a;b', 'it''s;ok', 'esc\';still', 'slash\\';
+/* block; comment
+   /* nested; comment */
+   still comment; */
+INSERT INTO t VALUES ("col;1", `col;2`, [col;3], '你好;世界');;
+SELECT '--not_comment;in_str'; -- trailing; comment
+"#;
+
+  let stmts = super::split_sql_statements(sql);
+  assert_eq!(
+    stmts,
+    vec![
+      "SELECT 'a;b', 'it''s;ok', 'esc\\';still', 'slash\\\\'",
+      "INSERT INTO t VALUES (\"col;1\", `col;2`, [col;3], '你好;世界')",
+      "SELECT '--not_comment;in_str'",
+    ]
+  );
+
+  // Without trailing semicolon and with leading/trailing empty statements
+  assert_eq!(
+    super::split_sql_statements(";; SELECT 1; SELECT 'x;y'"),
+    vec!["SELECT 1", "SELECT 'x;y'"]
+  );
+  assert!(super::split_sql_statements("   ; -- only comment;\n/* block; */ ").is_empty());
+}
+
+#[test]
+fn test_sql_to_request_semicolon_in_string() -> Result<()> {
+  let sql = r#"
+    SELECT ts, close FROM kline1d WHERE obj = 'SH;600000';
+    COMMENT ON TABLE kline1d IS 'first;second';
+  "#;
+  let reqs = super::sql_to_request(sql)?;
+  assert_eq!(reqs.len(), 2);
+
+  match &reqs[0] {
+    super::SqlRequest::Query(q) => assert_eq!(q.key.obj, "SH;600000"),
+    _ => panic!("Expected Query request"),
+  }
+  match &reqs[1] {
+    super::SqlRequest::Comment(table, field, comment) => {
+      assert_eq!(table, "kline1d");
+      assert_eq!(field, "");
+      assert_eq!(comment, "first;second");
+    }
+    _ => panic!("Expected Comment request"),
+  }
+  Ok(())
+}
